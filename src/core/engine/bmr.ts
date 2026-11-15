@@ -40,6 +40,7 @@ import {
 } from "../model/state.ts";
 
 import { addLog, nightAt, currentAt, cycleOf, insertStepInto } from "./context.ts";
+import { randomSuffix } from "./execution.ts";
 import { kill, checkWin } from "./death.ts";
 import { effectActive, isImpaired } from "./effects.ts";
 import { setStepNote } from "./night.ts";
@@ -580,7 +581,7 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
     });
     if (drunkId) {
       state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+        id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
         kind: "drunk",
         sourceId: actor.id,
         targetId: drunkId,
@@ -601,7 +602,7 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
     });
     for (const targetId of targets) {
       state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+        id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
         kind: "protected",
         bmr: "innkeeper",
         sourceId: actor.id,
@@ -615,7 +616,7 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
     const drunkId = options.drunkId || null;
     if (drunkId) {
       state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+        id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
         kind: "drunk",
         sourceId: actor.id,
         targetId: drunkId,
@@ -633,7 +634,7 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
       if (effect.kind === "devilsadvocate" && effect.sourceId === actor.id) effect.active = false;
     });
     state.effects.push({
-      id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+      id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
       kind: "devilsadvocate",
       sourceId: actor.id,
       targetId: targets[0],
@@ -669,7 +670,7 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
     for (const player of orderedPlayers(state)) {
       if (player.roleId !== roleId) continue;
       state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+        id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
         kind: "drunk",
         sourceId: actor.id,
         targetId: player.id,

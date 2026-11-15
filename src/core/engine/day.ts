@@ -26,6 +26,7 @@ import {
 } from "../model/state.ts";
 
 import { executionThreshold, dayAt, currentAt, addLog } from "./context.ts";
+import { randomSuffix } from "./execution.ts";
 import { effectActive, isImpaired, butlerMaster } from "./effects.ts";
 import { buildNightQueue } from "./night.ts";
 import {
@@ -468,7 +469,7 @@ export function executePlayer(
       const targets = livingPlayers(state).filter((candidate) => candidate.id !== minstrel.id);
       for (const target of targets) {
         state.effects.push({
-          id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+          id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
           kind: "drunk",
           sourceId: minstrel.id,
           targetId: target.id,

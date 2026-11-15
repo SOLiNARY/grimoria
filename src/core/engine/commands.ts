@@ -52,6 +52,7 @@ import { effectGraph } from "../model/effect-graph.ts";
 import { isMixedEdition, isSupportedRole, requiredBluffs, roleTeam } from "../model/rules.ts";
 
 import { currentAt } from "./context.ts";
+import { runWithExecutionContext } from "./execution.ts";
 import { defaultRuntime, hashString } from "./runtime.ts";
 import type { Runtime } from "./runtime.ts";
 
@@ -955,13 +956,9 @@ function seededRandom(seed: number): () => number {
 }
 
 function withDeterminism<T>(seedText: string, at: Date, fn: () => T, runtime: Runtime): T {
-  const original = Math.random;
-  Math.random = seededRandom(runtime.random.seed(seedText));
-  try {
-    return withClock(at, fn);
-  } finally {
-    Math.random = original;
-  }
+  return runWithExecutionContext({ random: seededRandom(runtime.random.seed(seedText)) }, () =>
+    withClock(at, fn),
+  );
 }
 
 // Capture the command timestamp once per (id, fingerprint, initial state).

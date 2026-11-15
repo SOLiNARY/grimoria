@@ -657,6 +657,40 @@ test("preview and apply produce the same events under controlled determinism", (
   assert.deepEqual(preview.changes, applied.changes);
 });
 
+test("a command keeps the global random source and its own sequence deterministic", () => {
+  const state = make({
+    1: "chef",
+    2: "empath",
+    3: "monk",
+    4: "soldier",
+    5: "mayor",
+    6: "poisoner",
+    7: "imp",
+  });
+  startNight(state);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "poisoner")!;
+  const command = {
+    id: "rng-source-1",
+    type: "completeStep",
+    payload: { key: step.key, options: { targetIds: ["2"] } },
+    at: "2026-01-01T00:00:00.000Z",
+  };
+  const original = Math.random;
+  const first = clone(state);
+  const second = clone(state);
+  const applied = outcome(applyCommand(first, command));
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+  assert.equal(Math.random, original, "the engine must not replace the global random source");
+
+  const repeated = outcome(applyCommand(second, command));
+  assert.equal(repeated.status, "allowed", JSON.stringify(repeated));
+  assert.deepEqual(
+    canonicalState(first),
+    canonicalState(second),
+    "the command's seeded sequence gives the same ids and effects",
+  );
+});
+
 test("preview and apply agree without an explicit command timestamp", async () => {
   const state = make({
     1: "chef",

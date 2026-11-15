@@ -20,6 +20,7 @@ import {
 } from "../model/state.ts";
 
 import { dayAt, currentAt, addLog } from "./context.ts";
+import { randomSuffix } from "./execution.ts";
 import { isImpaired, protectionFor, soldierSafe, mayorRedirects, bmrCannotDie } from "./effects.ts";
 import { HOST_CHOICE_REASONS } from "./host-choice.ts";
 
@@ -72,7 +73,7 @@ export function kill(
         // stays alive but a death is recorded for the day, so "if no-one died
         // today" abilities (the Zombuul's own wake) see it.
         state.deaths.push({
-          id: "death-" + (state.deaths.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+          id: "death-" + (state.deaths.length + 1) + "-" + randomSuffix(4),
           playerId,
           roleId: player.roleId,
           cause,
@@ -111,7 +112,7 @@ export function kill(
   player.deadAt = { phase: at.phase, number: at.number, cause };
   player.voteToken = true;
   const death = {
-    id: "death-" + (state.deaths.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+    id: "death-" + (state.deaths.length + 1) + "-" + randomSuffix(4),
     playerId,
     roleId: player.roleId,
     cause,

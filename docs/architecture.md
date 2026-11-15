@@ -40,6 +40,16 @@ and `createGame`, `importGame`, `exportGame` and `validateState` from
 converts the engine result union to the typed store result, and
 `validatedFromUnknown` is the only path that turns raw data into a game state.
 
+## Deterministic execution
+
+`src/core/engine/execution.ts` is the one scoped execution context for a
+command. `runDraft` installs it through `runWithExecutionContext` with the
+seeded generator for that command; rule handlers draw state ids through
+`randomSuffix` and the random deal through `nextRandom`. The global
+`Math.random` is never replaced, so a command cannot leak randomness to another
+command or to concurrent work. Outside a command the helpers fall back to the
+platform default, which keeps direct engine calls in tests unchanged.
+
 ## Store transaction
 
 ```text
