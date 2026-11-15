@@ -12,8 +12,8 @@ show the same counts.
 | Scenario        | Verified | Storyteller choice | Unsupported |
 | --------------- | -------: | -----------------: | ----------: |
 | Trouble Brewing |       21 |                  1 |           0 |
-| Bad Moon Rising |       21 |                  4 |           0 |
-| Sects & Violets |       17 |                  6 |           2 |
+| Bad Moon Rising |       22 |                  3 |           0 |
+| Sects & Violets |       18 |                  5 |           2 |
 
 Built with Vite into a static `dist/` artifact. There is no backend or database.
 Game state stays in `localStorage`.

@@ -2,6 +2,9 @@
 
 Edition: bmr
 
-| Rule ID            | Level                  | Matrix revision | Asserting tests                                                                                                               |
-| ------------------ | ---------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| BMR-CHAMBERMAID-01 | implemented-unverified | r2966           | `src/core/engine/engine.test.ts` "Bad Moon Rising target modes reject dead, self and invalid targets (BMR-DEVILSADVOCATE-02)" |
+| Rule ID            | Level       | Matrix revision | Asserting tests                                                                                                             |
+| ------------------ | ----------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| BMR-CHAMBERMAID-01 | verified    | r2966           | `src/core/engine/bmr.test.ts` "the Chambermaid counts only characters who woke due to their ability (BMR-CHAMBERMAID-01)"   |
+| BMR-CHAMBERMAID-02 | verified    | r2966           | `src/core/engine/bmr.test.ts` "the Chambermaid does not wake with fewer than two other living players (BMR-CHAMBERMAID-02)" |
+| BMR-CHAMBERMAID-03 | verified    | r2966           | `src/core/engine/bmr.test.ts` "BMR target restrictions reject dead, self and evil targets (BMR-CHAMBERMAID-03)"             |
+| BMR-CHAMBERMAID-04 | host-choice | r2966           | `src/core/engine/bmr.test.ts` "a Chambermaid choosing the Goon gets false information"                                      |

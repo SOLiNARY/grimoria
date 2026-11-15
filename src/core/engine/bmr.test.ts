@@ -32,6 +32,7 @@ import {
   kill,
   moonchildChoice,
   recordBmrOutcome,
+  resurrectPlayer,
   setupErrors,
   skipStep,
   startNight,
@@ -791,6 +792,99 @@ test("the Assassin kills through the Fool's protection (BMR-ASSASSIN-01, BMR-FOO
   recordBmrOutcome(state, assassin.key, { deathIds: ["1"] });
   assert.equal(state.players["1"].alive, false);
   assert.equal(state.players["1"].used.fool, undefined, "the Assassin ignored the Fool's ability");
+});
+
+const ASSASSIN_FIXTURE = {
+  1: "fool",
+  2: "chambermaid",
+  3: "sailor",
+  4: "courtier",
+  5: "po",
+  6: "assassin",
+  7: "exorcist",
+} as const;
+
+function assassinNightTwo(): GameState {
+  const state = make({ ...ASSASSIN_FIXTURE }, { count: 8 });
+  startNight(state);
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  return state;
+}
+
+function assassinStep(state: GameState): NightStep | undefined {
+  return state.night.queue.find((step) => step.roleId === "assassin");
+}
+
+test("an Assassin who declines keeps the ability for a later night (BMR-ASSASSIN-02)", () => {
+  const state = assassinNightTwo();
+  const first = assassinStep(state);
+  assert.ok(first, "the Assassin wakes on the second night");
+  assert.equal(skipStep(state, first.key, "declined").ok, true);
+  assert.equal(state.players["6"].used.assassin, undefined, "declining does not spend the ability");
+
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  const later = assassinStep(state);
+  assert.ok(later, "the Assassin wakes again on the third night");
+  assert.equal(completeStep(state, later.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(state.players["2"].alive, false, "the later kill lands");
+  assert.equal(state.players["6"].used.assassin, true, "the kill spends the ability");
+});
+
+test("an Assassin never wakes again after a kill (BMR-ASSASSIN-02)", () => {
+  const state = assassinNightTwo();
+  const step = assassinStep(state);
+  assert.ok(step);
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(assassinStep(state), undefined, "the spent Assassin has no step");
+});
+
+test("an impaired Assassin spends the ability without killing (BMR-ASSASSIN-02)", () => {
+  const state = assassinNightTwo();
+  state.effects.push({
+    id: "test-poison-assassin",
+    kind: "poison",
+    sourceId: "5",
+    targetId: "6",
+    start: { phase: "night", number: 2 },
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const step = assassinStep(state);
+  assert.ok(step);
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(state.players["2"].alive, true, "a drunk or poisoned Assassin kills nobody");
+  assert.equal(state.players["6"].used.assassin, true, "the chosen ability is spent");
+  assert.equal(step.noteKey, "note.abilityFailed");
+});
+
+test("a resurrected Assassin regains the once-per-game ability (BMR-ASSASSIN-02)", () => {
+  const state = make({ ...ASSASSIN_FIXTURE }, { count: 8 });
+  state.players["6"].used.assassin = true;
+  kill(state, "6", "ability", { phase: "night", number: 1 });
+  assert.equal(state.players["6"].alive, false);
+  assert.equal(resurrectPlayer(state, "6")?.alive, true);
+  assert.equal(
+    state.players["6"].used.assassin,
+    undefined,
+    "Professor r1775: the resurrected player regains a used once-per-game ability",
+  );
+});
+
+test("an Assassin step rejects an unknown target and a duplicate completion (BMR-ASSASSIN-02)", () => {
+  const state = assassinNightTwo();
+  const step = assassinStep(state);
+  assert.ok(step);
+  assert.equal(completeStep(state, step.key, { targetIds: ["99"] }).ok, false);
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(completeStep(state, step.key, { targetIds: ["3"] }).ok, false);
+  assert.equal(state.players["3"].alive, true, "the duplicate command changes nothing");
 });
 
 test("the Zombuul survives its first death but registers as dead (BMR-ZOMBUUL-01)", () => {
@@ -2874,7 +2968,7 @@ test("the Grandmother's chosen grandchild does not trigger the Goon", () => {
   assert.equal(state.players["2"].team, "good");
 });
 
-test("the Assassin kills the Goon and the Goon still turns evil", () => {
+test("the Assassin kills the Goon and the Goon still turns evil (BMR-ASSASSIN-01)", () => {
   const state = make(
     {
       1: "assassin",
@@ -3304,7 +3398,7 @@ test("an impaired Exorcist still records a target for the different-to-last-nigh
   assert.equal(demon.done || demon.skipped, false, "an impaired Exorcist does not block");
 });
 
-test("the Chambermaid counts only characters who woke due to their ability (BMR17)", () => {
+test("the Chambermaid counts only characters who woke due to their ability (BMR-CHAMBERMAID-01)", () => {
   const state = make(
     {
       1: "chambermaid",
@@ -3336,7 +3430,7 @@ test("the Chambermaid counts only characters who woke due to their ability (BMR1
   assert.equal(info.value, 1, "the Innkeeper woke; the Gossip does not wake");
 });
 
-test("the Chambermaid does not wake with fewer than two other living players (BMR18)", () => {
+test("the Chambermaid does not wake with fewer than two other living players (BMR-CHAMBERMAID-02)", () => {
   const state = make({ 1: "chambermaid", 6: "po" }, { count: 8 });
   for (const id of ["2", "3", "4", "5", "7", "8"]) state.players[id].alive = false;
   startNight(state);
@@ -3351,7 +3445,7 @@ test("the Chambermaid does not wake with fewer than two other living players (BM
   assert.ok(wide.night.queue.some((step) => step.roleId === "chambermaid"));
 });
 
-test("BMR target restrictions reject dead, self and evil targets (BMR19)", () => {
+test("BMR target restrictions reject dead, self and evil targets (BMR-CHAMBERMAID-03)", () => {
   const state = make(
     {
       1: "sailor",

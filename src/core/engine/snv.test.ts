@@ -1101,7 +1101,7 @@ test("inheriting the good twin's character does not move the Evil Twin win", () 
   assert.equal(state.winner, null, "the new role holder is not the good twin");
 });
 
-test("a dead Evil Twin cannot win on the good twin's execution", () => {
+test("a dead Evil Twin cannot win on the good twin's execution (SNV-EVILTWIN-01)", () => {
   const state = make({ 1: "clockmaker", 6: "eviltwin", 7: "fanggu" }, { count: 7 });
   const goodTwin = state.setup.evilTwinGoodPlayerId;
   const evilTwin = state.setup.evilTwinPlayerId;
@@ -1122,7 +1122,22 @@ test("a dead Evil Twin cannot win on the good twin's execution", () => {
   assert.equal(state.winner, null, "a dead Evil Twin has no ability");
 });
 
-test("an Evil Twin that leaves play stops the twin win and the block", () => {
+test("good cannot win while both Evil Twins live even with no Demon (SNV-EVILTWIN-02)", () => {
+  const state = make({ 1: "clockmaker", 6: "eviltwin", 7: "fanggu" }, { count: 7 });
+  const goodTwin = state.setup.evilTwinGoodPlayerId;
+  const evilTwin = state.setup.evilTwinPlayerId;
+  assert.ok(goodTwin && evilTwin, "the deal resolves the pair by player");
+
+  state.players["7"].alive = false;
+  assert.equal(checkWin(state), null, "both twins live, so the good team has not won");
+
+  state.players[evilTwin].alive = false;
+  const winner = checkWin(state);
+  assert.equal(winner?.team, "good");
+  assert.equal(winner?.reason, "demon-dead", "the last living twin no longer blocks good");
+});
+
+test("an Evil Twin that leaves play stops the twin win and the block (SNV-EVILTWIN-02)", () => {
   const state = make(
     { 1: "clockmaker", 2: "barber", 6: "eviltwin", 7: "pithag", 11: "fanggu" },
     { count: 11 },
@@ -1978,7 +1993,7 @@ test("the Vigormortis poison ends when the killed Minion stops being a Minion", 
   assert.equal(isImpaired(state, poison.targetId!), false);
 });
 
-test("an Evil Twin killed by the Vigormortis still wins on the good twin's execution", () => {
+test("an Evil Twin killed by the Vigormortis still wins on the good twin's execution (SNV-EVILTWIN-01)", () => {
   const state = make({ 1: "clockmaker", 2: "eviltwin", 8: "vigormortis" }, { count: 8 });
   const goodTwin = state.setup.evilTwinGoodPlayerId;
   assert.equal(goodTwin, "1", "the good twin is the Clockmaker");

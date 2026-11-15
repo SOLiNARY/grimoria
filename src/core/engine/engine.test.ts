@@ -1796,6 +1796,57 @@ test("every Trouble Brewing first-night information role offers allowed false in
   assert.deepEqual(fortune.options, [true, false]);
 });
 
+test("the Empath counts the nearest living neighbours and follows their deaths (TB-EMPATH-01)", () => {
+  const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" }, { count: 5 });
+  startNight(state);
+  const empath = roleStep(state, "empath");
+  assert.equal(infoForStep(state, empath, {}).value, 0, "seat 1 and seat 3 are good");
+
+  state.players["1"].alive = false;
+  assert.equal(
+    infoForStep(state, empath, {}).value,
+    1,
+    "the dead seat 1 gives way to the evil Imp at seat 5",
+  );
+
+  state.players["3"].alive = false;
+  assert.equal(
+    infoForStep(state, empath, {}).value,
+    2,
+    "both nearest living neighbours, the Poisoner and the Imp, are evil",
+  );
+});
+
+test("the Empath counts the host's Spy and Recluse registration (TB-EMPATH-02)", () => {
+  const state = make(
+    {
+      1: "spy",
+      2: "empath",
+      3: "recluse",
+      4: "chef",
+      5: "monk",
+      6: "soldier",
+      7: "undertaker",
+      8: "saint",
+      9: "imp",
+    },
+    { count: 9 },
+  );
+  startNight(state);
+  const empath = roleStep(state, "empath");
+  assert.equal(infoForStep(state, empath, {}).value, 1, "the Spy is evil; the Recluse is good");
+  assert.equal(
+    infoForStep(state, empath, { registrations: { "1": "good" } }).value,
+    0,
+    "a Spy registered as good is not counted",
+  );
+  assert.equal(
+    infoForStep(state, empath, { registrations: { "3": "evil" } }).value,
+    2,
+    "a Recluse registered as evil is counted",
+  );
+});
+
 test("an impaired Undertaker collects an execution today and then offers any character", () => {
   const state = make({
     1: "undertaker",
