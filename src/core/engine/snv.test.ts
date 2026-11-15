@@ -2875,7 +2875,6 @@ test("the living new Fang Gu wakes even when the dead old Demon holds a lower se
   assert.equal(next!.actorId, "2", "the living new Fang Gu is the actor");
 });
 
-
 // The Artist and the Savant act during the day. These fixtures enter the day
 // directly because the ability under test does not depend on the night queue.
 function dayOne(state: GameState): void {
