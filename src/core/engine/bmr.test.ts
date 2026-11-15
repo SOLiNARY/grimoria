@@ -847,6 +847,33 @@ test("the Zombuul kills at night when nobody died today", () => {
   assert.equal(state.players["1"].alive, false, "the chosen player dies");
 });
 
+test("official Mastermind extension includes the intervening night before its extra day", () => {
+  const state = make({ 1: "chambermaid", 3: "mastermind", 6: "po" }, { count: 8 });
+  startNight(state);
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(executeByDecision(state, "6").ok, true);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(state.phase, "night");
+  assert.equal(state.night.number, 2);
+  assert.equal(state.mastermind?.extraDay, false);
+  assert.ok(state.night.queue.some((step) => step.roleId === "chambermaid" && !step.skipped));
+  assert.equal(
+    state.night.queue.some((step) => step.roleId === "po" && !step.skipped),
+    false,
+  );
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(state.phase, "day");
+  assert.equal(state.day.number, 2);
+  assert.equal(state.mastermind?.extraDay, true);
+  assert.equal(state.winner, null);
+  assert.equal(executeByDecision(state, "3").ok, true);
+  const winner = checkWin(state);
+  assert.equal(winner?.team, "good");
+  assert.equal(winner?.reason, "mastermind");
+});
+
 test("the Mastermind extends the game by one day after a Demon execution", () => {
   const state = make(
     {
@@ -874,6 +901,9 @@ test("the Mastermind extends the game by one day after a Demon execution", () =>
   assert.equal(state.winner, null);
   assert.equal(state.mastermind!.active, true);
   assert.equal(endDay(state).ok, true);
+  assert.equal(state.phase, "night");
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
   assert.equal(state.phase, "day");
   assert.equal(state.day.number, 2);
   executeByDecision(state, "1");
@@ -2562,6 +2592,9 @@ test("a player executed on the Mastermind's extra day loses for their team", () 
   executeByDecision(state, "6");
   assert.equal(state.mastermind!.active, true);
   assert.equal(endDay(state).ok, true);
+  assert.equal(state.phase, "night");
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
   assert.equal(state.day.number, 2);
   executeByDecision(state, "3");
   endDay(state);

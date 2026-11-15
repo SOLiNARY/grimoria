@@ -32,6 +32,7 @@ import {
   dealGame,
   endDay,
   endNight,
+  effectActive,
   executeByDecision,
   infoForStep,
   isImpaired,
@@ -292,10 +293,93 @@ test("the Witch curse kills the nominator but keeps the nomination", () => {
   );
 });
 
-test("a curse the Witch placed still kills the next nomination after the Witch dies or is impaired", () => {
-  // Witch r3013: the curse is placed on the player and resolves on their next
-  // nomination. Losing the ability later does not remove a placed curse; the
-  // only removal is "if just 3 players live".
+test("official Witch curse retains the Vigormortis exception and suspends on impairment", () => {
+  const state = make({ 1: "clockmaker", 2: "witch", 8: "vigormortis" }, { count: 8 });
+  laterNight(state);
+  const witch = stepFor(state, "witch");
+  assert.equal(completeStep(state, witch.key, { targetIds: ["4"] }).ok, true);
+  const vigo = stepFor(state, "vigormortis");
+  assert.equal(completeStep(state, vigo.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(recordSvOutcome(state, vigo.key, { deathIds: ["2"] }).ok, true);
+  const curse = state.effects.find((effect) => effect.kind === "witch" && effect.active)!;
+  assert.ok(curse);
+  state.phase = "day";
+  state.day.number = 2;
+  state.day.open = true;
+  assert.equal(minionRetainsAbility(state, "2"), true);
+  assert.equal(effectActive(state, curse), true);
+  const poison = {
+    id: "retained-witch-poison",
+    kind: "poison",
+    sourceId: "8",
+    targetId: "2",
+    start: { phase: "day" as const, number: 2 },
+    expires: null,
+    active: true,
+  };
+  state.effects.push(poison);
+  assert.equal(effectActive(state, curse), false);
+  poison.active = false;
+  assert.equal(effectActive(state, curse), true);
+  assert.equal(nominate(state, "4", "5").curse, true);
+  assert.equal(state.players["4"].alive, false);
+});
+
+test("official Witch curse stops while its source is dead, drunk or poisoned", () => {
+  for (const condition of ["dead", "drunk", "poison"]) {
+    const state = make({ 1: "clockmaker", 6: "witch", 7: "fanggu" }, { count: 7 });
+    startNight(state);
+    const witch = state.night.queue.find((step) => step.roleId === "witch")!;
+    assert.equal(completeStep(state, witch.key, { targetIds: ["1"] }).ok, true);
+    if (condition === "dead") kill(state, "6", "test");
+    else
+      state.effects.push({
+        id: "witch-impairment",
+        kind: condition,
+        sourceId: "7",
+        targetId: "6",
+        start: { phase: "day", number: 1 },
+        expires: { phase: "night", number: 2 },
+        active: true,
+      });
+    state.phase = "day";
+    state.day.number = 1;
+    state.day.open = true;
+    const result = nominate(state, "1", "2");
+    assert.equal(result.ok, true, condition);
+    assert.equal(result.curse, false, condition);
+    assert.equal(state.players["1"].alive, true, condition);
+    assert.equal(state.day.nominations.length, 1);
+  }
+});
+
+test("official Witch curse resumes when the Witch becomes healthy before nomination", () => {
+  const state = make({ 1: "clockmaker", 6: "witch", 7: "fanggu" }, { count: 7 });
+  startNight(state);
+  const witch = state.night.queue.find((step) => step.roleId === "witch")!;
+  assert.equal(completeStep(state, witch.key, { targetIds: ["1"] }).ok, true);
+  const poison = {
+    id: "witch-recover",
+    kind: "poison",
+    sourceId: "7",
+    targetId: "6",
+    start: { phase: "day" as const, number: 1 },
+    expires: { phase: "night" as const, number: 2 },
+    active: true,
+  };
+  state.effects.push(poison);
+  state.phase = "day";
+  state.day.number = 1;
+  state.day.open = true;
+  assert.equal(isImpaired(state, "6"), true);
+  poison.active = false;
+  assert.equal(isImpaired(state, "6"), false);
+  assert.equal(nominate(state, "1", "2").curse, true);
+  assert.equal(state.players["1"].alive, false);
+});
+
+test("a placed Witch curse does not kill after the Witch dies or is impaired", () => {
+  // States r1039 explicitly suspends an already placed Witch curse.
   for (const impair of ["dead", "poison"]) {
     const state = make({ 1: "clockmaker", 6: "witch", 7: "fanggu" }, { count: 7 });
     startNight(state);
@@ -326,8 +410,8 @@ test("a curse the Witch placed still kills the next nomination after the Witch d
     };
     const result = nominate(state, "1", "2");
     assert.equal(result.ok, true, impair);
-    assert.equal(result.curse, true, impair + ": the placed curse still resolves");
-    assert.equal(state.players["1"].alive, false, impair + ": the cursed nominator dies");
+    assert.equal(result.curse, false, impair + ": the placed curse is inactive");
+    assert.equal(state.players["1"].alive, true, impair + ": the nominator survives");
     assert.equal(state.day.nominations.length, 1, impair + ": the nomination stands");
   }
 });

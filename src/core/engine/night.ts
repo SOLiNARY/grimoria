@@ -909,6 +909,16 @@ export function endNight(state: GameState) {
     ended: false,
     open: false,
   };
+  // Mastermind r2993 retains the intervening night: the extra day starts only
+  // at the following dawn, after the other characters had their night steps.
+  if (
+    isBmrScript(state.script) &&
+    state.mastermind?.active &&
+    !state.mastermind.extraDay &&
+    night > Number(state.mastermind.triggerDay)
+  ) {
+    state.mastermind.extraDay = true;
+  }
   addLog(state, {
     kind: "phase",
     title: "Утро " + night,

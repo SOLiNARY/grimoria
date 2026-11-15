@@ -85,6 +85,37 @@ function toDay(state: GameState) {
   return state;
 }
 
+test("a corpse execution previews without mutation and applies once through commands", () => {
+  const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" });
+  toDay(state);
+  const killed = applyCommand(state, {
+    id: "prepare-corpse",
+    type: "manualCorrection",
+    payload: {
+      change: { kind: "alive", playerId: "2", value: false, reason: "Prepare an execution target" },
+    },
+  });
+  assert.equal(killed.status, "allowed", JSON.stringify(killed));
+  const before = canonicalState(state);
+  const command = { id: "execute-corpse", type: "executeByDecision", payload: { playerId: "2" } };
+  assert.equal(validateCommand(state, command).status, "allowed");
+  const preview = outcome(previewCommand(state, command));
+  assert.equal(preview.status, "allowed");
+  assert.ok(preview.events.some((event) => event.type === "execution.recorded"));
+  assert.equal(
+    preview.events.some((event) => event.type === "player.alive_changed"),
+    false,
+  );
+  assert.deepEqual(canonicalState(state), before);
+  const applied = applyCommand(state, command);
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+  assert.equal(state.day.execution?.playerId, "2");
+  assert.equal(state.day.execution?.deathId, null);
+  const count = state.executions.length;
+  assert.equal(applyCommand(state, command).status, "allowed");
+  assert.equal(state.executions.length, count);
+});
+
 test("validate rejects an unknown command without touching the state", () => {
   const state = make({
     1: "chef",

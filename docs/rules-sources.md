@@ -107,9 +107,10 @@ automatic role or win resolution.
    or drunk Mayor has no ability and dies normally, and the Poisoner's poison
    is not an attack, so choosing the Mayor as a poison target never offers a
    redirection. The Mayor wins for good at the end of a day with exactly three
-   living players and **no execution event**, even if an execution was
-   attempted and nobody died. If a real execution happened, the Mayor does not
-   win by this ability.
+   living players and **no execution event**. An actual execution counts even
+   when its target survives or was already dead; either blocks the Mayor win.
+   Sources: the matrix-pinned Mayor and States revisions. A failed nomination
+   or a tie does not itself record an execution.
 8. **Saint.** If the Saint dies by execution while the ability works, evil wins.
    Poison or drunk at the moment of execution prevents the loss.
 9. **Scarlet Woman.** Living players immediately before the Demon dies must be
@@ -163,8 +164,9 @@ automatic role or win resolution.
     2. The execution of the good Evil Twin wins for evil.
     3. A day that ends with no execution while a living, unimpaired Vortox is
        in play wins for evil.
-    4. The execution of the Demon with a living, unimpaired Mastermind in play
-       starts one more day instead of ending the game.
+    4. The execution death of the Demon with a living, unimpaired Mastermind
+       in play preserves the intervening night and one more day instead of
+       ending the game (matrix-pinned Mastermind, Summary and How to Run).
     5. The execution of an unimpaired Saint wins for evil.
     6. An unimpaired Mayor wins for good at the end of a day with exactly three
        living players and no execution event.

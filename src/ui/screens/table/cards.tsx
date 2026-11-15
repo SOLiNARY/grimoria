@@ -815,7 +815,7 @@ export function DayCard({
       : null;
   const canExecute =
     Boolean(drafts.executeTarget) &&
-    Boolean(playerById(state, drafts.executeTarget)?.alive) &&
+    Boolean(playerById(state, drafts.executeTarget)) &&
     !day.execution &&
     !day.ended &&
     !state.winner;

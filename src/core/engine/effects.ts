@@ -8,6 +8,7 @@ import { playerById, registersAlive } from "../model/state.ts";
 import { effectGraph } from "../model/effect-graph.ts";
 
 import { currentAt, cycleOf } from "./context.ts";
+import { minionRetainsAbility } from "./retention.ts";
 
 export function effectActive(
   state: GameState,
@@ -19,9 +20,6 @@ export function effectActive(
   if (effect.start && cycleOf(at) < cycleOf(effect.start)) return false;
   if (effect.expires && cycleOf(at) >= cycleOf(effect.expires)) return false;
   if (effect.kind === "role-change") return true;
-  // A placed Witch curse stays until it resolves or three players live; the
-  // source's later death or impairment does not remove it (Witch r3013).
-  if (effect.kind === "witch") return true;
   // The Cerenovus already chose at night: the player stays mad during that day
   // even if the source is executed or dies before the day begins.
   if (effect.kind === "madness" && effect.madness === "cerenovus") return true;
@@ -32,7 +30,10 @@ export function effectActive(
   if (effect.kind === "poison") return resolved.activePoison.has(effect.id);
 
   const source = effect.sourceId == null ? null : playerById(state, effect.sourceId);
-  if (!source || !source.alive) return false;
+  if (!source) return false;
+  // Vigormortis r3015 explicitly preserves a killed Witch's existing curse.
+  if (!source.alive && !(effect.kind === "witch" && minionRetainsAbility(state, source.id)))
+    return false;
   return !resolved.impaired.has(String(source.id));
 }
 

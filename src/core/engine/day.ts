@@ -26,8 +26,8 @@ import {
 } from "../model/state.ts";
 
 import { executionThreshold, dayAt, currentAt, addLog } from "./context.ts";
-import { isImpaired, butlerMaster } from "./effects.ts";
-import { buildNightQueue, executionDeathForDay } from "./night.ts";
+import { effectActive, isImpaired, butlerMaster } from "./effects.ts";
+import { buildNightQueue } from "./night.ts";
 import {
   MADNESS_PENALTIES,
   activeMadness,
@@ -197,9 +197,8 @@ export function nominate(
   };
 }
 
-// A placed Witch curse resolves on the cursed player's next nomination. Losing
-// the ability later does not remove it; the only removal is three living
-// players (Witch r3013).
+// States r1039: a Witch curse is suspended while the Witch is impaired and
+// resumes on recovery. Vigormortis r3015 may preserve a dead Witch's ability.
 function activeWitchCurse(state: GameState, nominator: Player) {
   if (!isSnvScript(state.script) || livingPlayers(state).length <= 3) return null;
   return (
@@ -208,7 +207,7 @@ function activeWitchCurse(state: GameState, nominator: Player) {
         candidate.kind === "witch" &&
         candidate.targetId === nominator.id &&
         candidate.day === state.day.number &&
-        candidate.active,
+        effectActive(state, candidate, dayAt(state)),
     ) || null
   );
 }
@@ -693,9 +692,7 @@ export function executeByDecision(state: GameState, playerId: string, options: D
   }
   const player = playerById(state, playerId);
   if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
-  // A dead player cannot be executed, so the day records no execution event.
-  if (!player.alive)
-    return { ok: false, errorCode: "error.55", error: "Нельзя казнить мёртвого игрока." };
+  // States r1039: a dead player may be executed, but cannot die again.
   const at = nightMadness ? currentAt(state) : dayAt(state);
   if (options.survives && (nightMadness || !survivalAllowed(state, playerId, at))) {
     return {
@@ -731,7 +728,7 @@ export function executeByDecision(state: GameState, playerId: string, options: D
   addLog(state, {
     kind: "execution",
     title: "Казнь: " + (player.name || "Игрок " + player.seat),
-    detail: death ? "Казнён и умер." : "Игрок был уже мёртв: смерть не наступила.",
+    detail: death ? "Казнён и умер." : "Казнён, но смерть не наступила.",
     playerId,
     consequence: death ? "death" : "prevented",
   });
@@ -822,27 +819,9 @@ export function endDay(state: GameState) {
     !isManualScript(state.script) &&
     isBmrScript(state.script) &&
     state.mastermind &&
-    state.mastermind.active
+    state.mastermind.active &&
+    state.mastermind.extraDay
   ) {
-    if (!state.mastermind.extraDay) {
-      state.mastermind.extraDay = true;
-      state.day = {
-        number: state.day.number + 1,
-        morning: [],
-        nominations: [],
-        activeNominationId: null,
-        execution: null,
-        ended: false,
-        open: false,
-      };
-      state.phase = "day";
-      addLog(state, {
-        kind: "phase",
-        title: "День " + state.day.number,
-        detail: "Кукловод продлил игру. Казнь сегодня решит исход.",
-      });
-      return { ok: true, day: state.day, mastermind: true };
-    }
     const execution = state.day.execution;
     if (execution) {
       const player = playerById(state, execution.playerId);
@@ -859,10 +838,8 @@ export function endDay(state: GameState) {
     state.day.open = false;
     state.day.activeNominationId = null;
   }
-  // A day whose execution produced no death is still a day without an
-  // execution event for the Mayor and the Vortox, even when the execution
-  // record already closed the day.
-  if (!executionDeathForDay(state, state.day.number) && !isManualScript(state.script)) {
+  // Mayor r2995 and Vortox r3017 check execution, not execution death.
+  if (!state.day.execution && !isManualScript(state.script)) {
     checkWin(state, { endOfDay: true });
   }
   if (state.winner) return { ok: true, winner: state.winner };

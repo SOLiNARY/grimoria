@@ -15,7 +15,7 @@ import { dayAt, currentAt, addLog } from "./context.ts";
 import { isImpaired, protectionFor, soldierSafe, mayorRedirects, bmrCannotDie } from "./effects.ts";
 import { HOST_CHOICE_REASONS } from "./host-choice.ts";
 
-import { demonChangePending, executionDeathForDay } from "./night.ts";
+import { demonChangePending } from "./night.ts";
 import { minionRetainsAbility } from "./retention.ts";
 
 const DEMON_REASONS = {
@@ -398,7 +398,7 @@ export function checkWin(
     ) {
       return setWinner(state, "evil", "evil-twin");
     }
-    if (endOfDay && state.day && !executionDeathForDay(state, state.day.number)) {
+    if (endOfDay && state.day && !state.day.execution) {
       const living = livingPlayers(state);
       if (
         living.some(
@@ -447,14 +447,9 @@ export function checkWin(
   if (saintDeath) return setWinner(state, "evil", "saint");
 
   const living = livingPlayers(state);
-  // Mayor r2995: "no execution occurs" means no execution death; a corpse
-  // selection is not an execution event.
-  if (
-    endOfDay &&
-    state.day &&
-    !executionDeathForDay(state, state.day.number) &&
-    living.length === 3
-  ) {
+  // States r1039 and Mayor r2995: execution is distinct from death, including
+  // an execution of an already dead player.
+  if (endOfDay && state.day && !state.day.execution && living.length === 3) {
     const mayor = living.find((player) => mayorRedirects(state, player.id, dayAt(state)));
     if (mayor) return setWinner(state, "good", "mayor");
   }

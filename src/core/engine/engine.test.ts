@@ -823,7 +823,7 @@ test("Saint loses on execution and Mayor wins at three alive without execution",
   assert.equal(mayor.winner!.reason, "mayor");
 });
 
-test("a corpse execution is not an execution event, so the Mayor still wins", () => {
+test("a corpse execution counts as an execution event and prevents the Mayor win", () => {
   const state = make({
     1: "mayor",
     2: "chef",
@@ -838,8 +838,8 @@ test("a corpse execution is not an execution event, so the Mayor still wins", ()
   appoint(state, "1", "2", ["1", "4"]);
   execute(state, state.day.nominations[0].id);
   endDay(state);
-  assert.equal(state.winner && state.winner.team, "good");
-  assert.equal(state.winner!.reason, "mayor");
+  assert.equal(state.winner, null);
+  assert.equal(state.phase, "night");
 });
 
 test("win priorities: no living Demon is checked before the two-alive evil win", () => {
@@ -2114,7 +2114,52 @@ test("an impaired Virgin's first nomination still spends the ability", () => {
   assert.equal(state.players["2"].alive, true);
 });
 
-test("a dead player cannot be executed", () => {
+test("official execution of a dead player records an event without another death", () => {
+  const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" });
+  toDay(state);
+  kill(state, "2", "test", dayAt(state));
+  const deaths = state.deaths.length;
+  const result = executeByDecision(state, "2");
+  assert.equal(result.ok, true);
+  assert.equal(result.death, null);
+  assert.equal(state.deaths.length, deaths);
+  assert.equal(state.day.execution?.playerId, "2");
+  assert.equal(state.day.execution?.deathId, null);
+  assert.equal(state.executions.at(-1)?.playerId, "2");
+  assert.equal(state.day.ended, true);
+  assert.equal(executeByDecision(state, "3").ok, false);
+});
+
+test("official execution without a death blocks the Mayor win at day end", () => {
+  const state = make({ 1: "mayor", 2: "chef", 3: "monk", 4: "poisoner", 5: "imp" });
+  toDay(state);
+  kill(state, "2", "test", dayAt(state));
+  kill(state, "3", "test", dayAt(state));
+  openNominations(state);
+  const nomination = appoint(state, "1", "2", ["1", "4"]);
+  assert.equal(execute(state, nomination.id).ok, true);
+  assert.equal(state.day.execution?.deathId, null);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(state.winner, null);
+  assert.equal(state.phase, "night");
+});
+
+test("official execution without a death satisfies the Vortox execution condition", () => {
+  const state = makeSnv({ 1: "clockmaker", 6: "witch", 7: "vortox" }, { count: 7 });
+  state.phase = "day";
+  state.day.number = 1;
+  kill(state, "1", "test", dayAt(state));
+  openNominations(state);
+  const nomination = appoint(state, "2", "1", ["2", "3", "4"]);
+  const result = execute(state, nomination.id);
+  assert.equal(result.ok, true);
+  assert.equal(state.day.execution?.deathId, null);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(state.winner, null);
+  assert.equal(state.phase, "night");
+});
+
+test("a host execution of a dead player still closes the day", () => {
   const state = make({
     1: "mayor",
     2: "chef",
@@ -2125,10 +2170,11 @@ test("a dead player cannot be executed", () => {
   toDay(state);
   kill(state, "2", "test", dayAt(state));
   kill(state, "3", "test", dayAt(state));
-  const rejected = executeByDecision(state, "2") as { ok: boolean; errorCode?: string };
-  assert.equal(rejected.ok, false);
-  assert.equal(rejected.errorCode, "error.55");
-  assert.equal(state.day.execution, null);
+  const result = executeByDecision(state, "2");
+  assert.equal(result.ok, true);
+  assert.equal(state.day.execution?.playerId, "2");
+  assert.equal(state.day.execution?.deathId, null);
+  assert.equal(state.day.ended, true);
 });
 
 test("the Saint loss is scoped to the day of the execution", () => {

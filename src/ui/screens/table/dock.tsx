@@ -54,7 +54,7 @@ export function TableDock({ view }: { view: TableView }) {
   const target = state.phase === "day" ? playerById(state, drafts.executeTarget) : null;
   const canExecute =
     state.phase === "day" &&
-    Boolean(target?.alive) &&
+    Boolean(target) &&
     !state.day.execution &&
     !state.day.ended &&
     !state.winner;
