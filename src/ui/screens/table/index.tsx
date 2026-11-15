@@ -50,6 +50,11 @@ export function TableScreen() {
     return () => clearInterval(id);
   }, []);
 
+  // An import or a fresh game must not reuse the previous execution target.
+  useEffect(() => {
+    drafts.setExecuteTarget("");
+  }, [state.createdAt, drafts.setExecuteTarget]);
+
   const closeOverlay = drafts.closeOverlay;
   useEffect(() => {
     if (!drafts.overlay) return;
@@ -169,7 +174,11 @@ export function TableScreen() {
     openCorrection,
     selectSeat: (playerId) => {
       if (state.phase === "day") {
-        drafts.setExecuteTarget(drafts.executeTarget === playerId ? "" : playerId);
+        // The seat opens the player sheet; the dock stays the one execution
+        // control and reads the target chosen there.
+        captureFocus();
+        drafts.setPlayerCardId(playerId);
+        drafts.setOverlay("playerSheet");
         return;
       }
       const step = tableProjection(state).step;
