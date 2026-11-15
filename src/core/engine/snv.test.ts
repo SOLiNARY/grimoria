@@ -13,6 +13,7 @@ import {
   roleTeam,
 } from "../model/rules.ts";
 import {
+  clone,
   createGame,
   exportGame,
   importGame,
@@ -2874,6 +2875,7 @@ test("the living new Fang Gu wakes even when the dead old Demon holds a lower se
   assert.equal(next!.actorId, "2", "the living new Fang Gu is the actor");
 });
 
+
 // The Artist and the Savant act during the day. These fixtures enter the day
 // directly because the ability under test does not depend on the night queue.
 function dayOne(state: GameState): void {
@@ -3083,4 +3085,101 @@ test("the Philosopher without the borrowed character cannot use the day ability 
   });
   assert.equal(rejected.status, "rejected");
   assert.equal(state.artist, null);
+});
+
+test("the Storyteller marks abnormal abilities and the Mathematician counts them (SNV-MATHEMATICIAN-01, SNV-MATHEMATICIAN-03)", () => {
+  const state = make({ 1: "mathematician", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  startNight(state);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "mathematician")!;
+  const first = applyCommand(state, {
+    id: "abnormal-1",
+    type: "recordAbnormal",
+    payload: { playerId: "2", reason: "The Recluse registered as evil to the Chef." },
+  });
+  assert.equal(first.status, "allowed", JSON.stringify(first));
+  const second = applyCommand(state, {
+    id: "abnormal-2",
+    type: "recordAbnormal",
+    payload: { playerId: "3", reason: "The poisoned Soldier died from the Imp's attack." },
+  });
+  assert.equal(second.status, "allowed", JSON.stringify(second));
+  assert.equal(state.abnormal.length, 2);
+
+  assert.equal(infoForStep(state, step, {}).value, 2, "two characters carry an ABNORMAL reminder");
+  assert.equal(infoForStep(state, step, {}).needsChoice, false, "the count is computable");
+
+  const duplicate = applyCommand(state, {
+    id: "abnormal-3",
+    type: "recordAbnormal",
+    payload: { playerId: "2", reason: "A second event for the same character." },
+  });
+  assert.equal(duplicate.status, "rejected", "one reminder per character in the window");
+
+  const older = clone(state);
+  older.abnormal.push({ playerId: "4", reason: "Old event", at: { phase: "night", number: 0 } });
+  assert.equal(
+    infoForStep(
+      older,
+      older.night.queue.find((s) => s.roleId === "mathematician")!,
+      {},
+    ).value,
+    2,
+    "a mark from an earlier day and night is not counted",
+  );
+
+  assert.equal(completeStep(state, step.key, {}).ok, true);
+  assert.deepEqual(state.abnormal, [], "the reminders are removed after the Mathematician wakes");
+  assert.equal(
+    JSON.stringify(publicGameView(state)).includes("Recluse registered"),
+    false,
+    "the private marking reason stays out of public data",
+  );
+});
+
+test("the Mathematician requires a host number when impaired or under a Vortox (SNV-MATHEMATICIAN-02)", () => {
+  const state = make({ 1: "mathematician", 6: "pithag", 7: "vortox" }, { count: 7 });
+  startNight(state);
+  applyCommand(state, {
+    id: "abnormal-vortox",
+    type: "recordAbnormal",
+    payload: { playerId: "2", reason: "False information from the Vortox." },
+  });
+  const step = state.night.queue.find((candidate) => candidate.roleId === "mathematician")!;
+  const info = infoForStep(state, step, {});
+  assert.equal(info.value, 1, "the engine still computes the true count");
+  assert.equal(info.needsChoice, true, "the Vortox makes the shown number false");
+  assert.ok(info.options!.includes(0) && info.options!.includes(7));
+
+  const missing = completeStep(state, step.key, {});
+  assert.equal(missing.ok, false, "the host must choose a number");
+  assert.equal("needsChoice" in missing && missing.needsChoice, true);
+  const given = completeStep(state, step.key, { given: { kind: "number", value: 4 } });
+  assert.equal(given.ok, true, JSON.stringify(given));
+  assert.equal(step.given!.value, 4, "the false number is stored");
+});
+
+test("the abnormal command rejects a blank reason, an unknown player and a wrong phase (SNV-MATHEMATICIAN-01)", () => {
+  const state = make({ 1: "mathematician", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  state.phase = "seat";
+  const wrongPhase = applyCommand(state, {
+    id: "abnormal-phase",
+    type: "recordAbnormal",
+    payload: { playerId: "1", reason: "Not started." },
+  });
+  assert.equal(wrongPhase.status, "rejected");
+
+  startNight(state);
+  const blank = applyCommand(state, {
+    id: "abnormal-blank",
+    type: "recordAbnormal",
+    payload: { playerId: "1", reason: "   " },
+  });
+  assert.equal(blank.status, "rejected");
+  const unknown = applyCommand(state, {
+    id: "abnormal-unknown",
+    type: "recordAbnormal",
+    payload: { playerId: "99", reason: "No such seat." },
+  });
+  assert.equal(unknown.status, "rejected");
+  assert.deepEqual(state.abnormal, []);
 });

@@ -971,16 +971,76 @@ export function DayActionsPanel({ view }: { view: TableView }) {
   const { state, ports, drafts, actions } = view;
   const t = ports.strings.t;
   const [madnessReasons, setMadnessReasons] = useState<Record<string, string>>({});
+  const [abnormalPlayer, setAbnormalPlayer] = useState("");
+  const [abnormalReason, setAbnormalReason] = useState("");
   const madnessReviews = madnessReviewProjection(state);
+  const abnormalMarks = state.abnormal || [];
+  const canAbnormal = !state.winner && (state.phase === "day" || state.phase === "night");
   const day = state.day;
   const manual = isManualScript(state.script);
   const tinker =
     state.script && Array.isArray(state.script.roles) && state.script.roles.includes("tinker")
       ? orderedPlayers(state).find((player) => player.roleId === "tinker" && player.alive)
       : null;
-  if (!madnessReviews.length && !manual && !tinker) return null;
+  if (!madnessReviews.length && !manual && !tinker && !canAbnormal) return null;
   return (
     <>
+      {canAbnormal ? (
+        <div className="grid gap-1.5 rounded-sm border border-edge p-2.5" data-abnormal-panel>
+          <span className="label">{t("ui.abnormalTitle")}</span>
+          <p className={`${MUTED} m-0`}>{t("ui.abnormalHint")}</p>
+          <select
+            className="field"
+            data-abnormal-player
+            value={abnormalPlayer}
+            onChange={(event) => setAbnormalPlayer(event.target.value)}
+          >
+            <option value="">{t("chooseTarget")}</option>
+            {orderedPlayers(state).map((player) => (
+              <option key={player.id} value={player.id}>
+                {displayName(player, t)}
+              </option>
+            ))}
+          </select>
+          <label className="grid gap-1 text-[13px] text-muted">
+            {t("ui.abnormalReason")}
+            <input
+              className="field"
+              value={abnormalReason}
+              data-abnormal-reason
+              onChange={(event) => setAbnormalReason(event.target.value)}
+            />
+          </label>
+          <button
+            className="btn"
+            type="button"
+            data-act="record-abnormal"
+            disabled={!abnormalPlayer || !abnormalReason.trim()}
+            onClick={() => {
+              const result = actions.run({
+                type: "recordAbnormal",
+                payload: { playerId: abnormalPlayer, reason: abnormalReason },
+              });
+              if (result.status === "allowed") {
+                setAbnormalPlayer("");
+                setAbnormalReason("");
+              }
+            }}
+          >
+            {t("ui.recordAbnormal")}
+          </button>
+          <p className={`${MUTED} m-0`}>
+            {abnormalMarks.length
+              ? t("ui.abnormalMarked", { count: abnormalMarks.length })
+              : t("ui.abnormalNone")}
+          </p>
+          {abnormalMarks.map((mark) => (
+            <p key={mark.playerId + mark.at.number} className={`${MUTED} m-0`}>
+              {displayName(playerById(state, mark.playerId), t)}: {mark.reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
       {tinker && state.phase === "day" && !day.execution && !day.ended && !state.winner ? (
         <div className="grid gap-1.5 rounded-sm border border-edge p-2.5" data-tinker-day>
           <span className="label">{t("ui.tinkerDay")}</span>

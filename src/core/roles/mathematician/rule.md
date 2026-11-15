@@ -2,6 +2,8 @@
 
 Edition: snv
 
-| Rule ID              | Level       | Matrix revision | Asserting tests |
-| -------------------- | ----------- | --------------- | --------------- |
-| SNV-MATHEMATICIAN-01 | host-choice | r3153           | —               |
+| Rule ID              | Level       | Matrix revision | Asserting tests                                                                                                                                                                                                                                                                                  |
+| -------------------- | ----------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SNV-MATHEMATICIAN-01 | verified    | r3153           | `src/core/engine/snv.test.ts` "the Storyteller marks abnormal abilities and the Mathematician counts them (SNV-MATHEMATICIAN-01, SNV-MATHEMATICIAN-03)"; `src/core/engine/snv.test.ts` "the abnormal command rejects a blank reason, an unknown player and a wrong phase (SNV-MATHEMATICIAN-01)" |
+| SNV-MATHEMATICIAN-02 | host-choice | r3153           | `src/core/engine/snv.test.ts` "the Mathematician requires a host number when impaired or under a Vortox (SNV-MATHEMATICIAN-02)"                                                                                                                                                                  |
+| SNV-MATHEMATICIAN-03 | host-choice | r3153           | `src/core/engine/snv.test.ts` "the Storyteller marks abnormal abilities and the Mathematician counts them (SNV-MATHEMATICIAN-01, SNV-MATHEMATICIAN-03)"                                                                                                                                          |

@@ -107,6 +107,51 @@ export function reconcileMutantMadness(state: GameState) {
   }
 }
 
+// Mathematician r3153: the count is the number of characters carrying an
+// ABNORMAL reminder for the current day and night. The Storyteller marks each
+// abnormal working; the engine only counts and never infers the cause.
+export function abnormalCount(state: GameState, at: DeadAt = currentAt(state)): number {
+  const ids = new Set<string>();
+  for (const mark of state.abnormal || []) {
+    if (!mark || !mark.playerId || !mark.at) continue;
+    if (mark.at.number !== at.number) continue;
+    if (mark.at.phase !== "day" && mark.at.phase !== "night") continue;
+    ids.add(mark.playerId);
+  }
+  return ids.size;
+}
+
+export function recordAbnormal(state: GameState, playerId: string, reason: string) {
+  if (state.winner) return { ok: false, errorCode: "error.6", error: "Игра уже окончена." };
+  if (state.phase !== "day" && state.phase !== "night") {
+    return { ok: false, errorCode: "error.7", error: "Сейчас не игровой день или ночь." };
+  }
+  const player = playerById(state, playerId);
+  if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
+  const text = String(reason == null ? "" : reason).trim();
+  if (!text)
+    return { ok: false, errorCode: "error.72", error: "Запишите причину аномальной работы." };
+  const at = currentAt(state);
+  const duplicate = (state.abnormal || []).some(
+    (mark) => mark.playerId === player.id && mark.at && mark.at.number === at.number,
+  );
+  if (duplicate)
+    return {
+      ok: false,
+      errorCode: "error.72",
+      error: "У этого игрока уже есть отметка за текущий день и ночь.",
+    };
+  state.abnormal = [...(state.abnormal || []), { playerId: player.id, reason: text, at }];
+  addLog(state, {
+    secret: true,
+    kind: "ability",
+    title: "Отметка аномальной способности",
+    detail: player.name + ": " + text + ".",
+    playerId: player.id,
+  });
+  return { ok: true, mark: state.abnormal.at(-1) };
+}
+
 // "Townsfolk abilities yield false info" (Vortox r3017). Only a living,
 // unimpaired Vortox does so; an impaired actor also gets no true information.
 export function vortoxFalsifies(state: GameState, roleId: RoleId | null): boolean {
@@ -913,15 +958,20 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
   }
   if (role === "mathematician") {
     const falsified = impaired || vortoxFalsifies(state, role);
+    const value = abnormalCount(state, currentAt(state));
     return {
-      kind: "note",
+      kind: "number",
+      value,
       impaired,
       needsChoice: falsified,
+      options: falsified ? numberChoices(orderedPlayers(state).length) : [],
       textKey: "note.sv.mathematician",
       falsifiedSuffix: falsified,
       text:
-        "Ведущий считает, у скольких игроков способность сработала некорректно." +
-        (falsified ? " Ведущий даёт ложное число." : ""),
+        "Способности сработали некорректно: " +
+        value +
+        "." +
+        (falsified ? " Ведущий даёт ложное число: выберите число." : ""),
     };
   }
   return { kind: "none" };
@@ -1240,6 +1290,7 @@ export function completeSvStep(
       active: true,
     });
   }
+  if (step.roleId === "mathematician") state.abnormal = [];
   return { ok: true };
 }
 

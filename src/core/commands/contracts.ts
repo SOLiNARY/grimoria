@@ -25,6 +25,7 @@ export const COMMAND_TYPES = [
   "jugglerGuess",
   "artistQuestion",
   "savantVisit",
+  "recordAbnormal",
   "moonchildChoice",
   "recordKlutzChoice",
   "tinkerDeath",
@@ -180,6 +181,7 @@ export interface CommandPayloads {
   };
   artistQuestion: { playerId: string; question: string; answer: ArtistAnswer };
   savantVisit: { playerId: string; statements: [string, string]; truth: SavantTruth };
+  recordAbnormal: { playerId: string; reason: string };
   moonchildChoice: { targetId: string };
   recordKlutzChoice: { targetId: string };
   tinkerDeath: { playerId: string };
@@ -323,6 +325,7 @@ export const PAYLOAD_SCHEMA = {
     statements: ["string-pair", true],
     truth: requiredString,
   },
+  recordAbnormal: { playerId: requiredString, reason: requiredString },
   moonchildChoice: { targetId: requiredString },
   recordKlutzChoice: { targetId: requiredString },
   tinkerDeath: { playerId: requiredString },
