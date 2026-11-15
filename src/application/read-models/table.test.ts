@@ -467,6 +467,20 @@ test("the Artist projection sees a Drunk who is shown the Artist", () => {
   assert.deepEqual(artistProjection(state), { playerId: "1", used: false });
 });
 
+test("the Artist and Savant projections see a borrowed Philosopher ability", () => {
+  const state = dayAbilityState();
+  state.players["2"].roleId = "chef";
+  state.players["2"].shownRoleId = "chef";
+  state.players["1"].roleId = "philosopher";
+  state.players["1"].shownRoleId = "philosopher";
+  state.players["1"].used.philosopherAbility = "artist";
+  assert.deepEqual(artistProjection(state), { playerId: "1", used: false });
+
+  state.players["1"].used.philosopherAbility = "savant";
+  assert.equal(artistProjection(state), null);
+  assert.equal(savantProjection(state)?.playerId, "1");
+});
+
 test("the Savant projection offers only the legal truth patterns", () => {
   const state = dayAbilityState();
   assert.deepEqual(savantProjection(state)?.choices, ["first", "second"]);

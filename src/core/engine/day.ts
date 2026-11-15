@@ -25,6 +25,7 @@ import {
 } from "../model/rules.ts";
 import {
   effectiveRoleId,
+  hasAbility,
   livingPlayers,
   nowIso,
   orderedPlayers,
@@ -625,7 +626,7 @@ function dayAbilityHolder(state: GameState, playerId: string, roleId: RoleId): D
   const player = playerById(state, playerId);
   if (!player)
     return { ok: false, result: { ok: false, errorCode: "error.1", error: "Игрок не найден." } };
-  if (!player.alive || effectiveRoleId(player) !== roleId)
+  if (!player.alive || !hasAbility(player, roleId))
     return {
       ok: false,
       result: { ok: false, errorCode: "error.29", error: "Этого персонажа нет среди живых." },

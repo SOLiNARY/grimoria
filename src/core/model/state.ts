@@ -306,6 +306,17 @@ export function effectiveRoleId(player: Player | null | undefined): RoleId | nul
   return player.roleId;
 }
 
+/**
+ * True when the player may use this ability: their effective character, or a
+ * good character the Philosopher borrowed (Philosopher r2421). The caller
+ * still owns the alive check and any impairment decision.
+ */
+export function hasAbility(player: Player | null | undefined, roleId: RoleId): boolean {
+  if (!player) return false;
+  if (effectiveRoleId(player) === roleId) return true;
+  return player.used?.philosopherAbility === roleId;
+}
+
 export function publicRoleView(player: Player, role: Role) {
   if (!player || !role) return null;
   return {

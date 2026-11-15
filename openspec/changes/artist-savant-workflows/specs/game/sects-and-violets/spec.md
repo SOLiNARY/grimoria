@@ -6,9 +6,9 @@
 
 The engine SHALL record one Artist question per game through the
 `artistQuestion` command, only during an unended day, only for a living player
-whose effective character is the Artist, with a non-empty trimmed question and
-one answer from `yes`, `no` or `unknown`, and SHALL NOT interpret the question
-or compute the answer.
+whose effective character is the Artist or who holds the Artist through the
+Philosopher, with a non-empty trimmed question and one answer from `yes`, `no`
+or `unknown`, and SHALL NOT interpret the question or compute the answer.
 
 **Source**: [Artist r3156](https://wiki.bloodontheclocktower.com/index.php?title=Artist&oldid=3156); [Issue #200](https://github.com/hose1021/grimoria/issues/200)
 **Tests**: `src/core/engine/snv.test.ts`, `src/application/read-models/table.test.ts`
@@ -35,10 +35,11 @@ or compute the answer.
 
 The engine SHALL record one Savant visit per day through the `savantVisit`
 command, only during an unended day and only for a living player whose effective
-character is the Savant, with two different non-empty trimmed statements and a
-declared truth pattern. A healthy Savant with no living unimpaired Vortox SHALL
-be required to declare exactly one true statement. The engine SHALL NOT verify
-whether a statement is true.
+character is the Savant or who holds the Savant through the Philosopher, with
+two different non-empty trimmed statements and a declared truth pattern. A
+healthy Savant with no living unimpaired Vortox SHALL be required to declare
+exactly one true statement. The engine SHALL NOT verify whether a statement is
+true.
 
 **Source**: [Savant r2910](https://wiki.bloodontheclocktower.com/index.php?title=Savant&oldid=2910); [Issue #200](https://github.com/hose1021/grimoria/issues/200)
 **Tests**: `src/core/engine/snv.test.ts`, `src/application/read-models/table.test.ts`

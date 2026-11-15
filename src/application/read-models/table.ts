@@ -21,12 +21,7 @@ import {
   stepProgress,
   vigormortisPoisonChoices,
 } from "../../core/engine/index.ts";
-import {
-  effectiveRoleId,
-  livingPlayers,
-  orderedPlayers,
-  playerById,
-} from "../../core/model/state.ts";
+import { hasAbility, livingPlayers, orderedPlayers, playerById } from "../../core/model/state.ts";
 import type { Effect, GameState, NightStep, RoleId, SavantTruth } from "../../core/model/types.ts";
 import type { InfoResult } from "../../core/engine/index.ts";
 
@@ -65,10 +60,10 @@ export interface ArtistProjection {
   used: boolean;
 }
 
-/** The living Artist, or the Drunk who is shown the Artist. */
+/** The living Artist, a Drunk shown the Artist, or a Philosopher who borrowed it. */
 export function artistProjection(state: GameState): ArtistProjection | null {
   const player = orderedPlayers(state).find(
-    (candidate) => candidate.alive && effectiveRoleId(candidate) === "artist",
+    (candidate) => candidate.alive && hasAbility(candidate, "artist"),
   );
   return player ? { playerId: player.id, used: Boolean(player.used.artist) } : null;
 }
@@ -82,7 +77,7 @@ export interface SavantProjection {
 /** The living Savant and the truth patterns the current state permits. */
 export function savantProjection(state: GameState): SavantProjection | null {
   const player = orderedPlayers(state).find(
-    (candidate) => candidate.alive && effectiveRoleId(candidate) === "savant",
+    (candidate) => candidate.alive && hasAbility(candidate, "savant"),
   );
   if (!player) return null;
   return {

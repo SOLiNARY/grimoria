@@ -3033,3 +3033,54 @@ test("a living Vortox makes both Savant statements false (SNV-SAVANT-03)", () =>
   });
   assert.equal(bothFalse.status, "allowed", JSON.stringify(bothFalse));
 });
+
+test("a Philosopher who borrowed the Artist can ask the private question (SNV-ARTIST-01)", () => {
+  const state = make({ 1: "philosopher", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  dayOne(state);
+  state.players["1"].used.philosopherAbility = "artist";
+  const first = applyCommand(state, {
+    id: "borrowed-artist",
+    type: "artistQuestion",
+    payload: { playerId: "1", question: "Is the Demon in a brown chair?", answer: "no" },
+  });
+  assert.equal(first.status, "allowed", JSON.stringify(first));
+  assert.equal(state.artist!.playerId, "1");
+  assert.equal(state.players["1"].used.artist, true);
+  const again = applyCommand(state, {
+    id: "borrowed-artist-2",
+    type: "artistQuestion",
+    payload: { playerId: "1", question: "Another?", answer: "yes" },
+  });
+  assert.equal(again.status, "rejected", "the borrowed Artist is still once per game");
+});
+
+test("a Philosopher who borrowed the Savant can visit once that day (SNV-SAVANT-01)", () => {
+  const state = make({ 1: "philosopher", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  dayOne(state);
+  state.players["1"].used.philosopherAbility = "savant";
+  const first = applyCommand(state, {
+    id: "borrowed-savant",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["A true fact.", "A false fact."], truth: "first" },
+  });
+  assert.equal(first.status, "allowed", JSON.stringify(first));
+  assert.equal(state.savant!.playerId, "1");
+  const again = applyCommand(state, {
+    id: "borrowed-savant-2",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["C", "D"], truth: "second" },
+  });
+  assert.equal(again.status, "rejected", "the borrowed Savant is still once per day");
+});
+
+test("the Philosopher without the borrowed character cannot use the day ability (SNV-ARTIST-01)", () => {
+  const state = make({ 1: "philosopher", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  dayOne(state);
+  const rejected = applyCommand(state, {
+    id: "not-borrowed",
+    type: "artistQuestion",
+    payload: { playerId: "1", question: "Can I ask?", answer: "yes" },
+  });
+  assert.equal(rejected.status, "rejected");
+  assert.equal(state.artist, null);
+});
