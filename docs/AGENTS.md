@@ -14,7 +14,11 @@ Rules authority is defined in the root AGENTS.md "Rules sources": the pinned wik
 
 ## When a source is missing
 
-If the snapshots or the reference are absent, read the permanent `oldid` URL from the matrix row. If no source is reachable, do not guess a rule: keep the mechanic `host-choice` or `unsupported` and ask the owner.
+Follow the root AGENTS.md **Rules sources** recovery sequence: automatically
+fetch missing pinned snapshots, verify provenance, rebuild a missing or stale
+reference, and read the actual wiki text. Use the permanent `oldid` URL only
+when local recovery fails. If neither source is readable, report the failed
+attempts and stop without guessing a rule or changing behavior.
 
 ## Evidence discipline
 

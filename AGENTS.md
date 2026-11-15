@@ -6,7 +6,64 @@ React 19 + TypeScript + Tailwind v4, built by Vite, state in `localStorage`.
 No backend, accounts, network play or database. Russian-first; role catalogs
 exist for `ru`, `en`, `az`.
 
+## Stop before changing game behavior
+
+Grimoria implements the pinned official rules; house rules are out of scope.
+Treat a requested outcome as a proposal to validate, not evidence that it is
+legal. A direct or repeated implementation request does not establish an
+intentional change of product scope. Correct an incorrect premise explicitly.
+
+**Source first, then stop on conflict:** for every game-rule question or
+behavior request, read the relevant pinned official text before giving a
+substantive rules answer, including a refusal or clarification. Restore missing
+sources using **Rules sources** below. A progress message may announce this
+check, but must not assert rules from memory. Do not explore implementation
+paths, plan a fix, create a branch or write tests before the source check.
+
+If the source establishes a conflict, explain it, cite the exact `oldid` and
+ask whether the owner intentionally wants to depart from official play. For
+example, after checking the affected pinned rules:
+
+> Making every Demon immortal would depart from the official rules and change
+> Demon-death victory and role interactions. Are you intentionally requesting
+> a house rule against the official rules, or should I preserve official play?
+> I will not change the engine until you clarify.
+
+Then end the turn and wait for the answer. Do not merely flag the deviation
+and continue. Do not list consequences or role interactions that you have not
+checked in the pinned sources. If source recovery and the permanent URL both
+fail, report `Rules check: unverified`, the attempted commands and errors, and
+stop; do not substitute memory or repository tests for the missing source.
+The owner's original imperative is not an answer to this clarification.
+An explicit answer requesting a house rule starts the separate scope proposal
+described below; it is not permission to silently replace official behavior.
+
+Before editing game scenarios, rules-related UI, engine code, specs or tests:
+
+1. Read the relevant pinned official text using **Rules sources** below.
+   Compare the request with its timing, exceptions and Storyteller choices.
+2. Report a short verdict **before the first edit**: `Rules check: compliant`,
+   `Rules check: conflict` or `Rules check: unverified`. Include the pinned
+   source and relevant rule, plus the asserting test or missing coverage.
+3. Only `compliant` permits implementation. For `conflict`, explain the
+   contradiction and offer the official behavior, then stop and wait for a
+   revised request. For `unverified` (including inaccessible sources), explain
+   the missing evidence and stop. Reading to investigate is allowed; changing
+   behavior, specs or test expectations while blocked is not.
+
+Do not infer house-rule authorization, weaken tests, or change a source pin to
+make the requested outcome pass. Even confirmation of the outcome does not
+resolve a rules conflict. A variant requires a separate explicit product-scope
+proposal before any implementation; it must not replace official behavior.
+Passing tests or agreement between code, specs and generated references is
+not independent verification of the official rule.
+
 ## Read first
+
+At session start, verify the repository root and read its actual `AGENTS.md`
+from disk. Instructions edited in another worktree do not update this checkout.
+After instruction changes, start a fresh agent session in the intended worktree
+and verify the loaded guidance before using it for a behavior test.
 
 Before editing a subtree, read its nearest nested `AGENTS.md`. Nested files add
 only scope-specific rules; everything in this file still applies.
@@ -195,10 +252,32 @@ Rebuild with `node scripts/build-official-roles.mjs`, or verify it with
 `node scripts/build-official-roles.mjs --check`, which fails on a missing, stale
 or extra file and on an empty or unconverted section.
 
-If the local snapshots or `docs/reference/` are absent, read the permanent
-`https://wiki.bloodontheclocktower.com/index.php?title=<Title>&oldid=<N>` URL. If
-no source is reachable, do not invent a rule: keep the mechanic `host-choice` or
-`unsupported` and ask the owner.
+For every rules task, identify the exact revisions in `docs/rules-matrix.md`,
+then open and read the relevant local wiki text, including the sections needed
+for the timing, exceptions and interactions being claimed. Merely finding a
+filename, running a checker or reading the reference digest is not reading the
+official rule. Use this recovery sequence automatically from the repository
+root when the required files are missing, invalid or stale:
+
+1. If the required `docs/official/wiki/` snapshots are absent or invalid, run
+   `node scripts/fetch-official.mjs`, then `node scripts/check-official.mjs`.
+   Use the default local-only mode, never `--commit-snapshots`. `--check` on the
+   fetcher only reports pin drift; it does not download missing snapshots.
+2. If `docs/reference/` is absent or its check fails, run
+   `node scripts/build-official-roles.mjs`, then
+   `node scripts/build-official-roles.mjs --check`. Recover snapshots first if
+   the builder needs them. The digest remains auxiliary; read the wiki text.
+3. After recovery, open the actual relevant wiki files. If recovery fails,
+   attempt the permanent URL from the matrix:
+   `https://wiki.bloodontheclocktower.com/index.php?title=<Title>&oldid=<N>`.
+   Never substitute the latest revision or silently bump a pin.
+4. If no pinned source can be read, stop with `Rules check: unverified` and
+   report the failed recovery and URL attempts. Preserve existing behavior;
+   do not implement a guess or claim the official rule has been verified.
+
+These local recovery commands are authorized preparation, not a licensing-path
+change. They may update provenance metadata; inspect and report those diffs,
+preserve unrelated edits, and never commit the ignored snapshots or digest.
 
 `docs/official/` holds the manifest and official JSON (`roles`, `nightsheet`,
 `jinxes`). `node scripts/fetch-official.mjs --check` reports pin drift and never
