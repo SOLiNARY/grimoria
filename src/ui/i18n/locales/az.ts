@@ -617,15 +617,12 @@ export default {
   "error.57": "Edamda yalnız xeyir oyunçu sağ qala bilər və yalnız Pasifist sağ və sağlam olduqda.",
   "error.58": "Mexanik oyunda yoxdur və ya artıq ölüb.",
   "error.59": "Mexanik zəhərli və ya sərxoşdur: qabiliyyət işləmir.",
-<<<<<<< HEAD
   "error.60": "Rəssam artıq sualını verib.",
   "error.61": "Şəxsi sualı yazın və bəli, xeyr və ya bilmirəm cavabını verin.",
   "error.69": "Savant bu gün artıq Aparıcıya baş çəkib.",
   "error.70": "İki fərqli ifadə yazın.",
   "error.71":
     "Bir ifadə doğru, digəri yalandır; zəhərli Savant üçün Aparıcı başqa seçim edə bilər, Vortoks isə ikisini də yalan edir.",
-=======
->>>>>>> 2b24251 (fix(snv): count the mathematician window since the last wake)
   "error.72":
     "Səbəbi yazın; hər personaj Riyaziyyatçının oyanışları arasında bir dəfə qeyd olunur.",
   "error.62": "Oyunçuda aktiv dəlilik yoxdur.",
