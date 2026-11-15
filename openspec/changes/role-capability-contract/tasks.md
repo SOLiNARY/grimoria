@@ -74,8 +74,9 @@
 
 ## 7. Delivery
 
-- [ ] 7.1 Commit in small conventional commits on
-      `refactor/role-capability-contract`, push and open a pull request that
+- [x] 7.1 Commit in small conventional commits on
+      `refactor/role-capability-contract`, push and open
+      [pull request #201](https://github.com/hose1021/grimoria/pull/201) that
       names `Issue: #200` and `OpenSpec change: role-capability-contract`.
 - [ ] 7.2 Report CI, the changed files, the checks and the remaining slices.
       Do not merge.
