@@ -40,6 +40,22 @@ and `createGame`, `importGame`, `exportGame` and `validateState` from
 converts the engine result union to the typed store result, and
 `validatedFromUnknown` is the only path that turns raw data into a game state.
 
+## Role capabilities
+
+`src/core/roles/ability.ts` is the role-side contract: a resolver receives
+read-only facts (the actor, the validated targets, the host's character answer,
+the impairment fact, an actual-character lookup) and returns typed intents.
+`src/core/engine/ability.ts` is the one coordinator: it builds the context,
+applies each intent through the shared mechanic and writes the shared impairment
+note. A resolver never receives the game state, so it cannot write unrelated
+state, set a winner or bypass an invariant.
+
+`src/core/roles/registry.ts` stays the single statically checked map, and
+`RoleModule.ability` is optional. A migrated role no longer falls through to an
+edition-specific branch. The Gambler is the pilot; the remaining role branches
+stay in `bmr.ts`, `sv.ts` and `night.ts` until their own reviewed slice, which
+keeps the migration reviewable role by role.
+
 ## Store transaction
 
 ```text

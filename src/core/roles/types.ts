@@ -1,5 +1,6 @@
 import type { SupportedRoleId } from "../model/role-ids.ts";
 import type { DeadAt, GameState, Player, RoleId } from "../model/types.ts";
+import type { RoleAbility } from "./ability.ts";
 
 /** The player targeting a role night step takes. */
 export type TargetMode = "none" | "one-any" | "one-other" | "two" | "po";
@@ -51,4 +52,6 @@ export interface RoleModule {
   readonly deathStep?: NightStepSpec;
   /** Runs when the player holding this role dies. Returns a Demon's succession. */
   readonly onDeath?: (state: GameState, event: RoleDeathEvent) => DeathOutcome | void;
+  /** Resolves the role's night step. Absent means the engine keeps its own path. */
+  readonly ability?: RoleAbility;
 }

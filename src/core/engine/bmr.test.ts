@@ -1951,45 +1951,43 @@ test("the Sailor makes the chosen recipient drunk until dusk and supports choosi
   assert.equal(isImpaired(state, "2", { phase: "night" as const, number: 2 }), false);
 });
 
-test("the Gambler dies on a wrong guess and survives a correct guess (BMR-GAMBLER-01)", () => {
-  const makeGambler = () =>
-    make(
-      {
-        1: "gambler",
-        2: "chambermaid",
-        3: "sailor",
-        4: "courtier",
-        5: "fool",
-        6: "po",
-      },
-      { count: 8 },
-    );
-  const setup = () => {
-    const state = makeGambler();
-    startNight(state);
-    finishNight(state);
-    assert.equal(endNight(state).ok, true);
-    assert.equal(endDay(state).ok, true);
-    const step = state.night.queue.find((candidate) => candidate.roleId === "gambler");
-    assert.ok(step);
-    return { state, step };
-  };
+function gamblerSecondNight() {
+  const state = make(
+    {
+      1: "gambler",
+      2: "chambermaid",
+      3: "sailor",
+      4: "courtier",
+      5: "fool",
+      6: "po",
+    },
+    { count: 8 },
+  );
+  startNight(state);
+  finishNight(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "gambler");
+  assert.ok(step);
+  return { state, step };
+}
 
-  const wrong = setup();
+test("the Gambler dies on a wrong guess and survives a correct guess (BMR-GAMBLER-01)", () => {
+  const wrong = gamblerSecondNight();
   assert.equal(
     completeStep(wrong.state, wrong.step.key, { targetIds: ["2"], roleId: "fool" }).ok,
     true,
   );
   assert.equal(wrong.state.players["1"].alive, false, "a wrong guess kills the Gambler");
 
-  const right = setup();
+  const right = gamblerSecondNight();
   assert.equal(
     completeStep(right.state, right.step.key, { targetIds: ["2"], roleId: "chambermaid" }).ok,
     true,
   );
   assert.equal(right.state.players["1"].alive, true, "a correct guess is harmless");
 
-  const impaired = setup();
+  const impaired = gamblerSecondNight();
   impaired.state.effects.push({
     id: "test-gambler-poison",
     kind: "poison",
@@ -2004,6 +2002,39 @@ test("the Gambler dies on a wrong guess and survives a correct guess (BMR-GAMBLE
     true,
   );
   assert.equal(impaired.state.players["1"].alive, true, "an impaired Gambler has no ability");
+  assert.equal(impaired.step.noteKey, "note.abilityFailed", "the shared failure note is kept");
+});
+
+test("the Gambler death records the ability and a dead target is legal (BMR-GAMBLER-01)", () => {
+  const correct = gamblerSecondNight();
+  correct.state.players["4"].alive = false;
+  assert.equal(
+    completeStep(correct.state, correct.step.key, { targetIds: ["4"], roleId: "courtier" }).ok,
+    true,
+  );
+  assert.equal(
+    correct.state.players["1"].alive,
+    true,
+    "a correct guess against a dead player is harmless",
+  );
+
+  const wrong = gamblerSecondNight();
+  wrong.state.players["4"].alive = false;
+  assert.equal(
+    completeStep(wrong.state, wrong.step.key, { targetIds: ["4"], roleId: "fool" }).ok,
+    true,
+  );
+  assert.equal(
+    wrong.state.players["1"].alive,
+    false,
+    "the Gambler may gamble on a player who is already dead",
+  );
+  const entry = wrong.state.deaths.find((death) => death.playerId === "1");
+  assert.ok(entry);
+  assert.equal(wrong.state.deaths.length, 1, "a wrong guess causes exactly one death");
+  assert.equal(entry.cause, "ability");
+  assert.equal(entry.ability, "gambler");
+  assert.equal(entry.bmr, true);
 });
 
 test("the Godfather learns the Outsiders in play on the first night (BMR-GODFATHER-01)", () => {
