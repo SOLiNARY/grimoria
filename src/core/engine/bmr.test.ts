@@ -2004,6 +2004,7 @@ test("the Gambler dies on a wrong guess and survives a correct guess (BMR-GAMBLE
     true,
   );
   assert.equal(impaired.state.players["1"].alive, true, "an impaired Gambler has no ability");
+  assert.equal(impaired.step.noteKey, "note.abilityFailed", "the shared failure note is kept");
 });
 
 test("the Gambler death records the ability and a dead target is legal (BMR-GAMBLER-01)", () => {
@@ -2053,6 +2054,7 @@ test("the Gambler death records the ability and a dead target is legal (BMR-GAMB
   );
   const entry = wrong.state.deaths.find((death) => death.playerId === "1");
   assert.ok(entry);
+  assert.equal(wrong.state.deaths.length, 1, "a wrong guess causes exactly one death");
   assert.equal(entry.cause, "ability");
   assert.equal(entry.ability, "gambler");
   assert.equal(entry.bmr, true);
