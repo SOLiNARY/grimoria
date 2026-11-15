@@ -12,9 +12,11 @@ specification by itself. A role is claimed as automated only when its matrix
 row is `verified`.
 
 Each supported role has one module in `src/core/roles/<role-id>/`. `role.ts`
-carries the role's night-step and death hooks; `rule.md` lists the rule
-identifiers, the matrix revision each audits and the asserting tests. Test names
-carry those identifiers, `scripts/check-acceptance.mjs` enforces the link, and
+carries the role's night-step and death hooks and, for a migrated role, a
+read-only `ability` resolver that returns typed intents for the engine to apply;
+`rule.md` lists the rule identifiers, the matrix revision each audits and the
+asserting tests. Test names carry those identifiers,
+`scripts/check-acceptance.mjs` enforces the link, and
 `node scripts/rules-for.mjs <roleId>` prints one role's dossier.
 
 The pinned ruleset is the three core editions: the 22 Trouble Brewing, 25 Bad

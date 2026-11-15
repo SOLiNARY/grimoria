@@ -78,7 +78,7 @@ import {
   seatName,
 } from "../model/state.ts";
 
-import { nightAt, addLog, insertStepInto } from "./context.ts";
+import { nightAt, addLog, insertStepInto, setStepNote } from "./context.ts";
 import { randomSuffix } from "./execution.ts";
 import { isImpaired } from "./effects.ts";
 
@@ -149,18 +149,6 @@ export function infoKindFor(roleId: RoleId | null): string {
       spy: "grimoire",
     }[roleId || ""] || "none"
   );
-}
-
-/** Sets the console key and the persisted fallback for one step note. */
-export function setStepNote(
-  step: NightStep,
-  key: string,
-  vars: Record<string, string | number> | null,
-  fallback: string,
-): void {
-  step.noteKey = key;
-  step.noteVars = vars;
-  step.note = fallback;
 }
 
 export function makeRoleStep(

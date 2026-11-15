@@ -39,11 +39,11 @@ import {
   realTeamOf,
 } from "../model/state.ts";
 
-import { addLog, nightAt, currentAt, cycleOf, insertStepInto } from "./context.ts";
+import { applyRoleAbility } from "./ability.ts";
+import { addLog, nightAt, currentAt, cycleOf, insertStepInto, setStepNote } from "./context.ts";
 import { randomSuffix } from "./execution.ts";
 import { kill, checkWin } from "./death.ts";
 import { effectActive, isImpaired } from "./effects.ts";
-import { setStepNote } from "./night.ts";
 import { roleModule } from "../roles/registry.ts";
 
 const DEMON_ROLES = new Set(["po", "pukka", "shabaloth", "zombuul"]);
@@ -509,6 +509,13 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
   const targets = options.targetIds || [];
   const at = currentAt(state);
   if (actor) actor.used = actor.used || {};
+  const module = role ? roleModule(role) : null;
+  if (module?.ability) {
+    // A migrated role never falls through to the branches below, so a missing
+    // resolution is a visible test failure instead of a silent fallback.
+    applyRoleAbility(state, module, step, targets, at, options.roleId ?? null);
+    return;
+  }
   if (role === "pukka" && actor) {
     const pendings = pukkaPendings(state, actor.id);
     if (isImpaired(state, actor.id, at)) {
@@ -717,24 +724,6 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
         bmr: true,
         bypassProtection: true,
       });
-    }
-    return;
-  }
-  if (role === "gambler" && actor && targets[0]) {
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    const target = playerById(state, targets[0]);
-    // The guess names a character, so the Recluse's registration as a Demon
-    // does not make a Demon guess correct.
-    if (target && options.roleId && target.roleId !== options.roleId) {
-      kill(state, actor.id, "ability", at, { ability: "gambler", bmr: true });
     }
     return;
   }
