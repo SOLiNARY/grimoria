@@ -90,6 +90,7 @@ const VERIFIED: readonly RoleId[] = [
 ];
 
 const STORYTELLER: readonly RoleId[] = [
+  "artist",
   "cerenovus",
   "chambermaid",
   "dreamer",
@@ -97,11 +98,12 @@ const STORYTELLER: readonly RoleId[] = [
   "mathematician",
   "mutant",
   "pacifist",
+  "savant",
   "tinker",
   "vortox",
 ];
 
-const UNSUPPORTED: readonly RoleId[] = ["artist", "savant"];
+const UNSUPPORTED: readonly RoleId[] = [];
 
 export const ROLE_SUPPORT: Readonly<Record<RoleId, SupportLevel>> = Object.fromEntries([
   ...VERIFIED.map((id) => [id, "verified"] as const),

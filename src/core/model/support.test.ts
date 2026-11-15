@@ -85,6 +85,7 @@ test("the three support levels name exactly the roles the matrix records", () =>
     SUPPORTED_ROLES.filter((id) => ROLE_SUPPORT[id] === level);
   assert.equal(byLevel("verified").length, 61);
   assert.deepEqual(byLevel("requires-storyteller-choice").sort(), [
+    "artist",
     "cerenovus",
     "chambermaid",
     "dreamer",
@@ -92,10 +93,11 @@ test("the three support levels name exactly the roles the matrix records", () =>
     "mathematician",
     "mutant",
     "pacifist",
+    "savant",
     "tinker",
     "vortox",
   ]);
-  assert.deepEqual(byLevel("unsupported").sort(), ["artist", "savant"]);
+  assert.deepEqual(byLevel("unsupported").sort(), []);
 });
 
 test("an unknown character is an explicit unsupported result, not a silent fallback", () => {
@@ -104,7 +106,7 @@ test("an unknown character is an explicit unsupported result, not a silent fallb
   assert.match(unknown.reason, /unknown character/i);
   assert.equal(roleSupport("imp").level, "verified");
   assert.equal(roleSupport("goon").level, "verified");
-  assert.equal(roleSupport("artist").level, "unsupported");
+  assert.equal(roleSupport("artist").level, "requires-storyteller-choice");
 });
 
 test("a script reports the three support levels instead of claiming full support", () => {
@@ -121,9 +123,9 @@ test("a script reports the three support levels instead of claiming full support
   assert.equal(bmr.counts["requires-storyteller-choice"], 3);
 
   const snv = scriptSupport(SNV_ALL);
-  assert.equal(snv.level, "unsupported");
-  assert.equal(snv.counts.unsupported, 2);
-  assert.equal(snv.counts["requires-storyteller-choice"], 5);
+  assert.equal(snv.level, "requires-storyteller-choice");
+  assert.equal(snv.counts.unsupported, 0);
+  assert.equal(snv.counts["requires-storyteller-choice"], 7);
   assert.equal(snv.counts.verified, 18);
 
   const tinker = scriptSupport(["chef", "tinker", "poisoner", "imp"]);

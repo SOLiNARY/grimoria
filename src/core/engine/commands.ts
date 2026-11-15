@@ -58,6 +58,7 @@ import type { Runtime } from "./runtime.ts";
 import { completeStep, endNight, skipStep, startNight } from "./night.ts";
 import {
   applyMadnessPenalty,
+  artistQuestion,
   cancelNomination,
   endDay,
   execute,
@@ -72,6 +73,7 @@ import {
   recoverClaim,
   reportJugglerGuesses,
   resetVotes,
+  savantVisit,
   tinkerDeath,
   useSlayer,
 } from "./day.ts";
@@ -667,6 +669,14 @@ const COMMANDS = {
   },
   gossipStatement: { apply: (state, payload) => gossipStatement(state, Boolean(payload.truth)) },
   jugglerGuess: { apply: (state, payload) => applyJugglerGuess(state, payload) },
+  artistQuestion: {
+    apply: (state, payload) =>
+      artistQuestion(state, payload.playerId, payload.question, payload.answer),
+  },
+  savantVisit: {
+    apply: (state, payload) =>
+      savantVisit(state, payload.playerId, payload.statements, payload.truth),
+  },
   moonchildChoice: { apply: (state, payload) => moonchildChoice(state, payload.targetId) },
   recordKlutzChoice: {
     apply: (state, payload) => recordKlutzChoice(state, payload.targetId),

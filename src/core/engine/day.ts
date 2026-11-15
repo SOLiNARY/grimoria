@@ -1,4 +1,12 @@
-import type { DeadAt, GameState, JugglerGuess, Player, RoleId } from "../model/types.ts";
+import type {
+  ArtistAnswer,
+  DeadAt,
+  GameState,
+  JugglerGuess,
+  Player,
+  RoleId,
+  SavantTruth,
+} from "../model/types.ts";
 
 type DayOptions = {
   spyRegistersTownsfolk?: boolean;
@@ -16,6 +24,8 @@ import {
   roleTeam,
 } from "../model/rules.ts";
 import {
+  effectiveRoleId,
+  hasAbility,
   livingPlayers,
   nowIso,
   orderedPlayers,
@@ -34,6 +44,7 @@ import {
   madnessEffects,
   madnessReviewsDue,
   reconcileNoDashiiPoison,
+  vortoxFalsifies,
 } from "./sv.ts";
 import { kill, resolveDemonDeath, checkWin, setWinner } from "./death.ts";
 
@@ -593,6 +604,140 @@ export function gossipStatement(state: GameState, truth: boolean) {
     detail: "Заявление " + (truth ? "истинно" : "ложно") + ". Ночью ведущий разрешает последствие.",
   });
   return { ok: true, gossip: state.gossip };
+}
+
+type DayAbilityLookup =
+  | { ok: false; result: { ok: false; errorCode: string; error: string } }
+  | { ok: true; player: Player };
+
+// The Artist and the Savant act in the day, in private. The shared guards keep
+// one implementation of the phase and holder checks; the role-specific rule
+// stays in its own function.
+function dayAbilityHolder(state: GameState, playerId: string, roleId: RoleId): DayAbilityLookup {
+  if (state.winner)
+    return { ok: false, result: { ok: false, errorCode: "error.6", error: "Игра уже окончена." } };
+  if (state.phase !== "day")
+    return { ok: false, result: { ok: false, errorCode: "error.7", error: "Сейчас не день." } };
+  if (state.day.ended)
+    return {
+      ok: false,
+      result: { ok: false, errorCode: "error.8", error: "День уже завершён." },
+    };
+  const player = playerById(state, playerId);
+  if (!player)
+    return { ok: false, result: { ok: false, errorCode: "error.1", error: "Игрок не найден." } };
+  if (!player.alive || !hasAbility(player, roleId))
+    return {
+      ok: false,
+      result: { ok: false, errorCode: "error.29", error: "Этого персонажа нет среди живых." },
+    };
+  return { ok: true, player };
+}
+
+const ARTIST_ANSWERS: readonly ArtistAnswer[] = ["yes", "no", "unknown"];
+
+// Artist r3156: once per game, during the day, privately ask any yes/no
+// question. The Storyteller answers yes, no or "I don't know"; the engine
+// records the private exchange and never interprets the free-form question.
+export function artistQuestion(
+  state: GameState,
+  playerId: string,
+  question: string,
+  answer: ArtistAnswer,
+) {
+  const lookup = dayAbilityHolder(state, playerId, "artist");
+  if (!lookup.ok) return lookup.result;
+  const player = lookup.player;
+  if (player.used.artist)
+    return {
+      ok: false,
+      errorCode: "error.60",
+      error: "Художник уже задал свой вопрос.",
+    };
+  const text = String(question == null ? "" : question).trim();
+  if (!text) return { ok: false, errorCode: "error.61", error: "Запишите вопрос Художника." };
+  if (!ARTIST_ANSWERS.includes(answer))
+    return {
+      ok: false,
+      errorCode: "error.61",
+      error: "Ответ ведущего: «да», «нет» или «не знаю».",
+    };
+  player.used.artist = true;
+  state.artist = {
+    day: state.day.number,
+    playerId: player.id,
+    question: text,
+    answer,
+  };
+  addLog(state, {
+    secret: true,
+    kind: "ability",
+    title: "Художник задаёт вопрос",
+    detail: "Вопрос: " + text + " Ответ: " + answer + ".",
+    playerId: player.id,
+  });
+  return { ok: true, artist: state.artist };
+}
+
+const SAVANT_TRUTHS: readonly SavantTruth[] = ["first", "second", "both", "neither"];
+
+// Savant r2910: one printed statement is true and one is false. A drunk or
+// poisoned Savant might get two true or two false statements. A living,
+// unimpaired Vortox makes the information false, so both statements are false.
+export function savantTruthChoices(state: GameState, playerId: string): SavantTruth[] {
+  const player = playerById(state, playerId);
+  if (vortoxFalsifies(state, effectiveRoleId(player))) return ["neither"];
+  const impaired = Boolean(player && isImpaired(state, player.id, dayAt(state)));
+  return impaired ? [...SAVANT_TRUTHS] : ["first", "second"];
+}
+
+export function savantVisit(
+  state: GameState,
+  playerId: string,
+  statements: [string, string],
+  truth: SavantTruth,
+) {
+  const lookup = dayAbilityHolder(state, playerId, "savant");
+  if (!lookup.ok) return lookup.result;
+  const player = lookup.player;
+  if (state.savant && state.savant.day === state.day.number)
+    return {
+      ok: false,
+      errorCode: "error.69",
+      error: "Савант уже посещал ведущего в этот день.",
+    };
+  const first = String(statements && statements[0] != null ? statements[0] : "").trim();
+  const second = String(statements && statements[1] != null ? statements[1] : "").trim();
+  if (!first || !second)
+    return { ok: false, errorCode: "error.70", error: "Запишите два утверждения Саванта." };
+  if (first === second)
+    return {
+      ok: false,
+      errorCode: "error.70",
+      error: "Два утверждения должны различаться.",
+    };
+  const choices = savantTruthChoices(state, player.id);
+  if (!SAVANT_TRUTHS.includes(truth) || !choices.includes(truth))
+    return {
+      ok: false,
+      errorCode: "error.71",
+      error:
+        "Одно утверждение истинно, другое ложно; при отравлении ведущий может выбрать иначе, а Вортокс делает оба ложными.",
+    };
+  state.savant = {
+    day: state.day.number,
+    playerId: player.id,
+    statements: [first, second],
+    truth,
+  };
+  addLog(state, {
+    secret: true,
+    kind: "ability",
+    title: "Савант посещает ведущего",
+    detail: "Утверждение 1: " + first + " Утверждение 2: " + second + ". Истина: " + truth + ".",
+    playerId: player.id,
+  });
+  return { ok: true, savant: state.savant };
 }
 
 // Tinker r1782: "You might die at any time." The Storyteller records a real

@@ -1,9 +1,11 @@
 // The phase cards: night, day, deal/setup and the over/review card. Each card
 // reads the published state and the draft hook; it keeps no state of its own.
 import {
+  artistProjection,
   madnessReviewProjection,
   poisonChoicesProjection,
   resurrectChoices,
+  savantProjection,
   secretsProjection,
   seatProjection,
   shownRoleChoices,
@@ -13,7 +15,7 @@ import { useEffect, useState } from "react";
 import { livingPlayers, orderedPlayers, playerById } from "../../../core/model/state.ts";
 import { ALL_ROLES, isManualScript } from "../../../core/model/rules.ts";
 import { roleSupportEntries } from "../../../core/model/support.ts";
-import type { NightStep } from "../../../core/model/types.ts";
+import type { ArtistAnswer, NightStep, SavantTruth } from "../../../core/model/types.ts";
 import {
   applyGiven,
   causeText,
@@ -813,6 +815,8 @@ export function DayCard({
           (player) => player.roleId === "slayer" && player.alive && !player.used.slayer,
         )
       : null;
+  const artist = !manual ? artistProjection(state) : null;
+  const savant = !manual ? savantProjection(state) : null;
   const canExecute =
     Boolean(drafts.executeTarget) &&
     Boolean(playerById(state, drafts.executeTarget)) &&
@@ -944,6 +948,12 @@ export function DayCard({
       ) : null}
 
       {slayer ? <SlayerPanel view={view} slayerId={slayer.id} /> : null}
+      {artist && !artist.used && !day.execution && !day.ended ? (
+        <ArtistPanel view={view} artistId={artist.playerId} />
+      ) : null}
+      {savant && !savant.visitedToday && !day.execution && !day.ended ? (
+        <SavantPanel view={view} savant={savant} />
+      ) : null}
       {manual ? null : <GossipPanel view={view} />}
       {manual ? null : <JugglerPanel view={view} />}
       {manual ? null : <MoonchildPanel view={view} />}
@@ -1174,6 +1184,135 @@ export function SlayerPanel({ view, slayerId }: { view: TableView; slayerId: str
           {t("useSlayer")}
         </button>
       </div>
+    </div>
+  );
+}
+
+const TRUTH_LABEL: Record<SavantTruth, string> = {
+  first: "savantTruthFirst",
+  second: "savantTruthSecond",
+  both: "savantTruthBoth",
+  neither: "savantTruthNeither",
+};
+
+export function ArtistPanel({ view, artistId }: { view: TableView; artistId: string }) {
+  const { ports, actions } = view;
+  const t = ports.strings.t;
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<ArtistAnswer>("yes");
+  return (
+    <div className="my-2.5 grid gap-1.5 rounded-sm border border-edge p-2.5" data-artist-panel>
+      <span className="label">{t("artist")}</span>
+      <p className={MUTED}>{t("artistHint")}</p>
+      <label className="grid gap-1 text-[13px]">
+        {t("artistQuestion")}
+        <input
+          className="field"
+          value={question}
+          data-artist-question
+          onChange={(event) => setQuestion(event.target.value)}
+        />
+      </label>
+      <label className="grid gap-1 text-[13px]">
+        {t("artistAnswer")}
+        <select
+          className="field"
+          value={answer}
+          data-artist-answer
+          onChange={(event) => setAnswer(event.target.value as ArtistAnswer)}
+        >
+          <option value="yes">{t("answerYes")}</option>
+          <option value="no">{t("answerNo")}</option>
+          <option value="unknown">{t("answerUnknown")}</option>
+        </select>
+      </label>
+      <button
+        className="btn"
+        type="button"
+        data-act="artist-question"
+        disabled={!question.trim()}
+        onClick={() => {
+          const result = actions.run({
+            type: "artistQuestion",
+            payload: { playerId: artistId, question, answer },
+          });
+          if (result.status === "allowed") setQuestion("");
+        }}
+      >
+        {t("recordArtist")}
+      </button>
+    </div>
+  );
+}
+
+export function SavantPanel({
+  view,
+  savant,
+}: {
+  view: TableView;
+  savant: { playerId: string; choices: SavantTruth[] };
+}) {
+  const { ports, actions } = view;
+  const t = ports.strings.t;
+  const [first, setFirst] = useState("");
+  const [second, setSecond] = useState("");
+  const [truth, setTruth] = useState<SavantTruth>(savant.choices[0] ?? "first");
+  const chosen = savant.choices.includes(truth) ? truth : (savant.choices[0] ?? "first");
+  return (
+    <div className="my-2.5 grid gap-1.5 rounded-sm border border-edge p-2.5" data-savant-panel>
+      <span className="label">{t("savant")}</span>
+      <p className={MUTED}>{t("savantHint")}</p>
+      <label className="grid gap-1 text-[13px]">
+        {t("savantFirstStatement")}
+        <input
+          className="field"
+          value={first}
+          data-savant-first
+          onChange={(event) => setFirst(event.target.value)}
+        />
+      </label>
+      <label className="grid gap-1 text-[13px]">
+        {t("savantSecondStatement")}
+        <input
+          className="field"
+          value={second}
+          data-savant-second
+          onChange={(event) => setSecond(event.target.value)}
+        />
+      </label>
+      <label className="grid gap-1 text-[13px]">
+        {t("savantTruth")}
+        <select
+          className="field"
+          value={chosen}
+          data-savant-truth
+          onChange={(event) => setTruth(event.target.value as SavantTruth)}
+        >
+          {savant.choices.map((choice) => (
+            <option key={choice} value={choice}>
+              {t(TRUTH_LABEL[choice])}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        className="btn"
+        type="button"
+        data-act="savant-visit"
+        disabled={!first.trim() || !second.trim()}
+        onClick={() => {
+          const result = actions.run({
+            type: "savantVisit",
+            payload: { playerId: savant.playerId, statements: [first, second], truth: chosen },
+          });
+          if (result.status === "allowed") {
+            setFirst("");
+            setSecond("");
+          }
+        }}
+      >
+        {t("recordSavant")}
+      </button>
     </div>
   );
 }
