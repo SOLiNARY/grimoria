@@ -80,6 +80,18 @@ export function insertStepInto(queue: NightStep[], step: NightStep) {
   else queue.splice(at, 0, step);
 }
 
+/** Sets the console key and the persisted fallback for one step note. */
+export function setStepNote(
+  step: NightStep,
+  key: string,
+  vars: Record<string, string | number> | null,
+  fallback: string,
+): void {
+  step.noteKey = key;
+  step.noteVars = vars;
+  step.note = fallback;
+}
+
 export function actorForRole(
   state: GameState,
   roleId: RoleId,
