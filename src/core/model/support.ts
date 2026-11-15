@@ -25,6 +25,7 @@ export interface SupportVerdict {
 }
 
 const VERIFIED: readonly RoleId[] = [
+  "assassin",
   "barber",
   "baron",
   "butler",
@@ -33,6 +34,7 @@ const VERIFIED: readonly RoleId[] = [
   "courtier",
   "devilsadvocate",
   "drunk",
+  "eviltwin",
   "exorcist",
   "fanggu",
   "flowergirl",
@@ -88,12 +90,10 @@ const VERIFIED: readonly RoleId[] = [
 ];
 
 const STORYTELLER: readonly RoleId[] = [
-  "assassin",
   "cerenovus",
   "chambermaid",
   "dreamer",
   "empath",
-  "eviltwin",
   "mathematician",
   "mutant",
   "pacifist",
