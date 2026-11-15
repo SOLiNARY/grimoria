@@ -33,10 +33,9 @@ import { isSupportedRole, nightSequence, roleLabel, roleTeam } from "../model/ru
 
 import { livingPlayers, nowIso, orderedPlayers, playerById, realTeamOf } from "../model/state.ts";
 
-import { addLog, currentAt, dayAt, insertStepInto, nightAt } from "./context.ts";
+import { addLog, currentAt, dayAt, insertStepInto, nightAt, setStepNote } from "./context.ts";
 import { checkWin, evilTwinPair, kill, setWinner } from "./death.ts";
 import { activeEffects, isImpaired } from "./effects.ts";
-import { setStepNote } from "./night.ts";
 import { vigormortisActive } from "./retention.ts";
 import { roleModule } from "../roles/registry.ts";
 import { stillWakes } from "../roles/sv-common.ts";
