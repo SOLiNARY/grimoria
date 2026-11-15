@@ -66,7 +66,7 @@
       `openspec validate --changes --strict`, `node scripts/check-acceptance.mjs`
       and `npm test`; every check passes.
 - [x] 6.2 Run the full `npm run verify`; it passes end to end.
-- [ ] 6.3 Run an independent review of the contract, the dependency direction,
+- [x] 6.3 Run an independent review of the contract, the dependency direction,
       the equivalence proof and the missing host-decision paths; apply the
       findings and rerun the affected checks.
 - [x] 6.4 Inspect `git diff` for unintended changes: no expected outcome, error
@@ -98,17 +98,30 @@
   changes; `openspec validate --changes --strict` passes 11 of 11.
 - GREEN: acceptance - `node scripts/check-acceptance.mjs` passes 72 matrix roles
   and 13 test files (12 before this change; the Gambler resolver test is cited).
-- GREEN: suites - `npm test` passes 617 of 617 tests on Node 26.13.0, Windows.
-  `npm run verify` passes end to end: typecheck, lint, format, 617 tests, build,
+- GREEN: suites - `npm test` passes 618 of 618 tests on Node 26.13.0, Windows.
+  `npm run verify` passes end to end: typecheck, lint, format, 618 tests, build,
   fallback, offline (383 assets), source policy, official provenance (82
   entries) and the acceptance check.
 - Rules check: compliant. `docs/official/wiki/Gambler.r3073.wikitext` says the
   Gambler chooses any player, dead or alive, and guesses their character; a
   wrong guess kills the Gambler, a correct guess does nothing and the Gambler is
   not told the result. The moved code keeps that behavior; the new
-  characterization test pins the dead-target rule and the death record.
-- Review: independent `code-reviewer` subagent on the diff. The result and the
-  applied findings are appended before the pull request opens.
+  characterization test pins the dead-target rule and the death record, and the
+  resolver test pins the self-target rule.
+- Review: independent `code-reviewer` subagent, verdict APPROVE with no blocker,
+  one should-fix and five nits. Applied:
+  - the recorded ability is derived from `module.id`, so `RoleEffect` no longer
+    duplicates it and a module cannot mislabel its own death;
+  - a self-target resolver test covers the last pinned sentence of the summary;
+  - the ADR and design name the pre-existing `sv-common.ts` engine imports and
+    the coordinator's membership in the existing engine component;
+  - `suppressed` is documented as the engine's generic note, with a different
+    variant required for Pukka's suspended poison;
+  - the duplicate Gambler fixture is one helper.
+  Retained without change: the reviewer's harness matched the deleted branch on
+  impaired, wrong, correct, absent-guess, dead-target and self-target paths; the
+  impaired-with-zero-target note difference is unreachable because the command
+  path requires one target.
 
 ## Remaining slices for #200
 

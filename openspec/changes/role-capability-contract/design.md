@@ -64,8 +64,6 @@ export interface AbilityContext {
 export type RoleEffect = {
   readonly kind: "kill";
   readonly playerId: string;
-  /** Recorded on the death entry as the ability that caused it. */
-  readonly ability: string;
 };
 
 export type AbilityDecision =
@@ -81,14 +79,18 @@ export interface RoleAbility {
 
 The fields are the Gambler's rule exactly: a target, a character answer, the
 actor, the impairment fact and a character lookup. Sleeping on an unused field
-would make the contract look broader than the evidence.
+would make the contract look broader than the evidence. The intent does not name
+the ability or the edition: the coordinator records `module.id` as the ability
+and derives the edition marker, so there is one source of truth.
 
 `suppressed` is a decision, not an engine assumption. The Gambler's official
 summary and the engine's established behavior are that drunk or poison removes
 the ability; the Assassin and the Courtier already show that the consequence of
 impairment is rule-specific, so the role states it. The engine owns the shared
 note text (`note.abilityFailed` and its Russian fallback), so the wording has one
-owner.
+owner. A rule that needs a different note or a different step result (Pukka's
+suspended poison) needs its own decision variant; `suppressed` must not grow
+role-specific payload.
 
 ### The coordinator lives in `src/core/engine/ability.ts`
 
@@ -108,8 +110,9 @@ the caller checks `module.ability` and otherwise keeps its own path. Otherwise
 it builds the context, calls `resolve` and applies every effect. A `kill` effect
 calls the existing `kill(state, playerId, "ability", at, extra)`. The `extra`
 object is built conditionally: for a Bad Moon Rising module it is
-`{ ability, bmr: true }`, exactly the object the old branch passed; for another
-edition it is `{ ability }`. The role never decides the edition marker.
+`{ ability: module.id, bmr: true }`, exactly the object the old branch passed;
+for another edition it is `{ ability: module.id }`. The role never decides the
+recorded ability or the edition marker.
 
 The coordinator does not re-validate targets, write a command result, set a
 winner or add journal lines. `kill()` already owns protection, the Fool, the
@@ -163,9 +166,12 @@ flowchart LR
 ```
 
 The new capability path adds no `roles → engine` edge. `engine/ability.ts` is
-imported by `engine/bmr.ts` only and is not exported from
-`engine/index.ts`. The #177 death hook keeps its existing engine imports; this
-change neither adds nor removes that edge.
+imported by `engine/bmr.ts` only and is not exported from `engine/index.ts`. It
+joins the existing `night → bmr → death → night` component; this slice removes
+the direct `bmr → night` and `sv → night` imports that existed for
+`setStepNote`, but `death → night` keeps those modules in the same component, so
+the pre-existing engine cycle remains out of scope. The #177 death hook keeps
+its existing engine imports; this change neither adds nor removes that edge.
 
 ## Equivalence of the Gambler path
 

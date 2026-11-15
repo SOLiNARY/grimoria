@@ -54,7 +54,6 @@ export type AbilityDecision =
 export type RoleEffect = {
   readonly kind: "kill";
   readonly playerId: string;
-  readonly ability: string;
 };
 ```
 
@@ -62,6 +61,10 @@ export type RoleEffect = {
 ability did nothing because its owner is drunk or poisoned; the engine writes
 the shared failure note, so the note text and locale key have one owner.
 `no-effect` means the rule resolved without a consequence.
+
+An intent names the target and the mechanic, never the acting ability or the
+edition: the engine derives both from the module that returned it, so a role
+cannot record a death under another ability's name.
 
 The union grows only with a migrated role. Host adjudication that happens
 during resolution (Artist, Savant, Dreamer) is a later variant with a legal
@@ -104,9 +107,9 @@ Storyteller" in the type system instead of a convention.
 the context, calls the resolver and applies each effect through the existing
 shared path. A `kill` intent goes through `kill()` from `death.ts`, so
 protection, the Fool, the Zombuul, the Sailor, the Tea Lady, impairment
-bookkeeping and `checkWin` behave exactly as before. The ability identifier is
-recorded on the death entry; the edition marker is derived by the engine, not by
-the role.
+bookkeeping and `checkWin` behave exactly as before. The engine records the
+module's own identifier as the ability on the death entry and derives the
+edition marker; neither comes from the role's intent.
 
 The coordinator is not an event bus and does not create a second journal. The
 existing journal, effect graph, replay and `pg.game.v4` state stay the only
@@ -116,15 +119,17 @@ ones.
 
 - A capability resolver may import `src/core/model` types and
   `src/core/roles/ability.ts`. It must not import `src/core/engine`.
-- The engine imports the registry and the contract types. That is the single
-  direction `engine → roles`.
+- The engine imports the registry and the contract types. On the capability path
+  the direction is one way, `engine → roles`; this change adds no reverse
+  import.
 - The registry stays an object literal checked by the compiler against
   `SupportedRoleId`, so a missing module still fails `npm run typecheck`.
   Behavioral coverage is asserted by tests per role, not by registry presence.
 
-The #177 death hook still imports engine helpers (`imp/role.ts` imports
-`becomeDemon`). Removing those edges is a later slice; this ADR forbids adding
-new ones on the capability path.
+The #177 modules keep their engine imports: `imp/role.ts` imports
+`becomeDemon`, and `roles/sv-common.ts` imports `engine/context.ts` and
+`engine/retention.ts`. Removing those edges is a later slice; this ADR forbids
+adding new ones on the capability path.
 
 ### 5. The step completion calls the capability once
 
