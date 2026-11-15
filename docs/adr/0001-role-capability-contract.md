@@ -180,7 +180,10 @@ when it changes behavior. A slice may not merge out of order with its base.
    tests. Behavior-preserving.
 2. **Pukka:** delayed poison and death. Needs an effect intent with a lifetime,
    a previous-victim fact and the impairment-suspension rule. Pinned r3074 and
-   the existing seven `BMR-PUKKA-*` rules are the source.
+   the existing seven `BMR-PUKKA-*` rules are the source. Implemented in
+   `openspec/changes/pukka-capability`: `poison`, `delay-death`,
+   `suspend-death`, `release-poisons` and `resolve-death` intents, with the
+   effect helpers in `engine/pukka.ts`.
 3. **Information and host-choice abilities:** Dreamer, Savant, Artist,
    Mathematician. Needs the pending-choice variant and private day workflows.
 4. **Execution, death and transformation contributions:** Assassin, Mastermind,
