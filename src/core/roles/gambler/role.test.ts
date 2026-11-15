@@ -12,6 +12,8 @@ function context(overrides: Partial<AbilityContext> = {}): AbilityContext {
     targetIds: ["2"],
     chosenRoleId: "chambermaid",
     impaired: false,
+    at: { phase: "night", number: 2 },
+    pendings: [],
     actualRoleOf: (id) => CHARS[id] ?? null,
     hasPlayer: (id) => id in CHARS,
     ...overrides,

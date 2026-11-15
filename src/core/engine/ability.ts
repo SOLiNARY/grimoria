@@ -1,10 +1,11 @@
 import type { DeadAt, GameState, NightStep, RoleId } from "../model/types.ts";
 import { playerById } from "../model/state.ts";
-import type { AbilityDecision, RoleEffect } from "../roles/ability.ts";
+import type { AbilityDecision, PendingDeathFact, RoleEffect } from "../roles/ability.ts";
 import type { RoleModule } from "../roles/types.ts";
 import { setStepNote } from "./context.ts";
 import { kill } from "./death.ts";
 import { isImpaired } from "./effects.ts";
+import { delayPukkaDeath, poisonPukkaPlayer, pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
 
 /**
  * Runs one module-declared ability and applies its intents through the shared
@@ -27,10 +28,18 @@ export function applyRoleAbility(
     targetIds: targets,
     chosenRoleId,
     impaired: isImpaired(state, actorId, at),
+    at: { phase: "night", number: at.number },
+    pendings: pukkaPendings(state, actorId).map((effect): PendingDeathFact => ({
+      id: effect.id,
+      playerId: effect.targetId == null ? null : String(effect.targetId),
+      suspended: Boolean(effect.suspended),
+      resumeOnHealthy: effect.resumeOnHealthy === true,
+      resolveAtNight: effect.resolve ? Number(effect.resolve.number) : null,
+    })),
     actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
     hasPlayer: (playerId) => playerById(state, playerId) != null,
   });
-  applyDecision(state, module, step, decision, at);
+  applyDecision(state, module, step, decision, at, actorId);
 }
 
 function applyDecision(
@@ -39,28 +48,84 @@ function applyDecision(
   step: NightStep,
   decision: AbilityDecision,
   at: DeadAt,
+  actorId: string,
 ): void {
+  if (decision.kind === "no-effect") return;
   if (decision.kind === "suppressed") {
+    for (const effect of decision.effects || []) {
+      applyEffect(state, module, effect, at, actorId);
+    }
     setStepNote(
       step,
-      "note.abilityFailed",
+      decision.noteKey || "note.abilityFailed",
       null,
-      "Способность не сработала: игрок отравлен или пьян.",
+      decision.text || "Способность не сработала: игрок отравлен или пьян.",
     );
+    if (decision.result) step.result = { ...decision.result };
     return;
   }
-  if (decision.kind !== "effects") return;
-  for (const effect of decision.effects) applyEffect(state, module, effect, at);
+  const resolved = [];
+  for (const effect of decision.effects) {
+    const outcome = applyEffect(state, module, effect, at, actorId);
+    if (outcome) resolved.push(outcome);
+  }
+  if (decision.note) {
+    setStepNote(step, decision.note.key, decision.note.vars || null, decision.note.text);
+  }
+  if (decision.result) {
+    const result: Record<string, unknown> = { ...decision.result };
+    if (resolved.length) {
+      const last = resolved.at(-1);
+      if (last && typeof last === "object" && "death" in last) {
+        result.deaths = last.death ? [last.death] : [];
+        result.resolved = last;
+      }
+    }
+    step.result = result;
+  }
 }
 
-function applyEffect(state: GameState, module: RoleModule, effect: RoleEffect, at: DeadAt): void {
-  // The ability name and the edition marker are engine bookkeeping, so they
-  // come from the module, not from the role's intent.
-  kill(
-    state,
-    effect.playerId,
-    "ability",
-    at,
-    module.edition === "bmr" ? { ability: module.id, bmr: true } : { ability: module.id },
-  );
+function applyEffect(
+  state: GameState,
+  module: RoleModule,
+  effect: RoleEffect,
+  at: DeadAt,
+  actorId: string,
+): unknown {
+  switch (effect.kind) {
+    case "kill":
+      // The ability name and the edition marker are engine bookkeeping, so
+      // they come from the module, not from the role's intent.
+      kill(
+        state,
+        effect.playerId,
+        "ability",
+        at,
+        module.edition === "bmr" ? { ability: module.id, bmr: true } : { ability: module.id },
+      );
+      return null;
+    case "poison":
+      return poisonPukkaPlayer(state, actorId, effect.playerId, at);
+    case "delay-death":
+      return delayPukkaDeath(state, actorId, effect.playerId, at, effect.resolveAtNight);
+    case "suspend-death": {
+      const pending = state.effects.find((candidate) => candidate.id === effect.pendingId);
+      if (!pending) return null;
+      pending.suspended = effect.reason;
+      if (effect.resumeOnHealthy !== undefined) pending.resumeOnHealthy = effect.resumeOnHealthy;
+      return null;
+    }
+    case "release-poisons":
+      for (const candidate of state.effects) {
+        if (candidate.kind !== "poison" || candidate.pukka !== true) continue;
+        if (candidate.sourceId !== actorId) continue;
+        if (candidate.targetId === effect.keepPlayerId) continue;
+        candidate.active = false;
+      }
+      return null;
+    case "resolve-death": {
+      const pending = state.effects.find((candidate) => candidate.id === effect.pendingId) || null;
+      return resolvePukkaDeath(state, pending, at);
+    }
+  }
 }

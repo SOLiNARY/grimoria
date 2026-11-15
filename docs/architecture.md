@@ -52,9 +52,9 @@ state, set a winner or bypass an invariant.
 
 `src/core/roles/registry.ts` stays the single statically checked map, and
 `RoleModule.ability` is optional. A migrated role no longer falls through to an
-edition-specific branch. The Gambler is the pilot; the remaining role branches
-stay in `bmr.ts`, `sv.ts` and `night.ts` until their own reviewed slice, which
-keeps the migration reviewable role by role.
+edition-specific branch. The Gambler and Pukka are migrated; the remaining role
+branches stay in `bmr.ts`, `sv.ts` and `night.ts` until their own reviewed
+slice, which keeps the migration reviewable role by role.
 
 ## Store transaction
 
