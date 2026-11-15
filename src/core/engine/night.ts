@@ -290,6 +290,7 @@ export function pruneDeadSteps(state: GameState) {
     if (minionRetainsAbility(state, actor.id)) continue;
     step.done = true;
     step.skipped = true;
+    if (step.roleId === "mathematician") state.abnormal = [];
     setStepNote(step, "note.actorDied", null, "Игрок погиб до своего шага.");
     addLog(state, {
       secret: true,
@@ -881,6 +882,7 @@ export function skipStep(state: GameState, key: string, reason: string = "") {
   const note = String(reason || "").trim();
   step.skipped = true;
   step.done = true;
+  if (step.roleId === "mathematician") state.abnormal = [];
   if (note) {
     setStepNote(step, "note.skipped", { reason: note }, "Пропущено: " + note);
   } else {

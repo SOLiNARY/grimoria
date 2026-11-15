@@ -108,14 +108,13 @@ export function reconcileMutantMadness(state: GameState) {
 }
 
 // Mathematician r3153: the count is the number of characters carrying an
-// ABNORMAL reminder for the current day and night. The Storyteller marks each
-// abnormal working; the engine only counts and never infers the cause.
-export function abnormalCount(state: GameState, at: DeadAt = currentAt(state)): number {
+// ABNORMAL reminder since the last Mathematician wake. The Storyteller marks
+// each abnormal working; the engine only counts and never infers the cause.
+// The step clears the ledger, so the interval is exactly the live marks.
+export function abnormalCount(state: GameState): number {
   const ids = new Set<string>();
   for (const mark of state.abnormal || []) {
-    if (!mark || !mark.playerId || !mark.at) continue;
-    if (mark.at.number !== at.number) continue;
-    if (mark.at.phase !== "day" && mark.at.phase !== "night") continue;
+    if (!mark || !mark.playerId) continue;
     ids.add(mark.playerId);
   }
   return ids.size;
@@ -132,14 +131,12 @@ export function recordAbnormal(state: GameState, playerId: string, reason: strin
   if (!text)
     return { ok: false, errorCode: "error.72", error: "Запишите причину аномальной работы." };
   const at = currentAt(state);
-  const duplicate = (state.abnormal || []).some(
-    (mark) => mark.playerId === player.id && mark.at && mark.at.number === at.number,
-  );
+  const duplicate = (state.abnormal || []).some((mark) => mark.playerId === player.id);
   if (duplicate)
     return {
       ok: false,
       errorCode: "error.72",
-      error: "У этого игрока уже есть отметка за текущий день и ночь.",
+      error: "У этого игрока уже есть отметка с прошлого пробуждения Математика.",
     };
   state.abnormal = [...(state.abnormal || []), { playerId: player.id, reason: text, at }];
   addLog(state, {
@@ -957,14 +954,20 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
     };
   }
   if (role === "mathematician") {
-    const falsified = impaired || vortoxFalsifies(state, role);
-    const value = abnormalCount(state, currentAt(state));
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
+    const value = abnormalCount(state);
+    // A Vortox must not show the true number; an impaired Mathematician may
+    // receive any number because the ability did not work.
+    const options = falsified
+      ? numberChoices(orderedPlayers(state).length).filter((choice) => !vortox || choice !== value)
+      : [];
     return {
       kind: "number",
       value,
       impaired,
       needsChoice: falsified,
-      options: falsified ? numberChoices(orderedPlayers(state).length) : [],
+      options,
       textKey: "note.sv.mathematician",
       falsifiedSuffix: falsified,
       text:

@@ -41,11 +41,12 @@
 - [x] 5.1 `npm run verify`.
 - [x] 5.2 `node scripts/check-acceptance.mjs`, `node scripts/openspec-check.mjs`,
   `openspec validate --changes --strict`, `openspec validate --specs --strict`.
-- [x] 5.3 Run the app at `/table` during a night, open the table menu, mark one
-  abnormal ability, check that the Mathematician step shows 1, complete the step
-  and confirm the ledger clears; screenshots
-  `docs/evidence/after-mathematician-1280.png` and
-  `after-mathematician-390.png`, no console errors and no horizontal overflow.
+- [x] 5.3 Run the app at `/table` during a day and a night, mark one abnormal
+  ability, check that the Mathematician step shows the count, and capture the
+  panel at desktop and ~390 px.
+- [x] 5.4 Cover a mark made during the preceding day at the next wake, the
+  skipped/dead wake clearing the window, and the Vortox rejecting the true
+  number.
 
 ## Evidence
 

@@ -27,9 +27,9 @@ abnormal.
 
 ### Requirement: Computed Mathematician count
 
-The Mathematician SHALL learn the number of distinct characters marked in the
-current day and night, SHALL ignore marks from an earlier day and night, and
-SHALL clear the marks after the step resolves.
+The Mathematician SHALL learn the number of distinct characters marked since
+the last Mathematician wake, SHALL count a working from the preceding day, and
+SHALL clear the marks after the step resolves or is skipped.
 
 **Source**: [Mathematician r3153](https://wiki.bloodontheclocktower.com/index.php?title=Mathematician&oldid=3153)
 **Tests**: `src/core/engine/snv.test.ts`
@@ -39,16 +39,24 @@ SHALL clear the marks after the step resolves.
 - **WHEN** two characters are marked and the Mathematician wakes that night
 - **THEN** the step shows 2 and the marks are removed after it completes
 
-#### Scenario: Old mark
+#### Scenario: Mark from the preceding day
 
-- **WHEN** a mark carries the previous night's number
-- **THEN** it does not contribute to the count
+- **WHEN** a character is marked during day 1 and the Mathematician wakes on
+  night 2
+- **THEN** the step counts that character
+
+#### Scenario: Skipped wake
+
+- **WHEN** the Mathematician step is skipped or its actor died
+- **THEN** the window closes and the marks do not carry into a later wake
 
 ### Requirement: False Mathematician number
 
 When the Mathematician is drunk or poisoned, or a living unimpaired Vortox is in
 play, the engine SHALL keep the computed count but SHALL require a host number
-from 0 to the player count, and SHALL store the chosen number.
+from 0 to the player count, and SHALL store the chosen number. Under a living
+unimpaired Vortox the true number SHALL NOT be offered or accepted. An impaired
+Mathematician without a Vortox MAY receive any number, including the true one.
 
 **Source**: [Mathematician r3153](https://wiki.bloodontheclocktower.com/index.php?title=Mathematician&oldid=3153), [Vortox r3017](https://wiki.bloodontheclocktower.com/index.php?title=Vortox&oldid=3017)
 **Tests**: `src/core/engine/snv.test.ts`
@@ -59,3 +67,10 @@ from 0 to the player count, and SHALL store the chosen number.
   play
 - **THEN** completing the step without a provided number is rejected and a
   provided option is stored
+
+#### Scenario: Vortox true number
+
+- **WHEN** the Mathematician is healthy and a living unimpaired Vortox is in
+  play
+- **THEN** the true number is not offered and a command that provides it is
+  rejected

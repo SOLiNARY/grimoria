@@ -33,19 +33,21 @@ day or night, no winner, a real player and a trimmed reason. It rejects a
 second mark for the same player in the same day/night number, so the ledger
 matches the "one ABNORMAL reminder per character" procedure.
 
-### The window is the current day and night number
+### The window is since the last Mathematician wake
 
-The Mathematician wakes at night N after day N. A mark made during day N or
-night N counts; a mark from night N-1 has number N-1 and does not. The step
-clears the ledger after it resolves, matching "remove all ABNORMAL reminders".
+Night 1 runs before day 1; night N+1 follows day N. A mark made during day N
+must therefore count at night N+1, not be dropped by a same-number rule. The
+step clears the ledger whenever it resolves or is skipped, so the live marks are
+exactly the interval "since dawn" for the next wake.
 
 ### The count is computed; the number shown may be false
 
 `svInfoForStep` returns `kind: "number"` with the true count and no choice in a
 healthy game. If the Mathematician is impaired or a living unimpaired Vortox is
-in play, it keeps the true value in `value` but sets `needsChoice` with options
-0..players, so the host supplies the false number. This reuses the same host
-choice path as the Chef, Empath and Juggler.
+in play, it keeps the true value in `value` but sets `needsChoice`. Under a
+living unimpaired Vortox, the options exclude the true value so the host cannot
+accidentally give true information; an impaired Mathematician without a Vortox
+may be offered any number, including the true one.
 
 ### One UI surface
 

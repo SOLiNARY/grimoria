@@ -619,12 +619,15 @@ export default {
     "Only a good player can survive an execution, and only while the Pacifist is alive and unimpaired.",
   "error.58": "The Tinker is not in play or is already dead.",
   "error.59": "The Tinker is poisoned or drunk: the ability does not work.",
+<<<<<<< HEAD
   "error.60": "The Artist has already asked the question.",
   "error.61": "Record the private question and answer yes, no or I don't know.",
   "error.69": "The Savant has already visited the Storyteller today.",
   "error.70": "Record two different statements.",
   "error.71":
     "One statement is true and the other is false; an impaired Savant may differ, and a Vortox makes both false.",
+=======
+>>>>>>> 2b24251 (fix(snv): count the mathematician window since the last wake)
   "error.72": "Record a reason; mark each character once between Mathematician wakes.",
   "error.62": "The player has no active madness.",
   "error.63": "Choose a legal madness penalty: execution or no consequence.",

@@ -13,7 +13,6 @@ import {
   roleTeam,
 } from "../model/rules.ts";
 import {
-  clone,
   createGame,
   exportGame,
   importGame,
@@ -52,6 +51,7 @@ import {
   replaceCharacter,
   replay,
   setupErrors,
+  skipStep,
   startNight,
 } from "./index.ts";
 import { reconcileNoDashiiPoison } from "./index.ts";
@@ -3115,18 +3115,6 @@ test("the Storyteller marks abnormal abilities and the Mathematician counts them
   });
   assert.equal(duplicate.status, "rejected", "one reminder per character in the window");
 
-  const older = clone(state);
-  older.abnormal.push({ playerId: "4", reason: "Old event", at: { phase: "night", number: 0 } });
-  assert.equal(
-    infoForStep(
-      older,
-      older.night.queue.find((s) => s.roleId === "mathematician")!,
-      {},
-    ).value,
-    2,
-    "a mark from an earlier day and night is not counted",
-  );
-
   assert.equal(completeStep(state, step.key, {}).ok, true);
   assert.deepEqual(state.abnormal, [], "the reminders are removed after the Mathematician wakes");
   assert.equal(
@@ -3134,6 +3122,30 @@ test("the Storyteller marks abnormal abilities and the Mathematician counts them
     false,
     "the private marking reason stays out of public data",
   );
+});
+
+test("the Mathematician counts an abnormal working from the preceding day (SNV-MATHEMATICIAN-01)", () => {
+  const state = make({ 1: "mathematician", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  startNight(state);
+  for (let guard = 0; guard < 40; guard += 1) {
+    const step = currentStep(state);
+    if (!step) break;
+    assert.equal(skipStep(state, step.key, "fixture").ok, true);
+  }
+  assert.equal(endNight(state).ok, true);
+  assert.equal(state.phase, "day");
+  const marked = applyCommand(state, {
+    id: "day-abnormal",
+    type: "recordAbnormal",
+    payload: { playerId: "2", reason: "A day ability worked abnormally." },
+  });
+  assert.equal(marked.status, "allowed", JSON.stringify(marked));
+
+  assert.equal(endDay(state).ok, true);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "mathematician")!;
+  assert.equal(infoForStep(state, step, {}).value, 1, "the day mark is counted at night 2");
+  assert.equal(completeStep(state, step.key, {}).ok, true);
+  assert.deepEqual(state.abnormal, [], "the window closes after the step");
 });
 
 test("the Mathematician requires a host number when impaired or under a Vortox (SNV-MATHEMATICIAN-02)", () => {
@@ -3148,11 +3160,14 @@ test("the Mathematician requires a host number when impaired or under a Vortox (
   const info = infoForStep(state, step, {});
   assert.equal(info.value, 1, "the engine still computes the true count");
   assert.equal(info.needsChoice, true, "the Vortox makes the shown number false");
+  assert.equal(info.options!.includes(1), false, "the Vortox cannot show the true number");
   assert.ok(info.options!.includes(0) && info.options!.includes(7));
 
   const missing = completeStep(state, step.key, {});
   assert.equal(missing.ok, false, "the host must choose a number");
   assert.equal("needsChoice" in missing && missing.needsChoice, true);
+  const trueNumber = completeStep(state, step.key, { given: { kind: "number", value: 1 } });
+  assert.equal(trueNumber.ok, false, "the Vortox cannot give the true number");
   const given = completeStep(state, step.key, { given: { kind: "number", value: 4 } });
   assert.equal(given.ok, true, JSON.stringify(given));
   assert.equal(step.given!.value, 4, "the false number is stored");
