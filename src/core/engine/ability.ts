@@ -30,12 +30,12 @@ export function applyRoleAbility(
     actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
     hasPlayer: (playerId) => playerById(state, playerId) != null,
   });
-  applyDecision(state, module.edition, step, decision, at);
+  applyDecision(state, module, step, decision, at);
 }
 
 function applyDecision(
   state: GameState,
-  edition: RoleModule["edition"],
+  module: RoleModule,
   step: NightStep,
   decision: AbilityDecision,
   at: DeadAt,
@@ -50,21 +50,17 @@ function applyDecision(
     return;
   }
   if (decision.kind !== "effects") return;
-  for (const effect of decision.effects) applyEffect(state, edition, effect, at);
+  for (const effect of decision.effects) applyEffect(state, module, effect, at);
 }
 
-function applyEffect(
-  state: GameState,
-  edition: RoleModule["edition"],
-  effect: RoleEffect,
-  at: DeadAt,
-): void {
-  // The edition marker is engine bookkeeping, not a role decision.
+function applyEffect(state: GameState, module: RoleModule, effect: RoleEffect, at: DeadAt): void {
+  // The ability name and the edition marker are engine bookkeeping, so they
+  // come from the module, not from the role's intent.
   kill(
     state,
     effect.playerId,
     "ability",
     at,
-    edition === "bmr" ? { ability: effect.ability, bmr: true } : { ability: effect.ability },
+    module.edition === "bmr" ? { ability: module.id, bmr: true } : { ability: module.id },
   );
 }

@@ -14,7 +14,7 @@ export const role = {
       if (actualRoleOf(target) === chosenRoleId) return { kind: "no-effect" };
       return {
         kind: "effects",
-        effects: [{ kind: "kill", playerId: actorId, ability: "gambler" }],
+        effects: [{ kind: "kill", playerId: actorId }],
       };
     },
   },

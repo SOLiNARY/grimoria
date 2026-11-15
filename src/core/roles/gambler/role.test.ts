@@ -25,7 +25,17 @@ test("the Gambler module declares its ability resolver", () => {
 test("a wrong Gambler guess returns one fatal intent for the actor (BMR-GAMBLER-01)", () => {
   assert.deepEqual(role.ability?.resolve(context({ chosenRoleId: "fool" })), {
     kind: "effects",
-    effects: [{ kind: "kill", playerId: "1", ability: "gambler" }],
+    effects: [{ kind: "kill", playerId: "1" }],
+  });
+});
+
+test("the Gambler may target themself and a wrong self-guess still kills (BMR-GAMBLER-01)", () => {
+  assert.deepEqual(role.ability?.resolve(context({ targetIds: ["1"], chosenRoleId: "gambler" })), {
+    kind: "no-effect",
+  });
+  assert.deepEqual(role.ability?.resolve(context({ targetIds: ["1"], chosenRoleId: "fool" })), {
+    kind: "effects",
+    effects: [{ kind: "kill", playerId: "1" }],
   });
 });
 

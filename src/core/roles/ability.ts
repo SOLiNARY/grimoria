@@ -23,13 +23,15 @@ export interface AbilityContext {
 export type RoleEffect = {
   readonly kind: "kill";
   readonly playerId: string;
-  /** Recorded on the death entry as the ability that caused it. */
-  readonly ability: string;
 };
 
 export type AbilityDecision =
   | { readonly kind: "effects"; readonly effects: readonly RoleEffect[] }
-  /** The ability did nothing because its owner is drunk or poisoned. */
+  /**
+   * The ability did nothing because its owner is drunk or poisoned. The engine
+   * writes its generic failure note; a rule with a different note or a
+   * different step result needs its own decision variant.
+   */
   | { readonly kind: "suppressed" }
   | { readonly kind: "no-effect" };
 
