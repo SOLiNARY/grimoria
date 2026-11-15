@@ -1,4 +1,4 @@
-import type { DeadAt, Effect, GameState, NightStep, Player, RoleId } from "../model/types.ts";
+import type { DeadAt, GameState, NightStep, Player, RoleId } from "../model/types.ts";
 
 import type { TargetMode } from "../roles/types.ts";
 
@@ -40,10 +40,11 @@ import {
 } from "../model/state.ts";
 
 import { applyRoleAbility } from "./ability.ts";
-import { addLog, nightAt, currentAt, cycleOf, insertStepInto, setStepNote } from "./context.ts";
+import { addLog, nightAt, currentAt, insertStepInto, setStepNote } from "./context.ts";
 import { randomSuffix } from "./execution.ts";
 import { kill, checkWin } from "./death.ts";
-import { effectActive, isImpaired } from "./effects.ts";
+import { isImpaired } from "./effects.ts";
+import { pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
 import { roleModule } from "../roles/registry.ts";
 
 const DEMON_ROLES = new Set(["po", "pukka", "shabaloth", "zombuul"]);
@@ -94,110 +95,6 @@ function livingLunatic(state: GameState): Player | null {
   return (
     orderedPlayers(state).find((player) => player.roleId === "lunatic" && player.alive) || null
   );
-}
-
-// The Pukka's poison and its delayed death are two effects from one ability:
-// the poison impairs the target from the moment it is chosen, and the pending
-// death resolves at the next Pukka step (or an Exorcist skip). A dead or
-// impaired Pukka keeps the pending death on hold until the source is healthy
-// again (wiki r3074).
-function pendingOrder(effect: Effect): number {
-  return effect.resolve ? cycleOf(effect.resolve) : -Infinity;
-}
-
-function sortPendings(left: Effect, right: Effect): number {
-  return (
-    pendingOrder(left) - pendingOrder(right) || String(left.id).localeCompare(String(right.id))
-  );
-}
-
-function pukkaPendings(state: GameState, sourceId: string): Effect[] {
-  return state.effects
-    .filter(
-      (effect) =>
-        effect.kind === "pukka-death" && effect.sourceId === sourceId && effect.active !== false,
-    )
-    .sort(sortPendings);
-}
-
-function resolvePukkaDeath(
-  state: GameState,
-  pending: Effect | null,
-  at: DeadAt,
-  { allowResume = false }: { allowResume?: boolean } = {},
-) {
-  if (!pending) return null;
-  if (pending.resumeOnHealthy && !allowResume) return null;
-  if (!effectActive(state, pending, at)) return null;
-  if (pending.resolve && cycleOf(at) < cycleOf(pending.resolve)) return null;
-  const target = pending.targetId == null ? null : playerById(state, pending.targetId);
-  const wasAlive = Boolean(target && target.alive);
-  // Kill while the poison is still active so the death record keeps the
-  // impaired state; then the victim becomes healthy.
-  const death =
-    wasAlive && target
-      ? kill(state, target.id, "ability", at, { demon: true, ability: "pukka" })
-      : null;
-  // Choosing the same player twice leaves two Pukka poisons on the victim.
-  // Clearing every Pukka effect for this source and target restores health
-  // without touching poison from another source.
-  for (const effect of state.effects) {
-    if (effect.sourceId !== pending.sourceId || effect.targetId !== pending.targetId) continue;
-    if (effect.kind === "pukka-death" || (effect.kind === "poison" && effect.pukka === true)) {
-      effect.active = false;
-    }
-  }
-  return { targetId: pending.targetId, death, skipped: !wasAlive, prevented: wasAlive && !death };
-}
-
-// A self-target suspension waits for the Pukka to become healthy; resolve it
-// inside the command that removes the impairment, not on a later Pukka step.
-export function resolveSuspendedPukkaDeaths(state: GameState, at: DeadAt = currentAt(state)) {
-  const pendings = state.effects
-    .filter(
-      (effect) =>
-        effect.kind === "pukka-death" && effect.active !== false && effect.resumeOnHealthy === true,
-    )
-    .sort(sortPendings);
-  const resolved = [];
-  for (const pending of pendings) {
-    const result = resolvePukkaDeath(state, pending, at, { allowResume: true });
-    if (result) resolved.push(result);
-  }
-  if (resolved.some((result) => result.death)) checkWin(state);
-  return resolved;
-}
-
-function poisonPukkaTarget(
-  state: GameState,
-  actor: Player,
-  targetId: string,
-  at: DeadAt,
-): Effect | null {
-  const target = playerById(state, targetId);
-  if (!target) return null;
-  const poison = {
-    id: "eff-pukka-poison-" + actor.id + "-" + at.number,
-    kind: "poison",
-    pukka: true,
-    sourceId: actor.id,
-    targetId: target.id,
-    start: at,
-    expires: null,
-    active: true,
-  };
-  const pending = {
-    id: "eff-pukka-death-" + actor.id + "-" + at.number,
-    kind: "pukka-death",
-    sourceId: actor.id,
-    targetId: target.id,
-    start: at,
-    resolve: { phase: "night", number: at.number + 1 } as DeadAt,
-    expires: null,
-    active: true,
-  };
-  state.effects.push(poison, pending);
-  return poison;
 }
 
 function bmrStepKey(
@@ -514,58 +411,6 @@ export function completeBmrStep(state: GameState, step: NightStep, options: BmrO
     // A migrated role never falls through to the branches below, so a missing
     // resolution is a visible test failure instead of a silent fallback.
     applyRoleAbility(state, module, step, targets, at, options.roleId ?? null);
-    return;
-  }
-  if (role === "pukka" && actor) {
-    const pendings = pukkaPendings(state, actor.id);
-    if (isImpaired(state, actor.id, at)) {
-      for (const pending of pendings) {
-        if (pending.resumeOnHealthy) continue;
-        if (!pending.resolve || cycleOf(at) >= cycleOf(pending.resolve)) {
-          pending.suspended = "impaired";
-        }
-      }
-      setStepNote(
-        step,
-        "note.pukkaSuspended",
-        null,
-        "Способность не сработала: Пукка отравлен или пьян. Яд на прежней цели приостановлен.",
-      );
-      step.result = { deaths: [], poisonedId: null, suspended: true };
-      return;
-    }
-    const previous = pendings.find((pending) => !pending.resumeOnHealthy) || null;
-    const targetId = targets[0];
-    const selfTarget = targetId != null && String(targetId) === String(actor.id);
-    // The new poison lands first: it can impair a protector (for example the
-    // Tea Lady) before the previous victim's death is resolved.
-    const poison = poisonPukkaTarget(state, actor, targetId!, at);
-    if (selfTarget) {
-      if (previous) {
-        previous.suspended = "self-target";
-        previous.resumeOnHealthy = true;
-      }
-      // The previous victim becomes healthy, but its death stays on hold.
-      for (const effect of state.effects) {
-        if (effect.kind !== "poison" || effect.pukka !== true) continue;
-        if (effect.sourceId !== actor.id) continue;
-        if (String(effect.targetId) === String(actor.id)) continue;
-        effect.active = false;
-      }
-      step.result = {
-        deaths: [],
-        resolved: null,
-        poisonedId: poison ? poison.targetId : null,
-        suspended: true,
-      };
-      return;
-    }
-    const resolved = resolvePukkaDeath(state, previous, at);
-    step.result = {
-      deaths: resolved && resolved.death ? [resolved.death] : [],
-      resolved: resolved || null,
-      poisonedId: poison ? poison.targetId : null,
-    };
     return;
   }
   if (role === "po" && actor) actor.used.poNoOne = targets.length === 0;

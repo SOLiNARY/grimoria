@@ -78,7 +78,8 @@ import {
 } from "./day.ts";
 import { autoSecrets, claimSeat, dealGame } from "./setup.ts";
 import { manualCorrection } from "./corrections.ts";
-import { recordBmrOutcome, resolveSuspendedPukkaDeaths, resurrectPlayer } from "./bmr.ts";
+import { recordBmrOutcome, resurrectPlayer } from "./bmr.ts";
+import { resolveSuspendedPukkaDeaths } from "./pukka.ts";
 import { recordKlutzChoice, recordSvOutcome } from "./sv.ts";
 import { chooseDemonHeir, setWinner } from "./death.ts";
 
