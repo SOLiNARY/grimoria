@@ -21,6 +21,8 @@ import {
   seatName,
 } from "../model/state.ts";
 
+import { randomSuffix } from "./execution.ts";
+
 export function nightAt(state: GameState): DeadAt {
   return { phase: "night", number: Math.max(1, state.night.number || 1) };
 }
@@ -54,7 +56,7 @@ export function addLog(state: GameState, entry: LogInput): LogEntry {
           ? "Итог"
           : "Подготовка";
   const item: LogEntry = {
-    id: "log-" + (state.log.length + 1) + "-" + Math.random().toString(36).slice(2, 7),
+    id: "log-" + (state.log.length + 1) + "-" + randomSuffix(5),
     at: nowIso(),
     phase,
     kind: entry.kind || "game",

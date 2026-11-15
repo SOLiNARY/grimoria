@@ -14,6 +14,7 @@ import type { SetupProblem } from "../model/rules.ts";
 import { orderedPlayers, playerById, realTeamOf } from "../model/state.ts";
 
 import { addLog } from "./context.ts";
+import { nextRandom } from "./execution.ts";
 
 export function setupErrors(state: GameState): SetupProblem[] {
   const errors = bagErrors({
@@ -287,7 +288,7 @@ export function dealGame(
   const shuffled = roles.slice();
   if (!assignment) {
     for (let i = shuffled.length - 1; i > 0; i -= 1) {
-      const j = Math.floor((options.random || Math.random)() * (i + 1));
+      const j = Math.floor((options.random || nextRandom)() * (i + 1));
       const tmp = shuffled[i]!;
       shuffled[i] = shuffled[j]!;
       shuffled[j] = tmp;

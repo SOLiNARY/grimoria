@@ -79,6 +79,7 @@ import {
 } from "../model/state.ts";
 
 import { nightAt, addLog, insertStepInto, setStepNote } from "./context.ts";
+import { randomSuffix } from "./execution.ts";
 import { isImpaired } from "./effects.ts";
 
 import { infoForStep } from "./information.ts";
@@ -559,7 +560,7 @@ export function completeStep(state: GameState, key: string, options: NightOption
         if (effect.kind === "poison" && effect.sourceId === actor.id) effect.active = false;
       });
       state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+        id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
         kind: "poison",
         sourceId: actor.id,
         targetId: targets[0]!,
@@ -590,7 +591,7 @@ export function completeStep(state: GameState, key: string, options: NightOption
         if (effect.kind === "protected" && effect.sourceId === actor.id) effect.active = false;
       });
       state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+        id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
         kind: "protected",
         sourceId: actor.id,
         targetId: targets[0]!,
@@ -612,7 +613,7 @@ export function completeStep(state: GameState, key: string, options: NightOption
     const impaired = isImpaired(state, actor.id, at);
     actor.butlerMasterId = targets[0]!;
     state.effects.push({
-      id: "eff-" + (state.effects.length + 1) + "-" + Math.random().toString(36).slice(2, 6),
+      id: "eff-" + (state.effects.length + 1) + "-" + randomSuffix(4),
       kind: "butler",
       sourceId: actor.id,
       targetId: targets[0]!,
