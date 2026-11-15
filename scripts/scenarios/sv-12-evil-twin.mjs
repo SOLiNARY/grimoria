@@ -139,14 +139,14 @@ await runScenario("sv-12-evil-twin", async ({ page }) => {
 
   // Night 1: no Demon attack on the first night. Under the Vortox every
   // Townsfolk answer is the host's false information: the Clockmaker gets a
-  // false number from the select, the Mathematician a false note.
+  // false number from the select, the Mathematician a false number.
   await playNight(
     page,
     {
       ...SKIPS,
       cerenovus: { skip: true },
       clockmaker: {},
-      mathematician: { fills: { "[data-given]": "Ложное число: 1" } },
+      mathematician: { given: 1 },
     },
     { skipUnplanned: true },
   );

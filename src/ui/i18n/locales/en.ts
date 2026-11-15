@@ -174,6 +174,13 @@ export default {
   savantTruthBoth: "Both statements are true",
   savantTruthNeither: "Both statements are false",
   recordSavant: "Record the private statements",
+  "ui.abnormalTitle": "Abnormal ability",
+  "ui.abnormalHint":
+    "Mark a character whose ability worked abnormally because of another ability since dawn. The Mathematician counts the marked characters at night.",
+  "ui.abnormalReason": "What went wrong",
+  "ui.recordAbnormal": "Mark the character",
+  "ui.abnormalMarked": "{count} marked since dawn",
+  "ui.abnormalNone": "No abnormal abilities marked since dawn.",
   noTarget: "No target",
   exportWarning: "The export contains secret roles and notes. Give it only to the Storyteller.",
   importLabel: "Paste JSON",
@@ -618,6 +625,7 @@ export default {
   "error.70": "Record two different statements.",
   "error.71":
     "One statement is true and the other is false; an impaired Savant may differ, and a Vortox makes both false.",
+  "error.72": "Record a reason; mark each character once between Mathematician wakes.",
   "error.62": "The player has no active madness.",
   "error.63": "Choose a legal madness penalty: execution or no consequence.",
   "error.64": "Enter the reason for the storyteller's decision.",

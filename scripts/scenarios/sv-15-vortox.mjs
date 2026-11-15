@@ -109,7 +109,7 @@ await runScenario("sv-15-vortox", async ({ page }) => {
       targets: ["4"],
       fills: { "[data-given]": "Ложный сон: один добрый и один злой персонаж" },
     },
-    mathematician: { fills: { "[data-given]": "Ложное число" } },
+    mathematician: { given: 1 },
     witch: { targets: ["1"] },
     pithag: { skip: true },
   });
@@ -147,7 +147,7 @@ await runScenario("sv-15-vortox", async ({ page }) => {
       targets: ["4"],
       fills: { "[data-given]": "Ложный сон без записанного дня" },
     },
-    mathematician: { fills: { "[data-given]": "Ложное число без записанного дня" } },
+    mathematician: { given: 1 },
     flowergirl: { given: false },
     towncrier: { given: true },
   });
@@ -220,7 +220,7 @@ await runScenario("sv-15-vortox", async ({ page }) => {
     // Both players are good, so the true Seamstress answer is "yes": the
     // poisoned Seamstress may only be told "no".
     seamstress: { targets: ["1", "10"] },
-    mathematician: { fills: { "[data-given]": "Ложное число от Но Даши" } },
+    mathematician: { given: 1 },
   });
 
   const poison = await activePoison(page);

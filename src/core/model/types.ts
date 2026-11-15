@@ -22,6 +22,7 @@ export type CommandType =
   | "jugglerGuess"
   | "artistQuestion"
   | "savantVisit"
+  | "recordAbnormal"
   | "moonchildChoice"
   | "recordKlutzChoice"
   | "tinkerDeath"
@@ -435,6 +436,16 @@ export interface Mastermind {
   [key: string]: unknown;
 }
 
+// The Storyteller's ABNORMAL reminder for the Mathematician. One entry per
+// character whose ability worked abnormally because of another ability in the
+// current day/night window (Mathematician r3153).
+export interface AbnormalMark {
+  playerId: string;
+  reason: string;
+  at: DeadAt;
+  [key: string]: unknown;
+}
+
 declare global {
   interface Window {
     PG?: { roles?: Role[] };
@@ -485,6 +496,7 @@ export interface GameState {
   juggler: Juggler | null;
   artist: ArtistRecord | null;
   savant: SavantRecord | null;
+  abnormal: AbnormalMark[];
   lastDay: LastDay | null;
   mastermind: Mastermind | null;
   fangguJumped: boolean;

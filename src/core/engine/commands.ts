@@ -81,7 +81,7 @@ import { autoSecrets, claimSeat, dealGame } from "./setup.ts";
 import { manualCorrection } from "./corrections.ts";
 import { recordBmrOutcome, resurrectPlayer } from "./bmr.ts";
 import { resolveSuspendedPukkaDeaths } from "./pukka.ts";
-import { recordKlutzChoice, recordSvOutcome } from "./sv.ts";
+import { recordAbnormal, recordKlutzChoice, recordSvOutcome } from "./sv.ts";
 import { chooseDemonHeir, setWinner } from "./death.ts";
 
 export const RULESET_VERSION = "tb-bmr-snv-2026-11-10";
@@ -676,6 +676,9 @@ const COMMANDS = {
   savantVisit: {
     apply: (state, payload) =>
       savantVisit(state, payload.playerId, payload.statements, payload.truth),
+  },
+  recordAbnormal: {
+    apply: (state, payload) => recordAbnormal(state, payload.playerId, payload.reason),
   },
   moonchildChoice: { apply: (state, payload) => moonchildChoice(state, payload.targetId) },
   recordKlutzChoice: {

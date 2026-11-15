@@ -186,6 +186,13 @@ export default {
   savantTruthBoth: "İkisi də doğrudur",
   savantTruthNeither: "İkisi də yalandır",
   recordSavant: "Şəxsi ifadələri qeyd et",
+  "ui.abnormalTitle": "Anormal qabiliyyət",
+  "ui.abnormalHint":
+    "Sübhdan bəri başqa qabiliyyət üzündən səhv işləyən personajı qeyd edin. Gecə Riyaziyyatçı qeyd olunanları sayır.",
+  "ui.abnormalReason": "Nə səhv getdi",
+  "ui.recordAbnormal": "Personajı qeyd et",
+  "ui.abnormalMarked": "Sübhdan bəri qeyd olunub: {count}",
+  "ui.abnormalNone": "Sübhdan bəri anormal qabiliyyət yoxdur.",
   noTarget: "Hədəf yoxdur",
   exportWarning: "İxrac faylında gizli rollar və qeydlər var. Onu yalnız Aparıcıya verin.",
   importLabel: "JSON yerləşdirin",
@@ -616,6 +623,8 @@ export default {
   "error.70": "İki fərqli ifadə yazın.",
   "error.71":
     "Bir ifadə doğru, digəri yalandır; zəhərli Savant üçün Aparıcı başqa seçim edə bilər, Vortoks isə ikisini də yalan edir.",
+  "error.72":
+    "Səbəbi yazın; hər personaj Riyaziyyatçının oyanışları arasında bir dəfə qeyd olunur.",
   "error.62": "Oyunçuda aktiv dəlilik yoxdur.",
   "error.63": "Dəlilik üçün qanuni cəza seçin: edam və ya nəticəsiz.",
   "error.64": "Rəvayətçinin qərarının səbəbini qeyd edin.",

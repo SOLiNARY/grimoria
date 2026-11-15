@@ -89,6 +89,8 @@ export { setupErrors, secretsErrors, autoSecrets, dealGame, claimSeat } from "./
 export { manualCorrection, bagSummary } from "./corrections.ts";
 export { bmrInfoForStep, recordBmrOutcome, resurrectPlayer } from "./bmr.ts";
 export {
+  abnormalCount,
+  recordAbnormal,
   recordSvOutcome,
   recordKlutzChoice,
   buildSvNightQueue,

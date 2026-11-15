@@ -409,12 +409,14 @@ Barber, Snake Charmer and Philosopher character changes atomically.
 - Computed information: Oracle (dead evil players), Seamstress (same
   alignment of two distinct players other than herself), Flowergirl (a Demon
   voted in the ended day), Town Crier (a Minion nominated in the ended day),
-  Juggler (first-day guesses counted against the players' characters) and
-  Clockmaker. When the actor is impaired or a living, unimpaired Vortox is in
-  play, the step requires a host-supplied answer instead of the computed one.
+  Juggler (first-day guesses counted against the players' characters),
+  Clockmaker and Mathematician (distinct characters marked as abnormal since
+  dawn). When the actor is impaired or a living, unimpaired Vortox is in play,
+  the step requires a host-supplied answer instead of the computed one.
 - Storyteller-run: madness (Cerenovus/Mutant), the false information itself,
   the Artist question and the Savant statements (recorded privately through
-  `artistQuestion` and `savantVisit`), the Mathematician count, the Dreamer
+  `artistQuestion` and `savantVisit`), the ABNORMAL marking for the
+  Mathematician, the Dreamer
   character pair, and the Sweetheart and Klutz choices.
 
 ### Known limits in this release

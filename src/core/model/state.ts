@@ -152,6 +152,7 @@ export function createGame(count: number = 8): GameState {
     juggler: null,
     artist: null,
     savant: null,
+    abnormal: [],
     lastDay: null,
     mastermind: null,
     fangguJumped: false,
@@ -238,6 +239,7 @@ export function setRoster(state: GameState, count: number): GameState {
   state.juggler = null;
   state.artist = null;
   state.savant = null;
+  state.abnormal = [];
   state.lastDay = null;
   state.mastermind = null;
   state.fangguJumped = false;
@@ -636,6 +638,17 @@ export function validateState(value: unknown): string[] {
     }
   }
   check(value.gossip == null || object(value.gossip), "Invalid gossip.");
+  check(value.abnormal == null || Array.isArray(value.abnormal), "Invalid abnormal marks.");
+  if (Array.isArray(value.abnormal)) {
+    for (const mark of value.abnormal) {
+      check(
+        object(mark) && typeof mark.playerId === "string" && ref(mark.playerId),
+        "Invalid abnormal mark player.",
+      );
+      check(object(mark) && typeof mark.reason === "string", "Invalid abnormal mark reason.");
+      check(object(mark.at) && typeof mark.at.number === "number", "Invalid abnormal mark time.");
+    }
+  }
   const juggler = object(value.juggler) ? value.juggler : null;
   check(value.juggler == null || juggler !== null, "Invalid Juggler state.");
   if (juggler) {
