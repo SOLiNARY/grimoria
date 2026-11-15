@@ -20,6 +20,8 @@ export type CommandType =
   | "useSlayer"
   | "gossipStatement"
   | "jugglerGuess"
+  | "artistQuestion"
+  | "savantVisit"
   | "moonchildChoice"
   | "recordKlutzChoice"
   | "tinkerDeath"
@@ -135,6 +137,7 @@ export interface DeadAt {
 }
 
 export interface Used {
+  artist?: boolean;
   assassin?: boolean;
   courtier?: boolean;
   exorcistTarget?: string | null;
@@ -441,6 +444,31 @@ declare global {
   }
 }
 
+// The Artist's private answer. The Storyteller may answer "I don't know" when
+// a yes/no answer would be misleading (Artist r3156).
+export type ArtistAnswer = "yes" | "no" | "unknown";
+
+export interface ArtistRecord {
+  day: number;
+  playerId: string;
+  question: string;
+  answer: ArtistAnswer;
+  [key: string]: unknown;
+}
+
+// Which of the Savant's two private statements is true. The four values cover
+// the printed one-true/one-false case and the impaired case where both may be
+// true or both false (Savant r2910).
+export type SavantTruth = "first" | "second" | "both" | "neither";
+
+export interface SavantRecord {
+  day: number;
+  playerId: string;
+  statements: [string, string];
+  truth: SavantTruth;
+  [key: string]: unknown;
+}
+
 export interface GameState {
   v: number;
   scriptId: string;
@@ -455,6 +483,8 @@ export interface GameState {
   herringId: string | null;
   gossip: Gossip | null;
   juggler: Juggler | null;
+  artist: ArtistRecord | null;
+  savant: SavantRecord | null;
   lastDay: LastDay | null;
   mastermind: Mastermind | null;
   fangguJumped: boolean;

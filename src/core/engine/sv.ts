@@ -110,7 +110,7 @@ export function reconcileMutantMadness(state: GameState) {
 
 // "Townsfolk abilities yield false info" (Vortox r3017). Only a living,
 // unimpaired Vortox does so; an impaired actor also gets no true information.
-function vortoxFalsifies(state: GameState, roleId: RoleId | null): boolean {
+export function vortoxFalsifies(state: GameState, roleId: RoleId | null): boolean {
   if (!roleId || roleTeam(roleId) !== "townsfolk") return false;
   return orderedPlayers(state).some(
     (player) =>

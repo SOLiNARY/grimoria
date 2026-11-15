@@ -49,6 +49,7 @@ import {
   recordSvOutcome,
   recordVotes,
   replaceCharacter,
+  replay,
   setupErrors,
   startNight,
 } from "./index.ts";
@@ -2871,4 +2872,164 @@ test("the living new Fang Gu wakes even when the dead old Demon holds a lower se
   const next = state.night.queue.find((candidate) => candidate.roleId === "fanggu");
   assert.ok(next, "the Demon still wakes");
   assert.equal(next!.actorId, "2", "the living new Fang Gu is the actor");
+});
+
+// The Artist and the Savant act during the day. These fixtures enter the day
+// directly because the ability under test does not depend on the night queue.
+function dayOne(state: GameState): void {
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+}
+
+test("the Artist records one private yes/no question and spends the ability (SNV-ARTIST-01)", () => {
+  const state = make({ 1: "artist", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  dayOne(state);
+  const first = applyCommand(state, {
+    id: "artist-1",
+    type: "artistQuestion",
+    payload: {
+      playerId: "1",
+      question: "  Is the Demon in a brown chair?  ",
+      answer: "no",
+    },
+  });
+  assert.equal(first.status, "allowed", JSON.stringify(first));
+  assert.equal(state.artist!.question, "Is the Demon in a brown chair?");
+  assert.equal(state.artist!.answer, "no");
+  assert.equal(state.players["1"].used.artist, true, "the ability is spent");
+
+  const again = applyCommand(state, {
+    id: "artist-2",
+    type: "artistQuestion",
+    payload: { playerId: "1", question: "Another?", answer: "yes" },
+  });
+  assert.equal(again.status, "rejected", "the Artist asks only once per game");
+  assert.equal(state.artist!.question, "Is the Demon in a brown chair?");
+
+  assert.equal(
+    JSON.stringify(publicGameView(state)).includes("brown chair"),
+    false,
+    "the private question stays out of public data",
+  );
+
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.equal(replayed.state.artist!.answer, "no", "replay keeps the private answer");
+});
+
+test("the Artist command rejects an empty question and a player without the character (SNV-ARTIST-01)", () => {
+  const state = make({ 1: "artist", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  dayOne(state);
+  const empty = applyCommand(state, {
+    id: "artist-empty",
+    type: "artistQuestion",
+    payload: { playerId: "1", question: "   ", answer: "yes" },
+  });
+  assert.equal(empty.status, "rejected");
+  const wrong = applyCommand(state, {
+    id: "artist-wrong",
+    type: "artistQuestion",
+    payload: { playerId: "6", question: "Is the Demon here?", answer: "yes" },
+  });
+  assert.equal(wrong.status, "rejected");
+  assert.equal(state.players["1"].used.artist, undefined);
+});
+
+test("the Savant records two statements and one true statement, once per day (SNV-SAVANT-01)", () => {
+  const state = make({ 1: "savant", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  dayOne(state);
+  const first = applyCommand(state, {
+    id: "savant-1",
+    type: "savantVisit",
+    payload: {
+      playerId: "1",
+      statements: [" There is one Outsider in play. ", "The Demon is a woman."],
+      truth: "first",
+    },
+  });
+  assert.equal(first.status, "allowed", JSON.stringify(first));
+  assert.deepEqual(state.savant!.statements, [
+    "There is one Outsider in play.",
+    "The Demon is a woman.",
+  ]);
+  assert.equal(state.savant!.truth, "first");
+
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.equal(replayed.state.savant!.truth, "first");
+
+  const again = applyCommand(state, {
+    id: "savant-2",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["A", "B"], truth: "second" },
+  });
+  assert.equal(again.status, "rejected", "the Savant visits once per day");
+
+  state.day = { ...state.day, number: 2 };
+  const tomorrow = applyCommand(state, {
+    id: "savant-3",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["C", "D"], truth: "second" },
+  });
+  assert.equal(tomorrow.status, "allowed", JSON.stringify(tomorrow));
+  assert.equal(state.savant!.day, 2);
+
+  assert.equal(
+    JSON.stringify(publicGameView(state)).includes("Outsider in play"),
+    false,
+    "private statements stay out of public data",
+  );
+});
+
+test("the Savant information stays one true and one false unless impaired (SNV-SAVANT-02)", () => {
+  const state = make({ 1: "savant", 6: "pithag", 7: "fanggu" }, { count: 7 });
+  dayOne(state);
+  const both = applyCommand(state, {
+    id: "savant-both",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["A", "B"], truth: "both" },
+  });
+  assert.equal(both.status, "rejected", "a healthy Savant gets one true and one false");
+
+  state.effects.push({
+    id: "test-savant-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: { phase: "day", number: 1 },
+    expires: null,
+    active: true,
+  });
+  const impaired = applyCommand(state, {
+    id: "savant-impaired",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["A", "B"], truth: "both" },
+  });
+  assert.equal(impaired.status, "allowed", "an impaired Savant may get two true statements");
+});
+
+test("a living Vortox makes both Savant statements false (SNV-SAVANT-03)", () => {
+  const state = make({ 1: "savant", 6: "pithag", 7: "vortox" }, { count: 7 });
+  dayOne(state);
+  const truth = applyCommand(state, {
+    id: "savant-vortox-true",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["A", "B"], truth: "first" },
+  });
+  assert.equal(truth.status, "rejected", "the Vortox forbids a true statement");
+
+  const bothFalse = applyCommand(state, {
+    id: "savant-vortox-false",
+    type: "savantVisit",
+    payload: { playerId: "1", statements: ["A", "B"], truth: "neither" },
+  });
+  assert.equal(bothFalse.status, "allowed", JSON.stringify(bothFalse));
 });

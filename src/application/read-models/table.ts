@@ -14,14 +14,20 @@ import {
   madnessEffects,
   madnessReviewsDue,
   protectionFor,
+  savantTruthChoices,
   secretsErrors,
   setupErrors,
   soldierSafe,
   stepProgress,
   vigormortisPoisonChoices,
 } from "../../core/engine/index.ts";
-import { livingPlayers, orderedPlayers, playerById } from "../../core/model/state.ts";
-import type { Effect, GameState, NightStep, RoleId } from "../../core/model/types.ts";
+import {
+  effectiveRoleId,
+  livingPlayers,
+  orderedPlayers,
+  playerById,
+} from "../../core/model/state.ts";
+import type { Effect, GameState, NightStep, RoleId, SavantTruth } from "../../core/model/types.ts";
 import type { InfoResult } from "../../core/engine/index.ts";
 
 export interface SetupProblem {
@@ -51,6 +57,38 @@ export function tableProjection(state: GameState): TableProjection {
     pendingDemonChange: demonChangePending(state),
     living,
     threshold: executionThreshold(living),
+  };
+}
+
+export interface ArtistProjection {
+  playerId: string;
+  used: boolean;
+}
+
+/** The living Artist, or the Drunk who is shown the Artist. */
+export function artistProjection(state: GameState): ArtistProjection | null {
+  const player = orderedPlayers(state).find(
+    (candidate) => candidate.alive && effectiveRoleId(candidate) === "artist",
+  );
+  return player ? { playerId: player.id, used: Boolean(player.used.artist) } : null;
+}
+
+export interface SavantProjection {
+  playerId: string;
+  visitedToday: boolean;
+  choices: SavantTruth[];
+}
+
+/** The living Savant and the truth patterns the current state permits. */
+export function savantProjection(state: GameState): SavantProjection | null {
+  const player = orderedPlayers(state).find(
+    (candidate) => candidate.alive && effectiveRoleId(candidate) === "savant",
+  );
+  if (!player) return null;
+  return {
+    playerId: player.id,
+    visitedToday: state.savant != null && state.savant.day === state.day.number,
+    choices: savantTruthChoices(state, player.id),
   };
 }
 

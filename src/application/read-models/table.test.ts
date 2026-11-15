@@ -23,10 +23,12 @@ import type { CommandInput } from "../../core/commands/contracts.ts";
 import type { Command, Effect, GameState, NightStep } from "../../core/model/types.ts";
 import { previewOnState } from "../dispatch/preview.ts";
 import {
+  artistProjection,
   mayorRedirectNeeded,
   madnessReviewProjection,
   progressProjection,
   resurrectChoices,
+  savantProjection,
   seatProjection,
   setupProjection,
   secretsProjection,
@@ -428,4 +430,68 @@ test("target bounds follow the step's fixed target mode", () => {
     min: 1,
     max: 3,
   });
+});
+
+function dayAbilityState(): GameState {
+  const state = createGame(7);
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  state.players["1"].roleId = "artist";
+  state.players["1"].shownRoleId = "artist";
+  state.players["2"].roleId = "savant";
+  state.players["2"].shownRoleId = "savant";
+  return state;
+}
+
+test("the Artist projection follows the effective character and the spent flag", () => {
+  const state = dayAbilityState();
+  assert.deepEqual(artistProjection(state), { playerId: "1", used: false });
+  state.players["1"].used.artist = true;
+  assert.deepEqual(artistProjection(state), { playerId: "1", used: true });
+  state.players["1"].alive = false;
+  assert.equal(artistProjection(state), null);
+});
+
+test("the Artist projection sees a Drunk who is shown the Artist", () => {
+  const state = dayAbilityState();
+  state.players["1"].roleId = "drunk";
+  state.players["1"].shownRoleId = "artist";
+  assert.deepEqual(artistProjection(state), { playerId: "1", used: false });
+});
+
+test("the Savant projection offers only the legal truth patterns", () => {
+  const state = dayAbilityState();
+  assert.deepEqual(savantProjection(state)?.choices, ["first", "second"]);
+
+  state.effects.push({
+    id: "projection-poison",
+    kind: "poison",
+    sourceId: "3",
+    targetId: "2",
+    start: { phase: "day", number: 1 },
+    expires: null,
+    active: true,
+  });
+  assert.deepEqual(savantProjection(state)?.choices, ["first", "second", "both", "neither"]);
+
+  state.effects = [];
+  state.players["7"].roleId = "vortox";
+  state.players["7"].shownRoleId = "vortox";
+  assert.deepEqual(savantProjection(state)?.choices, ["neither"]);
+
+  state.savant = {
+    day: 1,
+    playerId: "2",
+    statements: ["A", "B"],
+    truth: "neither",
+  };
+  assert.equal(savantProjection(state)?.visitedToday, true);
 });

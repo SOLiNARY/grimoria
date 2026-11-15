@@ -411,8 +411,9 @@ Barber, Snake Charmer and Philosopher character changes atomically.
   Clockmaker. When the actor is impaired or a living, unimpaired Vortox is in
   play, the step requires a host-supplied answer instead of the computed one.
 - Storyteller-run: madness (Cerenovus/Mutant), the false information itself,
-  Artist, Savant, the Mathematician count, the Dreamer character pair, and the
-  Sweetheart and Klutz choices.
+  the Artist question and the Savant statements (recorded privately through
+  `artistQuestion` and `savantVisit`), the Mathematician count, the Dreamer
+  character pair, and the Sweetheart and Klutz choices.
 
 ### Known limits in this release
 

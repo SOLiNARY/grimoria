@@ -1,6 +1,8 @@
 // Core command surface: what a caller composes, what the engine receives, and
 // the runtime shadow of both. Pure: no DOM, no storage, no React.
 
+import type { ArtistAnswer, SavantTruth } from "../model/types.ts";
+
 export const COMMAND_TYPES = [
   "startNight",
   "completeStep",
@@ -21,6 +23,8 @@ export const COMMAND_TYPES = [
   "useSlayer",
   "gossipStatement",
   "jugglerGuess",
+  "artistQuestion",
+  "savantVisit",
   "moonchildChoice",
   "recordKlutzChoice",
   "tinkerDeath",
@@ -174,6 +178,8 @@ export interface CommandPayloads {
     playerId?: string;
     roleId?: string;
   };
+  artistQuestion: { playerId: string; question: string; answer: ArtistAnswer };
+  savantVisit: { playerId: string; statements: [string, string]; truth: SavantTruth };
   moonchildChoice: { targetId: string };
   recordKlutzChoice: { targetId: string };
   tinkerDeath: { playerId: string };
@@ -244,6 +250,7 @@ type FieldRule =
   | "string"
   | "nullable-string"
   | "string-array"
+  | "string-pair"
   | "boolean"
   | "number"
   | "object"
@@ -306,6 +313,16 @@ export const PAYLOAD_SCHEMA = {
   useSlayer: { slayerId: requiredString, targetId: requiredString, options: object },
   gossipStatement: { truth: ["boolean", true] },
   jugglerGuess: { guesses: ["guess-array"], playerId: string, roleId: string },
+  artistQuestion: {
+    playerId: requiredString,
+    question: requiredString,
+    answer: requiredString,
+  },
+  savantVisit: {
+    playerId: requiredString,
+    statements: ["string-pair", true],
+    truth: requiredString,
+  },
   moonchildChoice: { targetId: requiredString },
   recordKlutzChoice: { targetId: requiredString },
   tinkerDeath: { playerId: requiredString },
@@ -345,6 +362,12 @@ function matchesRule(value: unknown, rule: FieldRule): boolean {
       return value === null || typeof value === "string";
     case "string-array":
       return Array.isArray(value) && value.every((item) => typeof item === "string");
+    case "string-pair":
+      return (
+        Array.isArray(value) &&
+        value.length === 2 &&
+        value.every((item) => typeof item === "string")
+      );
     case "boolean":
       return typeof value === "boolean";
     case "number":

@@ -79,6 +79,9 @@ export {
   gossipStatement,
   jugglerGuess,
   reportJugglerGuesses,
+  artistQuestion,
+  savantVisit,
+  savantTruthChoices,
   moonchildChoice,
   tinkerDeath,
 } from "./day.ts";

@@ -150,6 +150,8 @@ export function createGame(count: number = 8): GameState {
     herringId: null,
     gossip: null,
     juggler: null,
+    artist: null,
+    savant: null,
     lastDay: null,
     mastermind: null,
     fangguJumped: false,
@@ -234,6 +236,8 @@ export function setRoster(state: GameState, count: number): GameState {
   state.applied = {};
   state.gossip = null;
   state.juggler = null;
+  state.artist = null;
+  state.savant = null;
   state.lastDay = null;
   state.mastermind = null;
   state.fangguJumped = false;
@@ -633,6 +637,36 @@ export function validateState(value: unknown): string[] {
         )
       : object(guesses);
     check(valid, "Invalid Juggler guesses.");
+  }
+  const artist = object(value.artist) ? value.artist : null;
+  check(value.artist == null || artist !== null, "Invalid Artist state.");
+  if (artist) {
+    check(typeof artist.day === "number", "Invalid Artist day.");
+    check(typeof artist.question === "string", "Invalid Artist question.");
+    check(
+      artist.answer === "yes" || artist.answer === "no" || artist.answer === "unknown",
+      "Invalid Artist answer.",
+    );
+    check(artist.playerId == null || ref(artist.playerId), "Invalid Artist player.");
+  }
+  const savant = object(value.savant) ? value.savant : null;
+  check(value.savant == null || savant !== null, "Invalid Savant state.");
+  if (savant) {
+    check(typeof savant.day === "number", "Invalid Savant day.");
+    check(
+      Array.isArray(savant.statements) &&
+        savant.statements.length === 2 &&
+        savant.statements.every((statement) => typeof statement === "string"),
+      "Invalid Savant statements.",
+    );
+    check(
+      savant.truth === "first" ||
+        savant.truth === "second" ||
+        savant.truth === "both" ||
+        savant.truth === "neither",
+      "Invalid Savant truth.",
+    );
+    check(savant.playerId == null || ref(savant.playerId), "Invalid Savant player.");
   }
   const lastDay = object(value.lastDay) ? value.lastDay : null;
   check(value.lastDay == null || lastDay !== null, "Invalid last-day state.");
