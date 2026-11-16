@@ -1104,7 +1104,7 @@ test("a suppressed ability keeps its dated effect as a record that never applies
   const step = roleStep(state, "poisoner");
   const { ports, draws } = recordingPorts();
 
-  applyRoleAbility(state, wasted, step, ["4"], { phase: "night", number: 2 }, null, ports);
+  applyRoleAbility(state, wasted, step, ["4"], { phase: "night", number: 2 }, {}, ports);
 
   assert.equal(state.effects.length, 2);
   assert.deepEqual(plain(state.effects[0]), working, "the earlier effect is not ended");
@@ -1120,6 +1120,80 @@ test("a suppressed ability keeps its dated effect as a record that never applies
   assert.equal(isImpaired(state, "4"), false, "the record poisons no one");
   assert.equal(step.noteKey, "note.abilityFailed");
   assert.deepEqual(draws, ["id:4"]);
+});
+
+// A module whose night step is an attack under its own title. The coordinator
+// tests below use it, so they do not depend on the Imp's wording.
+const attacker: RoleModule = {
+  id: "imp",
+  edition: "tb",
+  capabilities: [
+    {
+      kind: "night-step",
+      timing: "other",
+      step: { target: "one-any" },
+      resolve: ({ targetIds }) => ({
+        kind: "attack",
+        playerId: targetIds[0]!,
+        title: "Проверочная атака",
+      }),
+    },
+  ],
+};
+
+test("an attack decision is resolved for the acting seat and handed back under the role's title", () => {
+  const state = make(NIGHT_ROLES);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  const step = roleStep(state, "imp");
+  const { ports } = recordingPorts();
+
+  const outcome = applyRoleAbility(
+    state,
+    attacker,
+    step,
+    ["4"],
+    { phase: "night", number: 2 },
+    {},
+    ports,
+  );
+
+  assert.equal(outcome.kind, "attack");
+  if (outcome.kind !== "attack") return;
+  assert.equal(outcome.title, "Проверочная атака");
+  assert.equal(outcome.attack.deathId, "4");
+  assert.equal(state.players["4"].alive, false);
+  assert.equal(state.deaths.at(-1)!.cause, "demon");
+  assert.equal(step.done, false, "the caller completes the step");
+});
+
+test("an attack decision on a working Mayor returns the host's question and applies nothing", () => {
+  const state = make(NIGHT_ROLES);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  const step = roleStep(state, "imp");
+  const at = { phase: "night" as const, number: 2 };
+  const before = JSON.stringify(state);
+  const { ports, draws } = recordingPorts();
+
+  const asked = applyRoleAbility(state, attacker, step, ["5"], at, {}, ports);
+
+  assert.equal(asked.kind, "needs-redirect");
+  if (asked.kind !== "needs-redirect") return;
+  assert.deepEqual(
+    asked.options.map((option) => option.id),
+    ["1", "2", "3", "4", "6", "7"],
+  );
+  assert.equal(JSON.stringify(state), before);
+  assert.deepEqual(draws, []);
+
+  const answered = applyRoleAbility(state, attacker, step, ["5"], at, { redirectId: "4" }, ports);
+
+  assert.equal(answered.kind, "attack");
+  if (answered.kind !== "attack") return;
+  assert.equal(answered.attack.redirected, true);
+  assert.equal(state.players["5"].alive, true);
+  assert.equal(state.players["4"].alive, false);
 });
 
 test("the Butler choice reports the new master and the effect as command events (TB-BUTLER-01)", () => {
@@ -1228,6 +1302,545 @@ for (const scenario of [
     assert.deepEqual(canonicalState(reloaded.state), canonicalState(state));
   });
 }
+
+// The Imp attack. NIGHT_ROLES seats the Monk at 1, the Soldier at 2, the Mayor
+// at 5, the Poisoner at 6 and the Imp at 7. The Imp first acts on night 2.
+function attackNight(roles: Record<string, string> = NIGHT_ROLES): GameState {
+  const state = make(roles);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  return state;
+}
+
+function queueMarks(state: GameState): string[] {
+  return state.night.queue.map(
+    (step) => step.key + (step.done ? ":done" : "") + (step.skipped ? ":skipped" : ""),
+  );
+}
+
+test("the Imp's attack kills the chosen player and writes the attack's own step record and log line (TB-IMP-01)", () => {
+  const state = attackNight();
+  const step = roleStep(state, "imp");
+  const queued = queueMarks(state);
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["4"] }, ports) as StepResult;
+
+  const outcome = {
+    noDeath: false,
+    deathId: "4",
+    redirected: false,
+    wasDemon: false,
+    inheritance: null,
+    pendingInheritance: null,
+  };
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(result.result), outcome, "the caller reads the outcome from the result");
+  assert.deepEqual(plain(state.deaths), [
+    {
+      id: "death-1-k100",
+      playerId: "4",
+      roleId: "chef",
+      cause: "demon",
+      phase: "night",
+      number: 2,
+      at: "2030-01-01T00:00:01.000Z",
+      impaired: false,
+      livingBefore: 7,
+    },
+  ]);
+  // The attack step keeps its own record: the outcome is the step result and
+  // the step does not list its target.
+  assert.deepEqual(plain(step), {
+    key: "n2-3-imp-7",
+    kind: "role",
+    roleId: "imp",
+    actorId: "7",
+    actorName: "P7",
+    actorAlive: true,
+    order: 3,
+    targetMode: "one-any",
+    infoKind: "none",
+    targetIds: [],
+    redirectId: null,
+    registrations: {},
+    given: null,
+    result: outcome,
+    note: "Погиб: P4.",
+    pending: null,
+    done: true,
+    skipped: false,
+    completedAt: "2030-01-01T00:00:03.000Z",
+    noteKey: "note.impKilled",
+    noteVars: { name: "P4" },
+  });
+  assert.deepEqual(plain(state.log.slice(logged)), [
+    {
+      id: "log-" + (logged + 1) + "-k2000",
+      at: "2030-01-01T00:00:02.000Z",
+      phase: "Ночь 2",
+      kind: "death",
+      title: "P4 погибает",
+      detail: "Причина: demon. Роль: Повар.",
+      playerId: "4",
+      secret: true,
+      consequence: "death",
+    },
+    {
+      id: "log-" + (logged + 2) + "-k3000",
+      at: "2030-01-01T00:00:04.000Z",
+      phase: "Ночь 2",
+      kind: "night",
+      title: "Имп атакует",
+      detail: "Погиб: P4.",
+      playerId: null,
+      secret: true,
+    },
+  ]);
+  assert.deepEqual(
+    draws,
+    ["id:4", "clock", "id:5", "clock", "clock", "id:5", "clock"],
+    "the death is written before the step time and the attack line",
+  );
+  assert.deepEqual(
+    queueMarks(state),
+    queued.map((key) => (key === step.key ? key + ":done" : key)),
+    "the kill adds no step",
+  );
+  assert.equal(state.winner, null);
+});
+
+for (const scenario of [
+  {
+    name: "a player the Monk protects",
+    targetId: "4",
+    reason: "Цель защищена Монахом.",
+    prepare: (state: GameState) => {
+      completeRole(state, "monk", { targetIds: ["4"] });
+    },
+  },
+  {
+    name: "a healthy Soldier",
+    targetId: "2",
+    reason: "Солдат не может умереть от Демона.",
+    prepare: () => {},
+  },
+  {
+    name: "a dead player",
+    targetId: "4",
+    reason: "Игрок уже мёртв: повторной смерти нет.",
+    prepare: (state: GameState) => {
+      kill(state, "4", "test");
+    },
+  },
+  {
+    name: "any player while the Imp is poisoned",
+    targetId: "4",
+    reason: "Демон отравлен или пьян: смерти нет.",
+    prepare: (state: GameState) => {
+      completeRole(state, "poisoner", { targetIds: ["7"] });
+    },
+  },
+]) {
+  test(`an Imp attack on ${scenario.name} kills no one and records the reason on a prevented log line (TB-IMP-01)`, () => {
+    const state = attackNight();
+    scenario.prepare(state);
+    const step = roleStep(state, "imp");
+    const logged = state.log.length;
+    const deaths = state.deaths.length;
+    const alive = state.players[scenario.targetId].alive;
+    const { ports, draws } = recordingPorts();
+
+    const result = completeStep(
+      state,
+      step.key,
+      { targetIds: [scenario.targetId] },
+      ports,
+    ) as StepResult;
+
+    const outcome = { noDeath: true, reason: scenario.reason };
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(plain(result.result), outcome);
+    assert.deepEqual(plain(step.result), outcome);
+    assert.equal(step.note, scenario.reason);
+    assert.equal(step.noteKey, undefined, "the reason is the note itself");
+    assert.equal(step.done, true);
+    assert.equal(step.completedAt, "2030-01-01T00:00:01.000Z");
+    assert.equal(step.pending, null);
+    assert.equal(state.deaths.length, deaths, "no death is recorded");
+    assert.equal(state.players[scenario.targetId].alive, alive);
+    assert.deepEqual(plain(state.log.slice(logged)), [
+      {
+        id: "log-" + (logged + 1) + "-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "Имп атакует",
+        detail: scenario.reason,
+        playerId: null,
+        secret: true,
+        consequence: "prevented",
+      },
+    ]);
+    assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+    assert.equal(state.winner, null);
+  });
+}
+
+test("an Imp attack on a working Mayor waits for the host's redirect and changes nothing (TB-IMP-01, TB-MAYOR-01)", () => {
+  const state = attackNight();
+  const step = roleStep(state, "imp");
+  const before = JSON.stringify(state);
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["5"] }, ports);
+
+  assert.deepEqual(plain(result), {
+    ok: false,
+    needsRedirect: true,
+    options: ["1", "2", "3", "4", "6", "7"].map((id) => ({ id, name: "P" + id, alive: true })),
+    errorCode: "error.43",
+    error: "Выберите, умирает Мэр, кто-то вместо него или никто.",
+  });
+  assert.equal(JSON.stringify(state), before, "a step that waits for the host is not applied");
+  assert.deepEqual(draws, [], "and it draws nothing from the command stream");
+});
+
+test("a redirected Imp attack kills the host's choice and journals the redirect before the attack line (TB-IMP-01, TB-MAYOR-01)", () => {
+  const state = attackNight();
+  const step = roleStep(state, "imp");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(
+    state,
+    step.key,
+    { targetIds: ["5"], redirectId: "4" },
+    ports,
+  ) as StepResult;
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step.result), {
+    noDeath: false,
+    deathId: "4",
+    redirected: true,
+    wasDemon: false,
+    inheritance: null,
+    pendingInheritance: null,
+  });
+  assert.equal(state.players["5"].alive, true, "the Mayor lives");
+  assert.equal(state.players["4"].alive, false);
+  assert.equal(state.deaths.at(-1)!.cause, "demon");
+  assert.equal(step.note, "Погиб: P4.");
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => ({
+      id: line.id,
+      at: line.at,
+      kind: line.kind,
+      detail: line.detail,
+      playerId: line.playerId,
+      case: line.case ?? null,
+    })),
+    [
+      {
+        id: "log-" + (logged + 1) + "-k2000",
+        at: "2030-01-01T00:00:02.000Z",
+        kind: "death",
+        detail: "Причина: demon. Роль: Повар.",
+        playerId: "4",
+        case: null,
+      },
+      {
+        id: "log-" + (logged + 2) + "-k3000",
+        at: "2030-01-01T00:00:03.000Z",
+        kind: "choice",
+        detail: "P4",
+        playerId: "7",
+        case: "mayor-redirect",
+      },
+      {
+        id: "log-" + (logged + 3) + "-k4000",
+        at: "2030-01-01T00:00:05.000Z",
+        kind: "night",
+        detail: "Погиб: P4.",
+        playerId: null,
+        case: null,
+      },
+    ],
+  );
+  assert.equal(state.log.at(-1)!.title, "Имп атакует");
+  assert.deepEqual(draws, [
+    "id:4",
+    "clock",
+    "id:5",
+    "clock",
+    "id:5",
+    "clock",
+    "clock",
+    "id:5",
+    "clock",
+  ]);
+});
+
+test("the host may let the Mayor die: the answer is journaled and the death is not a redirect (TB-MAYOR-01)", () => {
+  const state = attackNight();
+  const step = roleStep(state, "imp");
+  const logged = state.log.length;
+
+  const result = completeStep(state, step.key, {
+    targetIds: ["5"],
+    redirectId: "none",
+  }) as StepResult;
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.result!.deathId, "5");
+  assert.equal(result.result!.redirected, false);
+  assert.equal(state.players["5"].alive, false);
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => line.case ?? line.kind),
+    ["death", "mayor-redirect", "night"],
+  );
+});
+
+test("an Imp self-kill passes the role to the only living Minion inside the attack step and queues the new Demon's wake (TB-IMP-01)", () => {
+  const state = attackNight();
+  const step = roleStep(state, "imp");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["7"] }, ports) as StepResult;
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step.result), {
+    noDeath: false,
+    deathId: "7",
+    redirected: false,
+    wasDemon: true,
+    inheritance: { inherited: true, playerId: "6", via: "imp" },
+    pendingInheritance: null,
+  });
+  assert.equal(step.pending, null);
+  assert.equal(step.note, "Погиб: P7.");
+  assert.equal(state.deaths.at(-1)!.cause, "imp-self-kill");
+  assert.equal(state.players["6"].roleId, "imp");
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => line.kind),
+    ["death", "role-change", "night"],
+  );
+  assert.equal(state.log.at(-1)!.title, "Имп атакует");
+  assert.deepEqual(draws, [
+    "id:4",
+    "clock",
+    "id:5",
+    "clock",
+    "id:5",
+    "clock",
+    "clock",
+    "id:5",
+    "clock",
+  ]);
+  assert.deepEqual(queueMarks(state), [
+    "n2-0-poisoner-6:done:skipped",
+    "n2-1-monk-1",
+    "n2-3-imp-7:done",
+    "n2-3.5-demonchange-all",
+    "n2-5-empath-3",
+  ]);
+  assert.equal(state.night.demonChanged, true);
+  assert.equal(state.winner, null);
+});
+
+test("an Imp self-kill with several living Minions holds the win check until the host names the heir (TB-IMP-01)", () => {
+  const state = attackNight({
+    1: "monk",
+    2: "soldier",
+    3: "empath",
+    4: "chef",
+    5: "mayor",
+    6: "undertaker",
+    7: "slayer",
+    8: "poisoner",
+    9: "spy",
+    10: "imp",
+  });
+  const step = roleStep(state, "imp");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["10"] }, ports) as StepResult;
+
+  const choice = {
+    kind: "demon-inheritance",
+    options: [
+      { id: "8", name: "P8", roleId: "poisoner" },
+      { id: "9", name: "P9", roleId: "spy" },
+    ],
+  };
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step.pending), choice);
+  assert.deepEqual(plain(step.result), {
+    noDeath: false,
+    deathId: "10",
+    redirected: false,
+    wasDemon: true,
+    inheritance: { inherited: false, pendingInheritance: choice },
+    pendingInheritance: choice,
+  });
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => line.kind),
+    ["death", "night"],
+  );
+  assert.deepEqual(draws, ["id:4", "clock", "id:5", "clock", "clock", "id:5", "clock"]);
+  assert.equal(state.winner, null, "no Demon lives, but the heir is not chosen yet");
+  assert.equal(endNight(state).ok, false, "the night cannot end before the choice");
+
+  const heir = chooseDemonHeir(state, step.key, "9");
+
+  assert.equal(heir.ok, true, JSON.stringify(heir));
+  assert.equal(step.pending, null);
+  assert.equal(state.players["9"].roleId, "imp");
+  assert.equal(state.winner, null);
+});
+
+test("an Imp kill that leaves two players alive ends the game from the attack step (TB-IMP-01)", () => {
+  const state = attackNight({ 1: "chef", 2: "soldier", 3: "virgin", 4: "poisoner", 5: "imp" });
+  kill(state, "2", "test");
+  kill(state, "3", "test");
+  const step = roleStep(state, "imp");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["1"] }, ports) as StepResult;
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(state.winner?.team, "evil");
+  assert.equal(state.winner?.reason, "two-alive");
+  assert.equal(state.phase, "over");
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => line.kind),
+    ["death", "night", "winner"],
+    "the attack line is written before the game ends",
+  );
+  assert.deepEqual(draws, [
+    "id:4",
+    "clock",
+    "id:5",
+    "clock",
+    "clock",
+    "id:5",
+    "clock",
+    "clock",
+    "id:5",
+    "clock",
+  ]);
+});
+
+test("the Imp attack previews, applies and replays with the command clock and ids (TB-IMP-01)", () => {
+  const state = attackNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const command = {
+    id: "imp-attack",
+    type: "completeNightStep",
+    payload: { key: roleStep(state, "imp").key, targetIds: ["4"] },
+    at: "2030-01-01T00:00:00.000Z",
+  };
+  const before = canonicalState(state);
+
+  const preview = previewCommand(state, command, runtime);
+  assert.equal(preview.status, "allowed", JSON.stringify(preview));
+  assert.deepEqual(canonicalState(state), before, "preview must not mutate");
+  const applied = applyCommand(state, command, runtime);
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+  assert.deepEqual(
+    "events" in preview ? preview.events : null,
+    "events" in applied ? applied.events : undefined,
+    "preview and apply derive the same events",
+  );
+  assert.deepEqual(
+    ("events" in applied ? (applied.events ?? []) : []).map((event) => event.type),
+    [
+      "player.alive_changed",
+      "player.dead_at_changed",
+      "death.recorded",
+      "step.completed",
+      "step.updated",
+    ],
+  );
+
+  const death = state.deaths.at(-1)!;
+  assert.equal(death.playerId, "4");
+  assert.equal(death.at, "2030-01-01T00:00:00.000Z", "the death uses the command clock");
+  const step = state.night.queue.find((candidate) => candidate.roleId === "imp")!;
+  assert.equal(step.completedAt, "2030-01-01T00:00:00.000Z", "the step uses the command clock");
+
+  // The same command on the same state draws the same ids from the seeded
+  // stream, so a second game and a replay both land on the same records.
+  const twin = attackNight();
+  assert.equal(applyCommand(twin, command, runtime).status, "allowed");
+  assert.deepEqual(twin.deaths, state.deaths, "the death id comes from the command stream");
+  assert.deepEqual(twin.log.at(-1), state.log.at(-1), "and so does the attack line");
+
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+
+  const saved = importGame(exportGame(state));
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  if (!saved.ok) return;
+  const reloaded = replay(saved.state.journal, runtime);
+  assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
+  assert.deepEqual(canonicalState(reloaded.state), canonicalState(state));
+});
+
+test("an Imp attack on a working Mayor is a host choice on the command path and the answer completes it (TB-IMP-01, TB-MAYOR-01)", () => {
+  const state = attackNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const key = roleStep(state, "imp").key;
+  const before = canonicalState(state);
+  const journaled = state.journal.entries.length;
+
+  const asked = applyCommand(
+    state,
+    {
+      id: "imp-attack-mayor",
+      type: "completeNightStep",
+      payload: { key, targetIds: ["5"] },
+      at: "2030-01-01T00:00:00.000Z",
+    },
+    runtime,
+  );
+
+  assert.equal(asked.status, "requires-storyteller-choice", JSON.stringify(asked));
+  const choice = "choice" in asked ? asked.choice : null;
+  assert.equal(choice?.kind, "redirect");
+  assert.deepEqual(
+    (choice?.options ?? []).map((option) => (option as { id: string }).id),
+    ["1", "2", "3", "4", "6", "7"],
+    "every other player may be named",
+  );
+  assert.deepEqual(canonicalState(state), before, "the question leaves the game as it was");
+  assert.equal(state.journal.entries.length, journaled, "and writes no journal entry");
+
+  const answered = applyCommand(
+    state,
+    {
+      id: "imp-attack-mayor-redirected",
+      type: "completeNightStep",
+      payload: { key, targetIds: ["5"], redirectId: "3" },
+      at: "2030-01-01T00:00:00.000Z",
+    },
+    runtime,
+  );
+
+  assert.equal(answered.status, "allowed", JSON.stringify(answered));
+  assert.equal(state.players["5"].alive, true);
+  assert.equal(state.players["3"].alive, false);
+  assert.equal(state.journal.entries.length, journaled + 1);
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
 
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {
   const state = make({

@@ -88,10 +88,11 @@ import { nightAt, addLog, insertStepInto, setStepNote } from "./context.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
 import { applyRoleAbility } from "./ability.ts";
+import type { AttackResult } from "./ability.ts";
 import { isImpaired } from "./effects.ts";
 
 import { infoForStep } from "./information.ts";
-import { resolveAttack, checkWin, evilTwinPartnerMissing } from "./death.ts";
+import { checkWin, evilTwinPartnerMissing } from "./death.ts";
 import { secretsErrors, setupErrors } from "./setup.ts";
 import {
   appendBmrConditionalSteps,
@@ -621,72 +622,28 @@ export function completeStep(
   if (module && nightResolverFor(module, at.number)) {
     // A migrated role never falls through to the branches below, so a missing
     // resolution is a visible test failure instead of a silent fallback.
-    applyRoleAbility(state, module, step, targets, at, null, ports);
-    return finishStep(state, step, options, targets, at, ports);
-  }
-
-  if (role === "imp") {
-    const attack = resolveAttack(
+    const outcome = applyRoleAbility(
       state,
-      {
-        attackerId: actor.id,
-        targetId: targets[0]!,
-        at,
-        redirectId: options.redirectId || null,
-      },
+      module,
+      step,
+      targets,
+      at,
+      { redirectId: options.redirectId || null },
       ports,
     );
-    if (attack.needsRedirect) {
+    if (outcome.kind === "needs-redirect") {
       return {
         ok: false,
         needsRedirect: true,
-        options: attack.options,
+        options: outcome.options,
         errorCode: "error.43",
         error: "Выберите, умирает Мэр, кто-то вместо него или никто.",
       };
     }
-    step.result = attack;
-    // The redirect is a Storyteller decision: it belongs in the secret journal
-    // even though this branch completes the step itself.
-    if (options.redirectId) {
-      recordHostChoice(
-        state,
-        "mayor-redirect",
-        seatName(state, String(options.redirectId)),
-        actor.id,
-        ports,
-      );
+    if (outcome.kind === "attack") {
+      return finishAttackStep(state, step, options, outcome.attack, outcome.title, ports);
     }
-    if (attack.noDeath) {
-      step.note = attack.reason || "";
-    } else {
-      setStepNote(
-        step,
-        "note.impKilled",
-        { name: seatName(state, attack.deathId || "") },
-        "Погиб: " + seatName(state, attack.deathId || "") + ".",
-      );
-    }
-    step.done = true;
-    step.completedAt = nowIso(ports);
-    step.given = null;
-    addLog(
-      state,
-      {
-        secret: true,
-        kind: "night",
-        title: "Имп атакует",
-        detail: step.note || "",
-        ...(attack.noDeath ? { consequence: "prevented" as const } : {}),
-      },
-      ports,
-    );
-    appendConditionalSteps(state, ports);
-    if (attack.pendingInheritance) {
-      step.pending = attack.pendingInheritance;
-    }
-    checkWin(state, {}, ports);
-    return { ok: true, step, result: step.result };
+    return finishStep(state, step, options, targets, at, ports);
   }
 
   if (role === "ravenkeeper") {
@@ -736,6 +693,64 @@ export function completeStep(
   }
 
   return finishStep(state, step, options, targets, at, ports);
+}
+
+/**
+ * Completes a step whose ability was an attack. The attack keeps its own
+ * record, which differs from the shared one: the outcome is the step result,
+ * the note names the victim or the reason nobody died, and the secret log line
+ * carries the title the role gave and a `prevented` mark when nobody died.
+ */
+function finishAttackStep(
+  state: GameState,
+  step: NightStep,
+  options: NightOptions,
+  attack: AttackResult,
+  title: string,
+  ports: CommandExecutionContext,
+) {
+  step.result = attack;
+  // The redirect is a Storyteller decision: it belongs in the secret journal
+  // even though this path completes the step itself.
+  if (options.redirectId) {
+    recordHostChoice(
+      state,
+      "mayor-redirect",
+      seatName(state, String(options.redirectId)),
+      step.actorId || null,
+      ports,
+    );
+  }
+  if (attack.noDeath) {
+    step.note = attack.reason || "";
+  } else {
+    setStepNote(
+      step,
+      "note.impKilled",
+      { name: seatName(state, attack.deathId || "") },
+      "Погиб: " + seatName(state, attack.deathId || "") + ".",
+    );
+  }
+  step.done = true;
+  step.completedAt = nowIso(ports);
+  step.given = null;
+  addLog(
+    state,
+    {
+      secret: true,
+      kind: "night",
+      title,
+      detail: step.note || "",
+      ...(attack.noDeath ? { consequence: "prevented" as const } : {}),
+    },
+    ports,
+  );
+  appendConditionalSteps(state, ports);
+  if (attack.pendingInheritance) {
+    step.pending = attack.pendingInheritance;
+  }
+  checkWin(state, {}, ports);
+  return { ok: true, step, result: step.result };
 }
 
 export function finishStep(

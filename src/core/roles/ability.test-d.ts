@@ -1,5 +1,5 @@
 // Compile-time contract checks. `tsc -p tsconfig.test.json` consumes them.
-import type { AbilityContext, RoleCapability, RoleEffect } from "./ability.ts";
+import type { AbilityContext, AbilityDecision, RoleCapability, RoleEffect } from "./ability.ts";
 
 // A resolver reads facts. The game state and the players map are not reachable,
 // so a role cannot mutate unrelated state from its ability.
@@ -60,3 +60,29 @@ type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
 type NightStepFacts = Parameters<NonNullable<NightStepArm["resolve"]>>[0];
 // @ts-expect-error -- the night-step context exposes no game state
 export type NightStepStateAccess = NightStepFacts["state"];
+
+// An attack names the chosen player and the title of its log line. The engine
+// derives the attacker from the acting seat, takes the Mayor's redirect from
+// the host and writes the cause of death.
+type AttackDecision = Extract<AbilityDecision, { kind: "attack" }>;
+export const foreignAttack: AttackDecision = {
+  kind: "attack",
+  playerId: "2",
+  title: "attack",
+  // @ts-expect-error -- a role cannot name the attacker
+  attackerId: "3",
+};
+export const selfRedirectedAttack: AttackDecision = {
+  kind: "attack",
+  playerId: "2",
+  title: "attack",
+  // @ts-expect-error -- the redirect is the host's answer, not the role's
+  redirectId: "4",
+};
+export const renamedDeath: AttackDecision = {
+  kind: "attack",
+  playerId: "2",
+  title: "attack",
+  // @ts-expect-error -- a role cannot choose the cause of the death
+  cause: "execution",
+};

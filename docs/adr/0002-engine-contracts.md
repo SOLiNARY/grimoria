@@ -229,7 +229,7 @@ interface WinContext extends CapabilityFacts {
 
 | Step kind | Read-only context fields | Decision | Current owner |
 | --- | --- | --- | --- |
-| Night step, first/other | `targetIds`, `chosenRoleId`, `pendings`, `timing` | `effects`, `suppressed`, `no-effect` | `night.ts`, `bmr.ts`, `sv.ts`, `engine/ability.ts` |
+| Night step, first/other | `targetIds`, `chosenRoleId`, `pendings`, `timing` | `effects`, `attack`, `suppressed`, `no-effect` | `night.ts`, `bmr.ts`, `sv.ts`, `engine/ability.ts` |
 | Day action | `action`, `targetIds`, action facts (`text`, `truth`, `guesses`, `marks`) | `effects`, `record`, `host-choice`, `no-effect` | `day.ts`, `sv.ts` |
 | Death trigger | `deadId`, `deadRoleId`, `cause`, `livingBefore`, `livingMinionIds`, `retainsAbility` | `effects`, `suppressed`, `no-effect` for the wake; `inherit`, `choose-heir` for succession | `deathStep`, `onDeath`, `appendSvConditionalSteps` |
 | Execution contribution | `executedId`, `executedRoleId`, `cause`, `death`, `executionToday`, `livingCount` | `survives`, `dies`, `win`, `effects`, `no-effect` | `executePlayer`, `checkWin` |
@@ -529,6 +529,19 @@ and ends nothing, so a role returns the same choice on both paths and cannot
 leave a working effect behind a failed ability. The vote check in `day.ts`
 and the effect lookup in `effects.ts` still name the role; they read the
 shared effect and are not night steps.
+
+`openspec/changes/tb-imp-night-step` continues the slice with the Imp. It adds
+one decision, `attack`, which names stage 2 of the resolution order: the role
+gives the chosen player and the title of the attack's log line, and the
+coordinator calls `resolveAttack` with the acting seat as the attacker and the
+host's answer as the redirect. It is a decision and not an intent, because an
+attack can wait for the host before anything is written and keeps its own step
+record. The coordinator now returns an outcome to the step completion
+(`applied`, `needs-redirect` or `attack`) and takes the host's answers as one
+object. The Imp does not read `impaired`: the attack path stops an impaired
+attacker, as it did. The succession in `death.ts` and `becoming.ts` and the
+new Demon's wake in `appendConditionalSteps` still name the role; they are the
+shared succession and are not night steps.
 
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
