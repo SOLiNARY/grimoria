@@ -71,18 +71,51 @@ export function roleModules(): ModuleFacts[] {
     if (/\bdeathStep\s*:/.test(source)) declares.push("deathStep");
     if (/\bonDeath\s*:/.test(source)) declares.push("onDeath");
     if (/\bability\s*:\s*\{/.test(source)) declares.push("ability");
-    // Decision literals inside `ability.resolve` are not capability arms; read
-    // the kinds only from the declared `capabilities` array.
-    const capabilities = source.indexOf("capabilities:");
-    if (capabilities !== -1) {
-      const kinds = [...source.slice(capabilities).matchAll(/kind:\s*"([a-z-]+)"/g)].map(
-        (match) => match[1]!,
-      );
-      for (const kind of new Set(kinds)) declares.push("capability:" + kind);
-    }
+    for (const kind of capabilityKinds(source)) declares.push("capability:" + kind);
     facts.push({ id: declaration[1]!, edition, declares });
   }
   return facts;
+}
+
+/**
+ * The arm kinds of a module's `capabilities` array. A resolver inside an arm
+ * returns decisions and intents that carry a `kind` of their own, so only a
+ * `kind` at the top level of an array element names a capability.
+ */
+export function capabilityKinds(source: string): string[] {
+  const start = source.indexOf("capabilities:");
+  const open = start === -1 ? -1 : source.indexOf("[", start);
+  if (open === -1) return [];
+  const kinds: string[] = [];
+  // Nesting inside the array: an element object is depth 1.
+  let depth = 0;
+  for (let index = open + 1; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (char === "/" && source[index + 1] === "/") {
+      const end = source.indexOf("\n", index);
+      index = end === -1 ? source.length : end;
+    } else if (char === "/" && source[index + 1] === "*") {
+      const end = source.indexOf("*/", index + 2);
+      index = end === -1 ? source.length : end + 1;
+    } else if (char === '"' || char === "'" || char === "`") {
+      index += 1;
+      while (index < source.length && source[index] !== char) {
+        index += source[index] === "\\" ? 2 : 1;
+      }
+    } else if (char === "{" || char === "[" || char === "(") {
+      depth += 1;
+    } else if (char === "}" || char === "]" || char === ")") {
+      if (depth === 0) break;
+      depth -= 1;
+    } else if (depth === 1 && !/[\w$.]/.test(source[index - 1] ?? "")) {
+      const match = /^kind\s*:\s*"([a-z-]+)"/.exec(source.slice(index, index + 64));
+      if (match) {
+        kinds.push(match[1]!);
+        index += match[0].length - 1;
+      }
+    }
+  }
+  return [...new Set(kinds)];
 }
 
 export function ruleRows(roleId: string): RuleRow[] {

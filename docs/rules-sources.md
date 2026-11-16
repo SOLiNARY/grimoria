@@ -13,7 +13,8 @@ row is `verified`.
 
 Each supported role has one module in `src/core/roles/<role-id>/`. `role.ts`
 carries the role's night-step and death hooks and, for a migrated role, a
-read-only `ability` resolver that returns typed intents for the engine to apply;
+read-only resolver (a `night-step` capability or the earlier `ability` field)
+that returns typed intents for the engine to apply;
 `rule.md` lists the rule identifiers, the matrix revision each audits and the
 asserting tests. Test names carry those identifiers,
 `scripts/check-acceptance.ts` enforces the link, and

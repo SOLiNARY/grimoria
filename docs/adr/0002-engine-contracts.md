@@ -511,6 +511,16 @@ of order with its base.
 
 Slice 1 started with `imp` and `sv-common`, because the architecture test could
 not shrink its exception map until they were clean; that map is now empty.
+
+Slice 2 started in `openspec/changes/tb-night-step-capabilities` with the
+Poisoner and the Monk. As implemented, a `night-step` resolver receives the
+`AbilityContext` of ADR 0001 and returns its `AbilityDecision`: the separate
+`timing` fact of `NightContext` is not added, because `at.number` already
+carries it and no migrated rule reads it. The slice adds one intent,
+`timed-effect`, for a dated effect of the acting ability, and
+`src/core/roles/night-step.ts` as the one lookup that reads a declared step
+from the capability or from the legacy fields.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 

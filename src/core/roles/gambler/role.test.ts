@@ -16,6 +16,7 @@ function context(overrides: Partial<AbilityContext> = {}): AbilityContext {
     pendings: [],
     actualRoleOf: (id) => CHARS[id] ?? null,
     hasPlayer: (id) => id in CHARS,
+    nameOf: (id) => "P" + id,
     ...overrides,
   };
 }

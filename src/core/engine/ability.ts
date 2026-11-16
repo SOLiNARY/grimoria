@@ -1,5 +1,5 @@
 import type { DeadAt, GameState, NightStep, RoleId } from "../model/types.ts";
-import { livingPlayers, playerById, registersAlive } from "../model/state.ts";
+import { livingPlayers, playerById, registersAlive, seatName } from "../model/state.ts";
 import { roleTeam } from "../model/rules.ts";
 import type {
   AbilityDecision,
@@ -14,18 +14,20 @@ import type {
   ExecutionContext,
   ExecutionDecision,
 } from "../roles/ability.ts";
+import { nightResolverFor } from "../roles/night-step.ts";
 import type { RoleModule } from "../roles/types.ts";
 import { setStepNote } from "./context.ts";
-import { systemPorts } from "../model/ports.ts";
+import { idSuffix, systemPorts } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, kill, resolveDemonDeath } from "./death.ts";
 import { isImpaired } from "./effects.ts";
 import { delayPukkaDeath, poisonPukkaPlayer, pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
 
 /**
- * Runs one module-declared ability and applies its intents through the shared
- * mechanics. The module receives read-only facts, so it cannot write state.
- * A step without an actor, or a module without an ability, does nothing.
+ * Runs the resolver a module declares for this night's step and applies its
+ * intents through the shared mechanics. The module receives read-only facts,
+ * so it cannot write state. A step without an actor, or a module without a
+ * resolver for this night, does nothing.
  */
 export function applyRoleAbility(
   state: GameState,
@@ -36,10 +38,10 @@ export function applyRoleAbility(
   chosenRoleId: RoleId | null,
   ports: CommandExecutionContext = systemPorts,
 ): void {
-  const ability = module.ability;
+  const resolve = nightResolverFor(module, at.number);
   const actorId = step.actorId;
-  if (!ability || !actorId) return;
-  const decision = ability.resolve({
+  if (!resolve || !actorId) return;
+  const decision = resolve({
     actorId,
     targetIds: targets,
     chosenRoleId,
@@ -54,6 +56,7 @@ export function applyRoleAbility(
     })),
     actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
     hasPlayer: (playerId) => playerById(state, playerId) != null,
+    nameOf: (playerId) => seatName(state, playerId),
   });
   applyDecision(state, module, step, decision, at, actorId, ports);
 }
@@ -146,6 +149,26 @@ function applyEffect(
       const pending = state.effects.find((candidate) => candidate.id === effect.pendingId) || null;
       return resolvePukkaDeath(state, pending, at, {}, ports);
     }
+    case "timed-effect":
+      // The source, the start and the id are engine bookkeeping: the id comes
+      // from the command ports, so a role cannot choose it.
+      if (effect.replacesPrevious) {
+        for (const candidate of state.effects) {
+          if (candidate.kind === effect.effect && candidate.sourceId === actorId) {
+            candidate.active = false;
+          }
+        }
+      }
+      state.effects.push({
+        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
+        kind: effect.effect,
+        sourceId: actorId,
+        targetId: effect.playerId,
+        start: at,
+        expires: { phase: effect.expires.phase, number: effect.expires.number },
+        active: true,
+      });
+      return null;
   }
 }
 
