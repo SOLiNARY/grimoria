@@ -18,6 +18,8 @@ function context(
     at: { phase: "night", number: 1 },
     aliveNeighborIds: (playerId) => (playerId === "3" ? neighbours : []),
     registeredTeamOf: (playerId) => teams[playerId] ?? null,
+    registersAsDemon: () => false,
+    redHerringId: null,
     actualRoleOf: () => null,
     hasPlayer: () => true,
     ...overrides,

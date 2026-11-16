@@ -157,7 +157,6 @@ export function infoKindFor(roleId: RoleId | null): string {
       librarian: "one-of-two",
       investigator: "one-of-two",
       chef: "number",
-      fortuneteller: "yes-no",
       undertaker: "character",
       ravenkeeper: "character",
       spy: "grimoire",
@@ -672,7 +671,6 @@ export function completeStep(
   if (
     informationOf(module) ||
     role === "chef" ||
-    role === "fortuneteller" ||
     role === "washerwoman" ||
     role === "librarian" ||
     role === "investigator"
