@@ -3,11 +3,26 @@ import type { RoleModule } from "../types.ts";
 export const role = {
   id: "imp",
   edition: "tb",
-  nightStep: { target: "one-any" },
-  // Imp r3116 and Scarlet Woman r3117: the Scarlet Woman takes the role first;
-  // a self-kill with one Minion left passes the role to that Minion, and with
-  // several Minions the host chooses the heir.
   capabilities: [
+    {
+      kind: "night-step",
+      // Imp r3116: each night except the first, choose a player: they die. Any
+      // player may be chosen, alive or dead, the Imp included.
+      timing: "other",
+      step: { target: "one-any" },
+      resolve({ targetIds }) {
+        const targetId = targetIds[0];
+        if (!targetId) return { kind: "no-effect" };
+        // Whether anyone dies is the shared attack path's answer, which the
+        // table also asks before the step completes: a poisoned Imp, a dead
+        // target, the Monk and the Soldier stop the attack, and a working
+        // Mayor is the host's redirect.
+        return { kind: "attack", playerId: targetId, title: "Имп атакует" };
+      },
+    },
+    // Imp r3116 and Scarlet Woman r3117: the Scarlet Woman takes the role first;
+    // a self-kill with one Minion left passes the role to that Minion, and with
+    // several Minions the host chooses the heir.
     {
       kind: "death-trigger",
       onDeath(context) {

@@ -1104,7 +1104,7 @@ test("a suppressed ability keeps its dated effect as a record that never applies
   const step = roleStep(state, "poisoner");
   const { ports, draws } = recordingPorts();
 
-  applyRoleAbility(state, wasted, step, ["4"], { phase: "night", number: 2 }, null, ports);
+  applyRoleAbility(state, wasted, step, ["4"], { phase: "night", number: 2 }, {}, ports);
 
   assert.equal(state.effects.length, 2);
   assert.deepEqual(plain(state.effects[0]), working, "the earlier effect is not ended");
@@ -1120,6 +1120,80 @@ test("a suppressed ability keeps its dated effect as a record that never applies
   assert.equal(isImpaired(state, "4"), false, "the record poisons no one");
   assert.equal(step.noteKey, "note.abilityFailed");
   assert.deepEqual(draws, ["id:4"]);
+});
+
+// A module whose night step is an attack under its own title. The coordinator
+// tests below use it, so they do not depend on the Imp's wording.
+const attacker: RoleModule = {
+  id: "imp",
+  edition: "tb",
+  capabilities: [
+    {
+      kind: "night-step",
+      timing: "other",
+      step: { target: "one-any" },
+      resolve: ({ targetIds }) => ({
+        kind: "attack",
+        playerId: targetIds[0]!,
+        title: "Проверочная атака",
+      }),
+    },
+  ],
+};
+
+test("an attack decision is resolved for the acting seat and handed back under the role's title", () => {
+  const state = make(NIGHT_ROLES);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  const step = roleStep(state, "imp");
+  const { ports } = recordingPorts();
+
+  const outcome = applyRoleAbility(
+    state,
+    attacker,
+    step,
+    ["4"],
+    { phase: "night", number: 2 },
+    {},
+    ports,
+  );
+
+  assert.equal(outcome.kind, "attack");
+  if (outcome.kind !== "attack") return;
+  assert.equal(outcome.title, "Проверочная атака");
+  assert.equal(outcome.attack.deathId, "4");
+  assert.equal(state.players["4"].alive, false);
+  assert.equal(state.deaths.at(-1)!.cause, "demon");
+  assert.equal(step.done, false, "the caller completes the step");
+});
+
+test("an attack decision on a working Mayor returns the host's question and applies nothing", () => {
+  const state = make(NIGHT_ROLES);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  const step = roleStep(state, "imp");
+  const at = { phase: "night" as const, number: 2 };
+  const before = JSON.stringify(state);
+  const { ports, draws } = recordingPorts();
+
+  const asked = applyRoleAbility(state, attacker, step, ["5"], at, {}, ports);
+
+  assert.equal(asked.kind, "needs-redirect");
+  if (asked.kind !== "needs-redirect") return;
+  assert.deepEqual(
+    asked.options.map((option) => option.id),
+    ["1", "2", "3", "4", "6", "7"],
+  );
+  assert.equal(JSON.stringify(state), before);
+  assert.deepEqual(draws, []);
+
+  const answered = applyRoleAbility(state, attacker, step, ["5"], at, { redirectId: "4" }, ports);
+
+  assert.equal(answered.kind, "attack");
+  if (answered.kind !== "attack") return;
+  assert.equal(answered.attack.redirected, true);
+  assert.equal(state.players["5"].alive, true);
+  assert.equal(state.players["4"].alive, false);
 });
 
 test("the Butler choice reports the new master and the effect as command events (TB-BUTLER-01)", () => {

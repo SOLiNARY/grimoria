@@ -164,5 +164,6 @@ test("the migrated Trouble Brewing roles resolve from their modules", () => {
   assert.equal(nightResolverFor(roleModule("monk"), 1), undefined, "the Monk sleeps on night 1");
   assert.ok(nightResolverFor(roleModule("butler"), 1));
   assert.ok(nightResolverFor(roleModule("butler"), 2));
-  assert.equal(nightResolverFor(roleModule("imp"), 2), undefined, "not migrated yet");
+  assert.ok(nightResolverFor(roleModule("imp"), 2));
+  assert.equal(nightResolverFor(roleModule("imp"), 1), undefined, "the Imp sleeps on night 1");
 });

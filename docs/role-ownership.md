@@ -54,7 +54,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `goon` | bmr | — | bmr.ts×8 | BMR-GOON-01 (verified, r2977) | engine branch |
 | `gossip` | bmr | nightStep | day.ts×1 | BMR-GOSSIP-01 (verified, r1773) | engine branch |
 | `grandmother` | bmr | nightStep, firstNightStep | night.ts×1, bmr.ts×11 | BMR-GRANDMOTHER-01 (verified, r2978)<br>BMR-GRANDMOTHER-02 (verified, r2978) | engine branch |
-| `imp` | tb | nightStep, capability:death-trigger | death.ts×2, night.ts×2, becoming.ts×3 | TB-IMP-01 (verified, r3116) | capability + engine reference |
+| `imp` | tb | capability:night-step, capability:death-trigger | death.ts×2, night.ts×1, becoming.ts×3 | TB-IMP-01 (verified, r3116) | capability + engine reference |
 | `innkeeper` | bmr | nightStep | effects.ts×2, night.ts×1, bmr.ts×2 | BMR-INNKEEPER-01 (verified, r3160) | engine branch |
 | `investigator` | tb | nightStep | night.ts×1, setup.ts×2, information.ts×1 | TB-INVESTIGATOR-01 (verified, r2983) | engine branch |
 | `juggler` | snv | nightStep | day.ts×2, sv.ts×2 | SNV-JUGGLER-01 (verified, r2401)<br>SNV-JUGGLER-02 (verified, r2401) | engine branch |

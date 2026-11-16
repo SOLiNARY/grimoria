@@ -57,6 +57,16 @@ test("a migrated night step keeps the references of the shared mechanic that rea
   assert.equal(ownerOf(butler, engineLocations("butler")), "capability + engine reference");
 });
 
+test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
+  const imp = roleModules().find((candidate) => candidate.id === "imp");
+  assert.ok(imp);
+  assert.deepEqual(imp.declares, ["capability:night-step", "capability:death-trigger"]);
+  // The succession fallback, the heir and the new Demon's wake still name the
+  // role; the completion of the attack step does not.
+  assert.deepEqual(engineLocations("imp"), ["death.ts×2", "night.ts×1", "becoming.ts×3"]);
+  assert.equal(ownerOf(imp, engineLocations("imp")), "capability + engine reference");
+});
+
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
   const source = `
     export const role = {

@@ -105,6 +105,18 @@ export type AbilityDecision =
       readonly result?: Readonly<Record<string, unknown>>;
     }
   /**
+   * The acting ability attacks one player as the Demon. The engine resolves
+   * the attack through the shared attack path, in this order: an impaired
+   * attacker, a dead target, the Monk's protection and the Soldier stop it; a
+   * working Mayor makes the step wait for the host's redirect; a death runs
+   * the Demon succession and the win check. The role does not read `impaired`
+   * for it and cannot name the attacker, the redirect or the cause of death.
+   * The step keeps the attack's own record: the outcome as its result, the
+   * victim or the reason nobody died as its note, and one secret log line
+   * under `title`.
+   */
+  | { readonly kind: "attack"; readonly playerId: string; readonly title: string }
+  /**
    * The ability did nothing because its owner is drunk or poisoned. The engine
    * writes its generic failure note unless the rule supplies its own. A rule
    * may still suspend its pending deaths and record the choice that was made,
