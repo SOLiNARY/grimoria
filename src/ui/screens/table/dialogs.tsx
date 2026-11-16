@@ -2,7 +2,7 @@
 // surfaces; the roster, the table menu, the role reference card, the day help,
 // the correction and the two backup dialogs use the shared Radix dialog for the
 // focus trap and Escape handling.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   seatProjection,
@@ -10,7 +10,7 @@ import {
   tableProjection,
 } from "../../../application/read-models/table.ts";
 import { orderedPlayers, playerById, realTeamOf } from "../../../core/model/state.ts";
-import { ALL_ROLES, roleTeam } from "../../../core/model/rules.ts";
+import { roleTeam } from "../../../core/model/rules.ts";
 import { Dialog, DialogClose } from "../../components/dialog.tsx";
 import {
   blockerText,
@@ -18,6 +18,7 @@ import {
   displayName,
   guideForStep,
   previewIdentity,
+  rejectionText,
   roleNameOf,
   shownCardText,
   stepTitle,
@@ -123,7 +124,9 @@ function PlayerInfoCard({ view }: { view: TableView }) {
   if (step.roleId === "lunatic" && state.night.number === 1) {
     const actor = step.actorId ? playerById(state, step.actorId) : null;
     const mask = actor?.shownRoleId ? ports.roles.byId(actor.shownRoleId) : null;
-    const bluffIds = (state.bluffs?.length ? state.bluffs : state.setup.bluffs || []).map(String);
+    const bluffIds = (
+      state.setup.lunaticBluffs ?? (state.bluffs?.length ? state.bluffs : state.setup.bluffs)
+    ).map(String);
     const bluffRoles = bluffIds
       .map((id) => ports.roles.byId(id))
       .filter((bluff): bluff is NonNullable<typeof bluff> => Boolean(bluff));
@@ -379,6 +382,7 @@ function PlayerSheet({ view }: { view: TableView }) {
   const player = drafts.playerCardId ? playerById(state, drafts.playerCardId) : null;
   if (!player) return null;
   const role = player.roleId ? ports.roles.byId(player.roleId) : null;
+  const dead = !player.alive || Boolean(player.registeredDead);
   return (
     <ShellDialog
       open
@@ -394,7 +398,7 @@ function PlayerSheet({ view }: { view: TableView }) {
           ) : null}
           <div>
             <p className="m-0 text-[12px] text-muted">
-              {t("seat")} {player.seat} · {player.alive ? t("ui.alive") : t("ui.dead")}
+              {t("seat")} {player.seat} · {dead ? t("ui.dead") : t("ui.alive")}
             </p>
             <b className="block font-role text-[18px] text-parchment">
               {role ? role.name : t("ui.unknown")}
@@ -403,6 +407,13 @@ function PlayerSheet({ view }: { view: TableView }) {
         </div>
         {role?.ability ? (
           <p className="m-0 text-[12px] leading-[1.5] text-muted">{role.ability}</p>
+        ) : null}
+        {state.phase === "day" && !state.day.ended && !state.winner ? (
+          <PlayerVoteControls
+            key={`${player.id}:${state.day.number}`}
+            view={view}
+            playerId={player.id}
+          />
         ) : null}
         {state.phase === "day" && !state.day.execution && !state.day.ended && !state.winner ? (
           <button
@@ -451,6 +462,79 @@ function PlayerSheet({ view }: { view: TableView }) {
         </button>
       </div>
     </ShellDialog>
+  );
+}
+
+function PlayerVoteControls({ view, playerId }: { view: TableView; playerId: string }) {
+  const { state, ports, actions } = view;
+  const t = ports.strings.t;
+  const [count, setCount] = useState(String(state.day.voteCounts?.[playerId] ?? 0));
+  const player = playerById(state, playerId);
+  if (!player) return null;
+  const value = Number(count);
+  const valid =
+    count.trim() !== "" && Number.isInteger(value) && value >= 0 && value <= state.order.length;
+  const dead = !player.alive || Boolean(player.registeredDead);
+  const rejection = rejectionText(actions.rejection, t);
+  return (
+    <div className="grid gap-3 rounded-md border border-edge bg-crypt-3 p-3" data-player-voting>
+      <form
+        className="grid gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (valid) actions.run({ type: "setVoteCount", payload: { playerId, count: value } });
+        }}
+      >
+        <label className="grid gap-1 text-[12px] text-muted">
+          {t("ui.playerVoteCount")}
+          <input
+            className="field min-h-11 w-full"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={state.order.length}
+            step={1}
+            data-vote-count
+            value={count}
+            onChange={(event) => setCount(event.target.value)}
+          />
+        </label>
+        <button className="btn min-h-11" type="submit" data-act="save-vote-count" disabled={!valid}>
+          {t("ui.saveVoteCount")}
+        </button>
+        {state.day.voteCounts?.[playerId] !== undefined ? (
+          <p className="m-0 text-[11px] text-muted" role="status">
+            {t("ui.savedVoteCount", { n: state.day.voteCounts[playerId] })}
+          </p>
+        ) : null}
+      </form>
+      {dead ? (
+        <div className="grid gap-2 border-t border-edge pt-2">
+          <span className="text-[12px] text-muted">
+            {t(player.voteToken ? "ui.ghostVote" : "ui.noGhostVote")}
+          </span>
+          <button
+            className="btn min-h-11"
+            type="button"
+            data-act="toggle-dead-vote"
+            aria-pressed={!player.voteToken}
+            onClick={() =>
+              actions.run({
+                type: "setDeadVoteUsed",
+                payload: { playerId, used: player.voteToken },
+              })
+            }
+          >
+            {t(player.voteToken ? "ui.spendDeadVote" : "ui.restoreDeadVote")}
+          </button>
+        </div>
+      ) : null}
+      {rejection ? (
+        <p className="m-0 text-[12px] text-danger" role="alert">
+          {rejection}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -773,7 +857,7 @@ function CorrectionDialog({ view }: { view: TableView }) {
             value={current.value}
             onChange={(event) => update({ value: event.target.value })}
           >
-            {ALL_ROLES.map((id) => (
+            {(state.script?.roles ?? []).map((id) => (
               <option key={id} value={id}>
                 {roleNameOf(id, ports.roles.byId)}
               </option>

@@ -552,9 +552,17 @@ test("seatBadges lists every true table state in reading order", () => {
   ]);
   assert.deepEqual(seatBadges({ alive: true }), []);
   assert.deepEqual(seatBadges({ alive: true, scheduledDeath: true }), ["scheduled"]);
-  assert.deepEqual(seatBadges({ alive: true, registeredDead: true }), ["registered-dead"]);
+  assert.deepEqual(seatBadges({ alive: true, registeredDead: true }), [
+    "ghost-vote",
+    "registered-dead",
+  ]);
+  assert.deepEqual(seatBadges({ alive: true, registeredDead: true, voteToken: false }), [
+    "no-ghost-vote",
+    "registered-dead",
+  ]);
   assert.deepEqual(seatBadges({ alive: true, scheduledDeath: true, registeredDead: true }), [
     "scheduled",
+    "ghost-vote",
     "registered-dead",
   ]);
 });

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   ALL_ROLES,
   BMR_ALL,
@@ -15,9 +16,26 @@ import {
   roleTeam,
 } from "../model/rules.ts";
 import { presetBag } from "../model/presets.ts";
-import { createGame, publicGameView, validateState } from "../model/state.ts";
-import { dealGame, secretsErrors, setupErrors } from "./index.ts";
-import { parseScript } from "../model/scripts.ts";
+import {
+  clone,
+  createGame,
+  exportGame,
+  importGame,
+  publicGameView,
+  validateState,
+} from "../model/state.ts";
+import {
+  applyCommand,
+  canonicalState,
+  dealGame,
+  infoForStep,
+  previewCommand,
+  replay,
+  secretsErrors,
+  setupErrors,
+  startNight,
+} from "./index.ts";
+import { badMoonRisingScript, parseScript } from "../model/scripts.ts";
 import type { RandomBag } from "../model/rules.ts";
 import type { Role, RoleId, ScriptEdition } from "../model/types.ts";
 
@@ -638,4 +656,258 @@ test("a Lunatic without a shown Demon mask is illegal", () => {
   );
   const result = dealGame(state, { assignment });
   assert.equal(result.ok, false, JSON.stringify(result));
+});
+
+const LUNATIC_BAG = [
+  "grandmother",
+  "sailor",
+  "chambermaid",
+  "exorcist",
+  "innkeeper",
+  "lunatic",
+  "devilsadvocate",
+  "shabaloth",
+];
+let setupCommandNumber = 0;
+
+function updateSetup(state: ReturnType<typeof createGame>, patch: Record<string, unknown>) {
+  return applyCommand(state, {
+    id: "setup-controls-" + ++setupCommandNumber,
+    type: "bagUpdate",
+    at: "2030-01-01T00:00:00.000Z",
+    payload: { patch },
+  });
+}
+
+function lunaticSetup() {
+  const state = createGame(8);
+  assert.equal(
+    updateSetup(state, {
+      script: badMoonRisingScript(),
+      roles: LUNATIC_BAG,
+      bluffs: ["gambler", "gossip", "courtier"],
+    }).status,
+    "allowed",
+  );
+  return state;
+}
+
+test("the automatic Lunatic mask follows a Demon chosen later and reaches the dealt card (BMR-LUNATIC-01)", () => {
+  const state = createGame(8);
+  assert.equal(
+    updateSetup(state, { script: badMoonRisingScript(), roles: ["lunatic"] }).status,
+    "allowed",
+  );
+  assert.equal(
+    updateSetup(state, { roles: LUNATIC_BAG, bluffs: ["gambler", "gossip", "courtier"] }).status,
+    "allowed",
+  );
+  assert.equal(state.setup.lunaticShownId, "shabaloth");
+  assert.equal(state.setup.lunaticShownExplicit, false);
+  const assignment = Object.fromEntries(state.order.map((id, index) => [id, LUNATIC_BAG[index]]));
+  assert.equal(dealGame(state, { assignment }).ok, true);
+  assert.equal(state.players["6"].roleId, "lunatic");
+  assert.equal(state.players["6"].shownRoleId, "shabaloth");
+});
+
+test("an explicit Lunatic mask survives Demon changes until the host resumes the default (BMR-LUNATIC-01)", () => {
+  const state = lunaticSetup();
+  assert.equal(
+    updateSetup(state, { lunaticShownId: "po", lunaticShownExplicit: true }).status,
+    "allowed",
+  );
+  assert.equal(
+    updateSetup(state, { roles: LUNATIC_BAG.map((id) => (id === "shabaloth" ? "pukka" : id)) })
+      .status,
+    "allowed",
+  );
+  assert.equal(state.setup.lunaticShownId, "po");
+  assert.equal(state.setup.lunaticShownExplicit, true);
+  assert.equal(updateSetup(state, { lunaticShownExplicit: false }).status, "allowed");
+  assert.equal(state.setup.lunaticShownId, "pukka");
+  assert.equal(
+    updateSetup(state, { count: 8, resetRoster: true, roles: LUNATIC_BAG }).status,
+    "allowed",
+  );
+  assert.equal(state.setup.lunaticShownId, "shabaloth");
+  assert.equal(state.setup.lunaticShownExplicit, false);
+});
+
+test("a legacy Lunatic mask without mode metadata is preserved during later bag edits (BMR-LUNATIC-01)", () => {
+  const saved = lunaticSetup();
+  saved.setup.lunaticShownId = "po";
+  delete saved.setup.lunaticShownExplicit;
+  const imported = importGame(exportGame(saved));
+  assert.equal(imported.ok, true);
+  if (!imported.ok) return;
+  assert.equal(
+    updateSetup(imported.state, {
+      roles: LUNATIC_BAG.map((id) => (id === "shabaloth" ? "zombuul" : id)),
+    }).status,
+    "allowed",
+  );
+  assert.equal(imported.state.setup.lunaticShownId, "po");
+  assert.equal(imported.state.setup.lunaticShownExplicit, undefined);
+  assert.equal(updateSetup(imported.state, { lunaticShownExplicit: false }).status, "allowed");
+  assert.equal(imported.state.setup.lunaticShownId, "zombuul");
+  assert.equal(imported.state.setup.lunaticShownExplicit, false);
+});
+
+test("a legacy Lunatic journal preserves its mask and random deal through replay and undo (BMR-LUNATIC-01)", () => {
+  // Generated with createGame/applyCommand at daa9db4, before these optional
+  // fields existed: select Lunatic before Shabaloth, then deal randomly.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-lunatic-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true);
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.setup.lunaticShownId, "po");
+  assert.equal(saved.setup.lunaticShownExplicit, undefined);
+  assert.equal(saved.setup.lunaticBluffs, undefined);
+  assert.equal(saved.players["1"].roleId, "lunatic");
+  assert.equal(saved.players["1"].shownRoleId, "po");
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true);
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+  assert.deepEqual(replayed.state.players, saved.players);
+
+  const undoJournal = clone(saved.journal);
+  const dealEntry = undoJournal.entries.pop();
+  assert.equal(dealEntry?.type, "dealGame");
+  const undone = replay(undoJournal);
+  assert.equal(undone.ok, true);
+  if (!undone.ok || !dealEntry) return;
+  assert.equal(undone.state.phase, "setup");
+  assert.equal(undone.state.setup.lunaticShownId, "po");
+  assert.equal(undone.state.setup.lunaticShownExplicit, undefined);
+  assert.equal(undone.state.setup.lunaticBluffs, undefined);
+  assert.equal(
+    applyCommand(undone.state, { ...dealEntry, payload: dealEntry.payload ?? {} }).status,
+    "allowed",
+  );
+  assert.deepEqual(canonicalState(undone.state), canonicalState(saved));
+});
+
+test("host bluff shuffles stay independent, eligible and identical on preview and replay (BMR-LUNATIC-01)", () => {
+  const state = lunaticSetup();
+  assert.equal(
+    updateSetup(state, { bluffs: [], lunaticBluffs: ["grandmother", "sailor", "lunatic"] }).status,
+    "allowed",
+  );
+  const originalLunatic = ["grandmother", "sailor", "lunatic"];
+  const command = {
+    id: "shuffle-demon",
+    type: "bagUpdate",
+    at: "2030-01-02T00:00:00.000Z",
+    payload: { patch: { shuffleBluffs: "demon" } },
+  };
+  const before = JSON.stringify(state);
+  const preview = previewCommand(state, command);
+  assert.equal(preview.status, "allowed");
+  assert.equal(JSON.stringify(state), before);
+  const applied = applyCommand(state, command);
+  assert.equal(applied.status, "allowed");
+  if (preview.status !== "allowed" || applied.status !== "allowed") return;
+  assert.deepEqual(applied.events, preview.events);
+  assert.equal(state.setup.bluffs.length, 3);
+  assert.equal(new Set(state.setup.bluffs).size, 3);
+  assert.ok(
+    state.setup.bluffs.every(
+      (id) => isGoodRole(id) && BMR_ALL.includes(id) && !LUNATIC_BAG.includes(id),
+    ),
+  );
+  assert.deepEqual(state.setup.lunaticBluffs, originalLunatic);
+  const demonBluffs = state.setup.bluffs.slice();
+  assert.equal(updateSetup(state, { shuffleBluffs: "lunatic" }).status, "allowed");
+  assert.deepEqual(state.setup.bluffs, demonBluffs);
+  assert.equal(state.setup.lunaticBluffs?.length, 3);
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true);
+  if (replayed.ok) assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  const imported = importGame(exportGame(state));
+  assert.equal(imported.ok, true);
+  if (imported.ok) assert.deepEqual(imported.state.setup, state.setup);
+});
+
+test("Lunatic bluff shuffles can choose assigned good roles in a five-player game (BMR-LUNATIC-01)", () => {
+  const state = createGame(5);
+  const roles = ["grandmother", "sailor", "lunatic", "godfather", "zombuul"];
+  assert.equal(
+    updateSetup(state, {
+      script: { id: "custom-lunatic", name: "Lunatic", edition: "custom", roles },
+      roles,
+    }).status,
+    "allowed",
+  );
+  assert.equal(updateSetup(state, { shuffleBluffs: "lunatic" }).status, "allowed");
+  assert.deepEqual([...(state.setup.lunaticBluffs ?? [])].sort(), [
+    "grandmother",
+    "lunatic",
+    "sailor",
+  ]);
+  assert.deepEqual(state.setup.bluffs, []);
+  const before = JSON.stringify(state);
+  assert.equal(updateSetup(state, { shuffleBluffs: "demon" }).status, "rejected");
+  assert.equal(JSON.stringify(state), before);
+});
+
+test("a bluff shuffle with too few eligible roles rejects without changing either list (BMR-LUNATIC-01)", () => {
+  const state = createGame(8);
+  assert.equal(
+    updateSetup(state, {
+      script: {
+        id: "custom-short-bluffs",
+        name: "No unused roles",
+        edition: "custom",
+        roles: LUNATIC_BAG,
+      },
+      roles: LUNATIC_BAG,
+    }).status,
+    "allowed",
+  );
+  const before = JSON.stringify(state);
+  assert.equal(updateSetup(state, { shuffleBluffs: "demon" }).status, "rejected");
+  assert.equal(JSON.stringify(state), before);
+  const short = createGame(5);
+  assert.equal(
+    updateSetup(short, {
+      script: {
+        id: "custom-short-lunatic",
+        name: "Few good roles",
+        edition: "custom",
+        roles: ["lunatic", "godfather", "assassin", "zombuul", "po"],
+      },
+      roles: ["lunatic", "po"],
+    }).status,
+    "allowed",
+  );
+  const shortBefore = JSON.stringify(short);
+  assert.equal(updateSetup(short, { shuffleBluffs: "lunatic" }).status, "rejected");
+  assert.equal(JSON.stringify(short), shortBefore);
+});
+
+test("the Lunatic first-night information uses its own bluffs and preserves the legacy fallback (BMR-LUNATIC-01)", () => {
+  const state = lunaticSetup();
+  const lunaticBluffs = ["grandmother", "sailor", "lunatic"];
+  assert.equal(updateSetup(state, { lunaticBluffs }).status, "allowed");
+  assert.equal(
+    dealGame(state, {
+      assignment: Object.fromEntries(state.order.map((id, index) => [id, LUNATIC_BAG[index]])),
+    }).ok,
+    true,
+  );
+  assert.equal(startNight(state).ok, true);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "lunatic")!;
+  assert.ok(step);
+  assert.equal(step.noteVars?.bluffs, lunaticBluffs.join(", "));
+  assert.equal(infoForStep(state, step).textVars?.bluffs, lunaticBluffs.join(", "));
+  const demon = state.night.queue.find((candidate) => candidate.system === "demoninfo")!;
+  assert.deepEqual(demon.bluffs, state.bluffs);
+  const legacy = clone(state);
+  delete legacy.setup.lunaticBluffs;
+  assert.equal(infoForStep(legacy, step).textVars?.bluffs, legacy.bluffs.join(", "));
+  assert.equal(JSON.stringify(publicGameView(state)).includes("lunaticBluffs"), false);
 });

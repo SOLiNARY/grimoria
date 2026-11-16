@@ -1,7 +1,7 @@
 // Named script pools and exact bag selections. This is a side library, not
 // game state: one key, no game rules, no undo history. The bag screen validates
 // everything before it applies a stored entry.
-import { isSupportedRole } from "../../core/model/rules.ts";
+import { isGoodRole, isSupportedRole } from "../../core/model/rules.ts";
 import type { RoleId } from "../../core/model/types.ts";
 
 export type Pool = { id: string; name: string; roles: RoleId[]; updatedAt: string };
@@ -14,6 +14,8 @@ export type Bag = {
   bluffs: RoleId[];
   drunkShownId: RoleId | null;
   lunaticShownId: RoleId | null;
+  lunaticShownExplicit?: boolean;
+  lunaticBluffs?: RoleId[];
   godfatherOutsider: 1 | -1;
   evilTwinGoodId: RoleId | null;
   updatedAt: string;
@@ -43,6 +45,8 @@ export type BagEntry = {
   bluffs?: unknown;
   drunkShownId?: unknown;
   lunaticShownId?: unknown;
+  lunaticShownExplicit?: unknown;
+  lunaticBluffs?: unknown;
   godfatherOutsider?: unknown;
   evilTwinGoodId?: unknown;
 };
@@ -111,6 +115,13 @@ export function normalizeLibrary(value: unknown): Library {
         bluffs: ids(entry.bluffs),
         drunkShownId: isSupportedRole(entry.drunkShownId) ? entry.drunkShownId : null,
         lunaticShownId: isSupportedRole(entry.lunaticShownId) ? entry.lunaticShownId : null,
+        lunaticShownExplicit:
+          typeof entry.lunaticShownExplicit === "boolean"
+            ? entry.lunaticShownExplicit
+            : isRoleId(entry.lunaticShownId),
+        ...(entry.lunaticBluffs === undefined
+          ? {}
+          : { lunaticBluffs: ids(entry.lunaticBluffs).filter(isGoodRole).slice(0, 3) }),
         godfatherOutsider: entry.godfatherOutsider === -1 ? -1 : 1,
         evilTwinGoodId: isSupportedRole(entry.evilTwinGoodId) ? entry.evilTwinGoodId : null,
         updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : stamp(),
@@ -176,6 +187,13 @@ export function upsertBag(library: unknown, entry: BagEntry): BagSave {
     bluffs: ids(entry.bluffs).slice(0, 3),
     drunkShownId: isRoleId(entry.drunkShownId) ? entry.drunkShownId : null,
     lunaticShownId: isRoleId(entry.lunaticShownId) ? entry.lunaticShownId : null,
+    lunaticShownExplicit:
+      typeof entry.lunaticShownExplicit === "boolean"
+        ? entry.lunaticShownExplicit
+        : isRoleId(entry.lunaticShownId),
+    ...(entry.lunaticBluffs === undefined
+      ? {}
+      : { lunaticBluffs: ids(entry.lunaticBluffs).filter(isGoodRole).slice(0, 3) }),
     godfatherOutsider: entry.godfatherOutsider === -1 ? -1 : 1,
     evilTwinGoodId: isRoleId(entry.evilTwinGoodId) ? entry.evilTwinGoodId : null,
     updatedAt: stamp(),

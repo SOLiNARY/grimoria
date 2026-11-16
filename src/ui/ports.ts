@@ -82,6 +82,8 @@ export interface PresetBag {
   bluffs: string[];
   drunkShownId: string | null;
   lunaticShownId: string | null;
+  lunaticShownExplicit?: boolean;
+  lunaticBluffs?: string[];
   godfatherOutsider: 1 | -1;
   evilTwinGoodId: string | null;
 }
@@ -146,6 +148,8 @@ export interface LibraryBag {
   bluffs: string[];
   drunkShownId: string | null;
   lunaticShownId: string | null;
+  lunaticShownExplicit?: boolean;
+  lunaticBluffs?: string[];
   godfatherOutsider: 1 | -1;
   evilTwinGoodId: string | null;
   updatedAt: string;
@@ -165,6 +169,8 @@ export interface BagEntryInput {
   bluffs: string[];
   drunkShownId: string | null;
   lunaticShownId: string | null;
+  lunaticShownExplicit?: boolean;
+  lunaticBluffs?: string[];
   godfatherOutsider: 1 | -1;
   evilTwinGoodId: string | null;
 }

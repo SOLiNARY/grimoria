@@ -121,6 +121,8 @@ export function createGame(
       bluffs: [],
       drunkShownId: null,
       lunaticShownId: null,
+      lunaticShownExplicit: false,
+      lunaticBluffs: [],
       godfatherOutsider: 1,
       grandmotherId: null,
       evilTwinGoodId: null,
@@ -193,6 +195,10 @@ export function setRoster(state: GameState, count: number): GameState {
   state.setup.bluffs = [];
   state.setup.drunkShownId = null;
   state.setup.lunaticShownId = null;
+  // Omitted metadata identifies a legacy journal: adding keys during replay
+  // would change both its sticky mask and the seed of later random deals.
+  if (state.setup.lunaticShownExplicit !== undefined) state.setup.lunaticShownExplicit = false;
+  if (state.setup.lunaticBluffs !== undefined) state.setup.lunaticBluffs = [];
   state.setup.godfatherOutsider = 1;
   state.setup.grandmotherId = null;
   state.setup.evilTwinGoodId = null;
@@ -492,8 +498,8 @@ export function normalizeScriptState(value: unknown): unknown {
   return value;
 }
 
-// Save files are an untyped boundary; every field is checked here.
-export function validateState(value: unknown): string[] {
+// Check the external shape before running algorithms that require a game state.
+function validateStateStructure(value: unknown): string[] {
   const errors: string[] = [];
   const check = (ok: boolean, message: string) => {
     if (!ok) errors.push(message);
@@ -569,6 +575,17 @@ export function validateState(value: unknown): string[] {
   const players = object(value.players) ? value.players : {};
   const order = Array.isArray(value.order) ? value.order : [];
   const ref = (id: unknown): boolean => typeof id === "string" && Object.hasOwn(players, id);
+  const validVoteCounts = (counts: unknown): boolean =>
+    counts === undefined ||
+    (object(counts) &&
+      Object.entries(counts).every(
+        ([id, count]) =>
+          ref(id) &&
+          typeof count === "number" &&
+          Number.isInteger(count) &&
+          count >= 0 &&
+          count <= order.length,
+      ));
   check(object(value.players), "Missing players.");
   check(
     order.length >= 5 && order.length <= 15 && new Set(order).size === order.length,
@@ -621,8 +638,14 @@ export function validateState(value: unknown): string[] {
         Array.isArray(value.journal.entries) && (value.journal.entries as unknown[]).every(object),
         "Invalid command journal entries.",
       );
+      const base = value.journal.base;
+      // Journal writers remove the base's journal. Reject nested journals
+      // before validating the base, so external data cannot recurse forever.
       check(
-        value.journal.base === null || object(value.journal.base),
+        base === null ||
+          (object(base) &&
+            base.journal === undefined &&
+            validatedFromUnknown(base, validateState).ok),
         "Invalid command journal base.",
       );
     }
@@ -685,6 +708,7 @@ export function validateState(value: unknown): string[] {
   const lastDay = object(value.lastDay) ? value.lastDay : null;
   check(value.lastDay == null || lastDay !== null, "Invalid last-day state.");
   if (lastDay) {
+    check(validVoteCounts(lastDay.voteCounts), "Invalid last-day vote counts.");
     check(typeof lastDay.number === "number", "Invalid last-day number.");
     check(Array.isArray(lastDay.nominations), "Invalid last-day nominations.");
     check(
@@ -729,6 +753,20 @@ export function validateState(value: unknown): string[] {
       !(Array.isArray(setup.roles) && setup.roles.includes("lunatic")) ||
         (setup.lunaticShownId != null && inScript(setup.lunaticShownId)),
       "Invalid Lunatic mask.",
+    );
+    check(
+      setup.lunaticShownExplicit === undefined || typeof setup.lunaticShownExplicit === "boolean",
+      "Invalid Lunatic mask mode.",
+    );
+    check(
+      setup.lunaticBluffs === undefined ||
+        (Array.isArray(setup.lunaticBluffs) &&
+          setup.lunaticBluffs.length <= 3 &&
+          new Set(setup.lunaticBluffs).size === setup.lunaticBluffs.length &&
+          setup.lunaticBluffs.every(
+            (id) => inScript(id) && ["townsfolk", "outsider"].includes(roleTeam(id) || ""),
+          )),
+      "Invalid Lunatic bluffs.",
     );
     check(
       setup.godfatherOutsider == null ||
@@ -778,6 +816,7 @@ export function validateState(value: unknown): string[] {
   if (!object(day)) errors.push("Missing day.");
   else {
     check(isInt(day.number) && day.number >= 0, "Invalid day number.");
+    check(validVoteCounts(day.voteCounts), "Invalid day vote counts.");
     for (const key of ["morning", "nominations"])
       check(Array.isArray(day[key]) && day[key].every(object), "Invalid day " + key + ".");
     check(typeof day.open === "boolean" && typeof day.ended === "boolean", "Invalid day status.");
@@ -819,8 +858,13 @@ export function validateState(value: unknown): string[] {
         ["good", "evil"].includes(value.winner.team)),
     "Invalid winner.",
   );
-  if (!errors.length) {
-    // Every field above was checked, so the object now has the game shape.
+  return errors;
+}
+
+// Save files are an untyped boundary; validate their shape and effect graph.
+export function validateState(value: unknown): string[] {
+  const errors = validateStateStructure(value);
+  if (!errors.length && object(value)) {
     const graph = effectGraph(legacyRecord(value));
     if (!graph.ok) errors.push("Cyclic effect dependency: " + graph.effectIds.join(", "));
   }
@@ -908,6 +952,8 @@ export function importGame(
   if (candidate.v === 2 || candidate.v === 3) {
     try {
       const migrated = candidate.v === 2 ? migrateV2(candidate) : migrateV3(candidate);
+      const errors = validateStateStructure(migrated);
+      if (errors.length) return { ok: false, error: errors.join(" ") };
       const graph = effectGraph(migrated);
       if (!graph.ok) {
         return {
@@ -917,8 +963,6 @@ export function importGame(
           errors: graph.effectIds,
         };
       }
-      const errors = validateState(migrated);
-      if (errors.length) return { ok: false, error: errors.join(" ") };
       resolveEvilTwinPlayers(migrated);
       return { ok: true, state: migrated };
     } catch (error) {
@@ -929,7 +973,11 @@ export function importGame(
     }
   }
   normalizeScriptState(candidate);
-  const graph = effectGraph(legacyRecord(candidate));
+  const outcome = validatedFromUnknown(candidate, validateStateStructure);
+  if (!outcome.ok) {
+    return { ok: false, error: outcome.errors.map((problem) => problem.message).join(" ") };
+  }
+  const graph = effectGraph(outcome.state);
   if (!graph.ok) {
     return {
       ok: false,
@@ -937,10 +985,6 @@ export function importGame(
       errorCode: graph.errorCode,
       errors: graph.effectIds,
     };
-  }
-  const outcome = validatedFromUnknown(candidate, validateState);
-  if (!outcome.ok) {
-    return { ok: false, error: outcome.errors.map((problem) => problem.message).join(" ") };
   }
   const state = cloneValidated(outcome.state);
   if (!state.journal) state.journal = emptyJournal();

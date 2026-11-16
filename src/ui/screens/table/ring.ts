@@ -124,8 +124,8 @@ export function seatBadges(state: SeatState): SeatBadge[] {
   if (state.acting) badges.push("acting");
   if (state.nominated) badges.push("nominated");
   if (state.scheduledDeath) badges.push("scheduled");
-  if (!state.alive) {
-    badges.push("dead");
+  if (!state.alive) badges.push("dead");
+  if (!state.alive || state.registeredDead) {
     badges.push(state.voteToken === false ? "no-ghost-vote" : "ghost-vote");
   }
   if (state.registeredDead) badges.push("registered-dead");
