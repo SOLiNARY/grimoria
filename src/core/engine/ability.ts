@@ -73,7 +73,7 @@ function applyDecision(
   if (decision.kind === "no-effect") return;
   if (decision.kind === "suppressed") {
     for (const effect of decision.effects || []) {
-      applyEffect(state, module, effect, at, actorId, ports);
+      applyEffect(state, module, effect, at, actorId, ports, true);
     }
     setStepNote(
       step,
@@ -105,6 +105,10 @@ function applyDecision(
   }
 }
 
+/**
+ * Applies one intent. `wasted` is the suppressed path: the ability did
+ * nothing, so a dated effect stays as a record that never applies.
+ */
 function applyEffect(
   state: GameState,
   module: RoleModule,
@@ -112,6 +116,7 @@ function applyEffect(
   at: DeadAt,
   actorId: string,
   ports: CommandExecutionContext,
+  wasted = false,
 ): unknown {
   switch (effect.kind) {
     case "kill":
@@ -152,7 +157,7 @@ function applyEffect(
     case "timed-effect":
       // The source, the start and the id are engine bookkeeping: the id comes
       // from the command ports, so a role cannot choose it.
-      if (effect.replacesPrevious) {
+      if (effect.replacesPrevious && !wasted) {
         for (const candidate of state.effects) {
           if (candidate.kind === effect.effect && candidate.sourceId === actorId) {
             candidate.active = false;
@@ -166,9 +171,16 @@ function applyEffect(
         targetId: effect.playerId,
         start: at,
         expires: { phase: effect.expires.phase, number: effect.expires.number },
-        active: true,
+        // A wasted use has no effect later (States r1039): the record stays
+        // inactive even after its owner recovers.
+        active: !wasted,
       });
       return null;
+    case "record-master": {
+      const actor = playerById(state, actorId);
+      if (actor) actor.butlerMasterId = effect.playerId;
+      return null;
+    }
   }
 }
 

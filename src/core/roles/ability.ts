@@ -37,7 +37,7 @@ export interface AbilityContext {
 }
 
 /** The effect kinds a dated intent may add. A kind arrives with its first migrated role. */
-export type TimedEffectKind = "poison" | "protected";
+export type TimedEffectKind = "poison" | "protected" | "butler";
 
 /** An intent the engine applies through a shared mechanic. */
 export type RoleEffect =
@@ -71,7 +71,9 @@ export type RoleEffect =
   /**
    * A dated effect of the acting ability on one player. The engine mints the
    * id and stamps the source and the start. `replacesPrevious` first ends the
-   * effects of the same kind this ability already holds.
+   * effects of the same kind this ability already holds. On the `suppressed`
+   * path the engine keeps the effect as a record that never applies and ends
+   * nothing.
    */
   | {
       readonly kind: "timed-effect";
@@ -80,7 +82,13 @@ export type RoleEffect =
       /** The first moment the effect no longer applies. */
       readonly expires: DeadAt;
       readonly replacesPrevious?: boolean;
-    };
+    }
+  /**
+   * The master the acting seat chose, written on that seat. It is the reminder
+   * of the choice, not the restriction, so it is recorded whether or not the
+   * ability works.
+   */
+  | { readonly kind: "record-master"; readonly playerId: string };
 
 export interface AbilityNote {
   readonly key: string;
@@ -99,8 +107,9 @@ export type AbilityDecision =
   /**
    * The ability did nothing because its owner is drunk or poisoned. The engine
    * writes its generic failure note unless the rule supplies its own. A rule
-   * may still suspend its pending deaths, but no kill or new poison is applied
-   * on this path.
+   * may still suspend its pending deaths and record the choice that was made,
+   * but no kill or new poison is applied on this path, and a dated effect is
+   * kept as a record that never applies.
    */
   | {
       readonly kind: "suppressed";

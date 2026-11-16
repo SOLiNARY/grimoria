@@ -73,6 +73,8 @@ import {
   replay,
 } from "./index.ts";
 import type { InfoResult } from "./index.ts";
+import { applyRoleAbility } from "./ability.ts";
+import type { RoleModule } from "../roles/types.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import type { GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
 
@@ -1033,6 +1035,57 @@ test("the Butler cannot choose themself (TB-BUTLER-01)", () => {
   assert.equal(state.players["1"].butlerMasterId, null);
   assert.deepEqual(state.effects, []);
   assert.equal(step.done, false);
+});
+
+test("a suppressed ability keeps its dated effect as a record that never applies and ends nothing", () => {
+  const state = make(NIGHT_ROLES);
+  startNight(state);
+  completeRole(state, "poisoner", { targetIds: ["3"] });
+  nextNight(state);
+  const working = plain(state.effects[0]);
+  // A module whose ability failed but still names a dated, replacing effect.
+  const wasted: RoleModule = {
+    id: "poisoner",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: () => ({
+          kind: "suppressed",
+          effects: [
+            {
+              kind: "timed-effect",
+              effect: "poison",
+              playerId: "4",
+              expires: { phase: "night", number: 3 },
+              replacesPrevious: true,
+            },
+          ],
+        }),
+      },
+    ],
+  };
+  const step = roleStep(state, "poisoner");
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, wasted, step, ["4"], { phase: "night", number: 2 }, null, ports);
+
+  assert.equal(state.effects.length, 2);
+  assert.deepEqual(plain(state.effects[0]), working, "the earlier effect is not ended");
+  assert.deepEqual(plain(state.effects[1]), {
+    id: "eff-2-k100",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "4",
+    start: { phase: "night", number: 2 },
+    expires: { phase: "night", number: 3 },
+    active: false,
+  });
+  assert.equal(isImpaired(state, "4"), false, "the record poisons no one");
+  assert.equal(step.noteKey, "note.abilityFailed");
+  assert.deepEqual(draws, ["id:4"]);
 });
 
 test("the Butler choice reports the new master and the effect as command events (TB-BUTLER-01)", () => {
