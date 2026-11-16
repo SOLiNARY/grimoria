@@ -39,6 +39,8 @@ import { isImpaired } from "./effects.ts";
 import { roleModule } from "../roles/registry.ts";
 import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
+import { systemPorts } from "../model/ports.ts";
 import { svInfoForStep } from "./sv.ts";
 
 // Registration is an ability (Spy r3118, Recluse r3007): a drunk or poisoned
@@ -205,8 +207,9 @@ export function infoForStep(
   state: GameState,
   step: NightStep,
   options: InfoOptions = {},
+  ports: CommandExecutionContext = systemPorts,
 ): InfoResult {
-  if (step.bmr) return bmrInfoForStep(state, step, options);
+  if (step.bmr) return bmrInfoForStep(state, step, options, ports);
   if (step.sv) return svInfoForStep(state, step, options);
   const actor = step.actorId ? playerById(state, step.actorId) : null;
   const at = nightAt(state);
