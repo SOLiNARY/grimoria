@@ -34,6 +34,7 @@ export type EventPayloads = {
   "nomination.added": { nomination: Record<string, unknown> };
   "nomination.cancelled": { nominationId: string };
   "votes.recorded": { nominationId: string; count: number; threshold: number; votes: string[] };
+  "votes.count_changed": { playerId: string; count: number };
   "step.added": { step: Record<string, unknown> };
   "step.removed": { stepKey: string };
   "step.skipped": { stepKey: string; roleId: string | null };

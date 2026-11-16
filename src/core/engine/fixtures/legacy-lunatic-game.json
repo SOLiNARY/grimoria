@@ -1,0 +1,784 @@
+{
+  "v": 4,
+  "scriptId": "bmr",
+  "script": {
+    "id": "bmr",
+    "name": "Bad Moon Rising",
+    "edition": "bmr",
+    "source": "official",
+    "author": "",
+    "roles": [
+      "chambermaid",
+      "courtier",
+      "exorcist",
+      "fool",
+      "gambler",
+      "gossip",
+      "grandmother",
+      "innkeeper",
+      "minstrel",
+      "pacifist",
+      "professor",
+      "sailor",
+      "tealady",
+      "goon",
+      "lunatic",
+      "moonchild",
+      "tinker",
+      "assassin",
+      "devilsadvocate",
+      "godfather",
+      "mastermind",
+      "po",
+      "pukka",
+      "shabaloth",
+      "zombuul"
+    ],
+    "manualOnly": false
+  },
+  "createdAt": "2030-01-01T00:00:00.000Z",
+  "updatedAt": "2030-01-01T00:00:00.000Z",
+  "phase": "deal",
+  "setup": {
+    "count": 8,
+    "roles": [
+      "exorcist",
+      "courtier",
+      "gambler",
+      "gossip",
+      "grandmother",
+      "assassin",
+      "lunatic",
+      "shabaloth"
+    ],
+    "bluffs": ["sailor", "chambermaid", "innkeeper"],
+    "drunkShownId": null,
+    "lunaticShownId": "po",
+    "godfatherOutsider": 1,
+    "grandmotherId": null,
+    "evilTwinGoodId": null,
+    "evilTwinGoodPlayerId": null,
+    "evilTwinPlayerId": null,
+    "herringId": null,
+    "info": {
+      "washerwoman": null,
+      "librarian": null,
+      "investigator": null
+    },
+    "ready": false
+  },
+  "order": ["1", "2", "3", "4", "5", "6", "7", "8"],
+  "players": {
+    "1": {
+      "id": "1",
+      "seat": 1,
+      "name": "",
+      "roleId": "lunatic",
+      "shownRoleId": "po",
+      "team": "good",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "2": {
+      "id": "2",
+      "seat": 2,
+      "name": "",
+      "roleId": "gossip",
+      "shownRoleId": "gossip",
+      "team": "good",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "3": {
+      "id": "3",
+      "seat": 3,
+      "name": "",
+      "roleId": "gambler",
+      "shownRoleId": "gambler",
+      "team": "good",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "4": {
+      "id": "4",
+      "seat": 4,
+      "name": "",
+      "roleId": "shabaloth",
+      "shownRoleId": "shabaloth",
+      "team": "evil",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "5": {
+      "id": "5",
+      "seat": 5,
+      "name": "",
+      "roleId": "courtier",
+      "shownRoleId": "courtier",
+      "team": "good",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "6": {
+      "id": "6",
+      "seat": 6,
+      "name": "",
+      "roleId": "exorcist",
+      "shownRoleId": "exorcist",
+      "team": "good",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "7": {
+      "id": "7",
+      "seat": 7,
+      "name": "",
+      "roleId": "grandmother",
+      "shownRoleId": "grandmother",
+      "team": "good",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "8": {
+      "id": "8",
+      "seat": 8,
+      "name": "",
+      "roleId": "assassin",
+      "shownRoleId": "assassin",
+      "team": "evil",
+      "alive": true,
+      "claimed": false,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    }
+  },
+  "bluffs": ["sailor", "chambermaid", "innkeeper"],
+  "herringId": null,
+  "gossip": null,
+  "juggler": null,
+  "artist": null,
+  "savant": null,
+  "abnormal": [],
+  "lastDay": null,
+  "mastermind": null,
+  "fangguJumped": false,
+  "night": {
+    "number": 1,
+    "queue": [],
+    "currentIndex": 0,
+    "demonChanged": false
+  },
+  "day": {
+    "number": 1,
+    "morning": [],
+    "nominations": [],
+    "activeNominationId": null,
+    "execution": null,
+    "ended": false,
+    "open": false
+  },
+  "deaths": [],
+  "executions": [],
+  "effects": [],
+  "corrections": [],
+  "log": [
+    {
+      "id": "log-1-tj58r",
+      "at": "2030-01-01T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "setup",
+      "title": "Роли разданы",
+      "detail": "Передайте устройство по кругу. Не обсуждайте роли до конца первой ночи.",
+      "playerId": null,
+      "secret": false
+    }
+  ],
+  "notes": "",
+  "winner": null,
+  "reviewOpen": false,
+  "publicRevealed": false,
+  "applied": {
+    "legacy-lunatic-1": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"count\":8,\"resetRoster\":true,\"roles\":[],\"script\":{\"edition\":\"bmr\",\"id\":\"bmr\",\"name\":\"Bad Moon Rising\",\"roles\":[\"chambermaid\",\"courtier\",\"exorcist\",\"fool\",\"gambler\",\"gossip\",\"grandmother\",\"innkeeper\",\"minstrel\",\"pacifist\",\"professor\",\"sailor\",\"tealady\",\"goon\",\"lunatic\",\"moonchild\",\"tinker\",\"assassin\",\"devilsadvocate\",\"godfather\",\"mastermind\",\"po\",\"pukka\",\"shabaloth\",\"zombuul\"],\"source\":\"official\"}}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-2": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-3": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-4": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-5": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-6": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-7": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\",\"assassin\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-8": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\",\"assassin\",\"lunatic\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-9": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\",\"assassin\",\"lunatic\",\"shabaloth\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-10": {
+      "type": "bagUpdate",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{\"patch\":{\"bluffs\":[\"sailor\",\"chambermaid\",\"innkeeper\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "legacy-lunatic-11": {
+      "type": "dealGame",
+      "at": "2030-01-01T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-10",
+      "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"dealGame\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    }
+  },
+  "journal": {
+    "base": {
+      "v": 4,
+      "scriptId": "tb",
+      "script": {
+        "id": "tb",
+        "name": "Trouble Brewing",
+        "edition": "tb",
+        "source": "official",
+        "roles": [
+          "washerwoman",
+          "librarian",
+          "investigator",
+          "chef",
+          "empath",
+          "fortuneteller",
+          "undertaker",
+          "monk",
+          "ravenkeeper",
+          "virgin",
+          "slayer",
+          "soldier",
+          "mayor",
+          "butler",
+          "drunk",
+          "recluse",
+          "saint",
+          "poisoner",
+          "spy",
+          "scarletwoman",
+          "baron",
+          "imp"
+        ]
+      },
+      "createdAt": "2030-01-01T00:00:00.000Z",
+      "updatedAt": "2030-01-01T00:00:00.000Z",
+      "phase": "setup",
+      "setup": {
+        "count": 8,
+        "roles": [],
+        "bluffs": [],
+        "drunkShownId": null,
+        "lunaticShownId": null,
+        "godfatherOutsider": 1,
+        "grandmotherId": null,
+        "evilTwinGoodId": null,
+        "evilTwinGoodPlayerId": null,
+        "evilTwinPlayerId": null,
+        "herringId": null,
+        "info": {
+          "washerwoman": null,
+          "librarian": null,
+          "investigator": null
+        },
+        "ready": false
+      },
+      "order": ["1", "2", "3", "4", "5", "6", "7", "8"],
+      "players": {
+        "1": {
+          "id": "1",
+          "seat": 1,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "2": {
+          "id": "2",
+          "seat": 2,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "3": {
+          "id": "3",
+          "seat": 3,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "4": {
+          "id": "4",
+          "seat": 4,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "5": {
+          "id": "5",
+          "seat": 5,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "6": {
+          "id": "6",
+          "seat": 6,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "7": {
+          "id": "7",
+          "seat": 7,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "8": {
+          "id": "8",
+          "seat": 8,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        }
+      },
+      "bluffs": [],
+      "herringId": null,
+      "gossip": null,
+      "juggler": null,
+      "artist": null,
+      "savant": null,
+      "abnormal": [],
+      "lastDay": null,
+      "mastermind": null,
+      "fangguJumped": false,
+      "night": {
+        "number": 0,
+        "queue": [],
+        "currentIndex": 0,
+        "demonChanged": false
+      },
+      "day": {
+        "number": 0,
+        "morning": [],
+        "nominations": [],
+        "activeNominationId": null,
+        "execution": null,
+        "ended": false,
+        "open": false
+      },
+      "deaths": [],
+      "executions": [],
+      "effects": [],
+      "corrections": [],
+      "log": [],
+      "notes": "",
+      "winner": null,
+      "reviewOpen": false,
+      "publicRevealed": false,
+      "applied": {},
+      "storageError": null,
+      "migratedFrom": null
+    },
+    "entries": [
+      {
+        "id": "legacy-lunatic-1",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "script": {
+              "id": "bmr",
+              "name": "Bad Moon Rising",
+              "edition": "bmr",
+              "source": "official",
+              "roles": [
+                "chambermaid",
+                "courtier",
+                "exorcist",
+                "fool",
+                "gambler",
+                "gossip",
+                "grandmother",
+                "innkeeper",
+                "minstrel",
+                "pacifist",
+                "professor",
+                "sailor",
+                "tealady",
+                "goon",
+                "lunatic",
+                "moonchild",
+                "tinker",
+                "assassin",
+                "devilsadvocate",
+                "godfather",
+                "mastermind",
+                "po",
+                "pukka",
+                "shabaloth",
+                "zombuul"
+              ]
+            },
+            "count": 8,
+            "resetRoster": true,
+            "roles": []
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"count\":8,\"resetRoster\":true,\"roles\":[],\"script\":{\"edition\":\"bmr\",\"id\":\"bmr\",\"name\":\"Bad Moon Rising\",\"roles\":[\"chambermaid\",\"courtier\",\"exorcist\",\"fool\",\"gambler\",\"gossip\",\"grandmother\",\"innkeeper\",\"minstrel\",\"pacifist\",\"professor\",\"sailor\",\"tealady\",\"goon\",\"lunatic\",\"moonchild\",\"tinker\",\"assassin\",\"devilsadvocate\",\"godfather\",\"mastermind\",\"po\",\"pukka\",\"shabaloth\",\"zombuul\"],\"source\":\"official\"}}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-2",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": ["exorcist"]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-3",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": ["exorcist", "courtier"]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-4",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": ["exorcist", "courtier", "gambler"]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-5",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": ["exorcist", "courtier", "gambler", "gossip"]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-6",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": ["exorcist", "courtier", "gambler", "gossip", "grandmother"]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-7",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": ["exorcist", "courtier", "gambler", "gossip", "grandmother", "assassin"]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\",\"assassin\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-8",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": [
+              "exorcist",
+              "courtier",
+              "gambler",
+              "gossip",
+              "grandmother",
+              "assassin",
+              "lunatic"
+            ]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\",\"assassin\",\"lunatic\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-9",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "roles": [
+              "exorcist",
+              "courtier",
+              "gambler",
+              "gossip",
+              "grandmother",
+              "assassin",
+              "lunatic",
+              "shabaloth"
+            ]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"roles\":[\"exorcist\",\"courtier\",\"gambler\",\"gossip\",\"grandmother\",\"assassin\",\"lunatic\",\"shabaloth\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-10",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "bluffs": ["sailor", "chambermaid", "innkeeper"]
+          }
+        },
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{\"patch\":{\"bluffs\":[\"sailor\",\"chambermaid\",\"innkeeper\"]}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "legacy-lunatic-11",
+        "type": "dealGame",
+        "payload": {},
+        "at": "2030-01-01T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-10",
+        "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-10\",\"type\":\"dealGame\"}",
+        "undoable": true
+      }
+    ]
+  },
+  "storageError": null,
+  "migratedFrom": null
+}

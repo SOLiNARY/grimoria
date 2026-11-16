@@ -121,6 +121,8 @@ export function createGame(
       bluffs: [],
       drunkShownId: null,
       lunaticShownId: null,
+      lunaticShownExplicit: false,
+      lunaticBluffs: [],
       godfatherOutsider: 1,
       grandmotherId: null,
       evilTwinGoodId: null,
@@ -193,6 +195,10 @@ export function setRoster(state: GameState, count: number): GameState {
   state.setup.bluffs = [];
   state.setup.drunkShownId = null;
   state.setup.lunaticShownId = null;
+  // Omitted metadata identifies a legacy journal: adding keys during replay
+  // would change both its sticky mask and the seed of later random deals.
+  if (state.setup.lunaticShownExplicit !== undefined) state.setup.lunaticShownExplicit = false;
+  if (state.setup.lunaticBluffs !== undefined) state.setup.lunaticBluffs = [];
   state.setup.godfatherOutsider = 1;
   state.setup.grandmotherId = null;
   state.setup.evilTwinGoodId = null;
@@ -569,6 +575,17 @@ function validateStateStructure(value: unknown): string[] {
   const players = object(value.players) ? value.players : {};
   const order = Array.isArray(value.order) ? value.order : [];
   const ref = (id: unknown): boolean => typeof id === "string" && Object.hasOwn(players, id);
+  const validVoteCounts = (counts: unknown): boolean =>
+    counts === undefined ||
+    (object(counts) &&
+      Object.entries(counts).every(
+        ([id, count]) =>
+          ref(id) &&
+          typeof count === "number" &&
+          Number.isInteger(count) &&
+          count >= 0 &&
+          count <= order.length,
+      ));
   check(object(value.players), "Missing players.");
   check(
     order.length >= 5 && order.length <= 15 && new Set(order).size === order.length,
@@ -691,6 +708,7 @@ function validateStateStructure(value: unknown): string[] {
   const lastDay = object(value.lastDay) ? value.lastDay : null;
   check(value.lastDay == null || lastDay !== null, "Invalid last-day state.");
   if (lastDay) {
+    check(validVoteCounts(lastDay.voteCounts), "Invalid last-day vote counts.");
     check(typeof lastDay.number === "number", "Invalid last-day number.");
     check(Array.isArray(lastDay.nominations), "Invalid last-day nominations.");
     check(
@@ -735,6 +753,20 @@ function validateStateStructure(value: unknown): string[] {
       !(Array.isArray(setup.roles) && setup.roles.includes("lunatic")) ||
         (setup.lunaticShownId != null && inScript(setup.lunaticShownId)),
       "Invalid Lunatic mask.",
+    );
+    check(
+      setup.lunaticShownExplicit === undefined || typeof setup.lunaticShownExplicit === "boolean",
+      "Invalid Lunatic mask mode.",
+    );
+    check(
+      setup.lunaticBluffs === undefined ||
+        (Array.isArray(setup.lunaticBluffs) &&
+          setup.lunaticBluffs.length <= 3 &&
+          new Set(setup.lunaticBluffs).size === setup.lunaticBluffs.length &&
+          setup.lunaticBluffs.every(
+            (id) => inScript(id) && ["townsfolk", "outsider"].includes(roleTeam(id) || ""),
+          )),
+      "Invalid Lunatic bluffs.",
     );
     check(
       setup.godfatherOutsider == null ||
@@ -784,6 +816,7 @@ function validateStateStructure(value: unknown): string[] {
   if (!object(day)) errors.push("Missing day.");
   else {
     check(isInt(day.number) && day.number >= 0, "Invalid day number.");
+    check(validVoteCounts(day.voteCounts), "Invalid day vote counts.");
     for (const key of ["morning", "nominations"])
       check(Array.isArray(day[key]) && day[key].every(object), "Invalid day " + key + ".");
     check(typeof day.open === "boolean" && typeof day.ended === "boolean", "Invalid day status.");

@@ -28,6 +28,47 @@ function errorsFor(effect: Json): string[] {
   return validateState(game);
 }
 
+test("optional manual vote maps retain v4 compatibility and reject malformed imports", () => {
+  const state = createGame(7);
+  assert.deepEqual(validateState(state), []);
+  assert.equal(importGame(JSON.stringify(state)).ok, true);
+  for (const voteCounts of [{}, { 1: 0, 2: 7 }]) {
+    const saved = {
+      ...state,
+      day: { ...state.day, voteCounts },
+      lastDay: { number: 1, nominations: [], execution: null, voteCounts },
+    };
+    assert.deepEqual(validateState(saved), []);
+    const imported = importGame(JSON.stringify(saved));
+    assert.equal(imported.ok, true, JSON.stringify(imported));
+    if (imported.ok) {
+      assert.deepEqual(imported.state.day.voteCounts, voteCounts);
+      assert.deepEqual(imported.state.lastDay?.voteCounts, voteCounts);
+    }
+  }
+  for (const voteCounts of [
+    null,
+    [],
+    "invalid",
+    { missing: 1 },
+    { toString: 1 },
+    { 1: -1 },
+    { 1: 1.5 },
+    { 1: 8 },
+    { 1: "2" },
+  ]) {
+    for (const container of ["day", "lastDay"] as const) {
+      const day = container === "day" ? state.day : { number: 1, nominations: [], execution: null };
+      const saved = { ...state, [container]: { ...day, voteCounts } };
+      assert.ok(
+        validateState(saved).some((error) => error.includes("vote counts")),
+        JSON.stringify(saved[container]),
+      );
+      assert.equal(importGame(JSON.stringify(saved)).ok, false);
+    }
+  }
+});
+
 test("an effect with a source, a target and an interval passes validation", () => {
   assert.deepEqual(errorsFor(poison()), []);
 });
@@ -122,4 +163,22 @@ test("schema v4 saves without journals and with valid journal bases remain impor
   const withJournal = importGame(JSON.stringify(saved));
   assert.equal(withJournal.ok, true);
   if (withJournal.ok) assert.deepEqual(withJournal.state.journal, saved.journal);
+});
+
+test("present Lunatic setup preferences reject malformed values while absent legacy values still import", () => {
+  for (const patch of [
+    { lunaticShownExplicit: "yes" },
+    { lunaticBluffs: "chef" },
+    { lunaticBluffs: ["imp"] },
+    { lunaticBluffs: ["chef", "chef"] },
+    { lunaticBluffs: ["chef", "empath", "monk", "mayor"] },
+  ]) {
+    const state = createGame(7);
+    Object.assign(state.setup, patch);
+    assert.equal(importGame(JSON.stringify(state)).ok, false, JSON.stringify(patch));
+  }
+  const legacy = createGame(7);
+  delete legacy.setup.lunaticShownExplicit;
+  delete legacy.setup.lunaticBluffs;
+  assert.equal(importGame(JSON.stringify(legacy)).ok, true);
 });

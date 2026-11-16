@@ -70,6 +70,8 @@ export {
   recordVirginNomination,
   recoverClaim,
   recordVotes,
+  setVoteCount,
+  setDeadVoteUsed,
   cancelNomination,
   resetVotes,
   leader,

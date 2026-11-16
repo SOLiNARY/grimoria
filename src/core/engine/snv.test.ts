@@ -2706,6 +2706,45 @@ test("the Flowergirl and Town Crier need a host answer without the ended day", (
   assert.equal(blocked.needsChoice, true);
 });
 
+test("the Flowergirl and Town Crier require host answers after manual voting records", () => {
+  for (const tokenOnly of [false, true]) {
+    const state = make(
+      { 1: "flowergirl", 2: "towncrier", 3: "clockmaker", 7: "cerenovus", 8: "fanggu" },
+      { count: 8 },
+    );
+    startNight(state);
+    finishNight(state);
+    assert.equal(endNight(state).ok, true);
+    assert.equal(openNominations(state).ok, true);
+    const nomination = nominate(state, "7", "6");
+    assert.equal(nomination.ok, true);
+    assert.equal(recordVotes(state, nomination.nomination!.id, ["8"]).ok, true);
+    if (tokenOnly) kill(state, "3", "test");
+    const recorded = applyCommand(state, {
+      id: "manual-voting-" + tokenOnly,
+      type: tokenOnly ? "setDeadVoteUsed" : "setVoteCount",
+      payload: tokenOnly ? { playerId: "3", used: true } : { playerId: "6", count: 5 },
+    });
+    assert.equal(recorded.status, "allowed", JSON.stringify(recorded));
+    assert.equal(endDay(state).ok, true);
+    assert.deepEqual(state.lastDay?.voteCounts, tokenOnly ? {} : { 6: 5 });
+    for (const role of ["flowergirl", "towncrier"]) {
+      const step = stepFor(state, role);
+      const info = infoForStep(state, step);
+      assert.equal(info.needsChoice, true, role);
+      assert.equal(info.hostAnswer, true, role);
+      assert.equal(info.value, undefined, "partial identities do not manufacture an answer");
+      assert.deepEqual(info.options, [true, false]);
+      assert.equal(stepOutcome(completeStep(state, step.key, {})).needsChoice, true);
+      assert.equal(
+        completeStep(state, step.key, { given: { kind: "yes-no", value: true } }).ok,
+        true,
+      );
+      assert.equal(step.given?.value, true);
+    }
+  }
+});
+
 test("the stored Juggler guesses and ended day are validated", () => {
   const state = make({ 1: "juggler", 2: "clockmaker", 8: "fanggu" }, { count: 8 });
   assert.deepEqual(validateState(state), []);

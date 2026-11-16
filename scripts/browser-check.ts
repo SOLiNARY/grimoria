@@ -543,6 +543,7 @@ async function seedLunaticNight() {
       )
       .slice(0, 3);
     game.setup.lunaticShownId = "po";
+    game.setup.lunaticBluffs = ["exorcist", "courtier", "gambler"];
     const dealt = engine.dealGame(game, { assignment });
     if (!dealt.ok) return dealt;
     game.phase = "seat";
@@ -823,6 +824,295 @@ async function savedCustomBagRestoresPool() {
   await page.setViewportSize({ width: 1280, height: 900 });
   await overflow();
   await page.screenshot({ path: join(screenshots, "restored-custom-bag-1280.png") });
+}
+
+async function playerBubbleVoting() {
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await seed(7);
+    await page.evaluate(async () => {
+      const { store, engine } = await window.PG_MODULES();
+      const game = structuredClone(store.state);
+      while (engine.currentStep(game)) {
+        engine.skipStep(game, engine.currentStep(game)!.key, "browser vote controls");
+      }
+      engine.endNight(game);
+      game.players["3"].alive = false;
+      store.replaceState(game);
+    });
+    await route("/table");
+    await page.locator('[data-seat-open="2"]').click();
+    assert.equal(
+      await page.locator("[data-vote-count]").count(),
+      1,
+      "a player bubble offers a vote count",
+    );
+    await page.locator("[data-vote-count]").fill("8");
+    assert.equal(await page.locator('[data-act="save-vote-count"]').isDisabled(), true);
+    await page.locator("[data-vote-count]").fill("4");
+    await page.locator('[data-act="save-vote-count"]').click();
+    await page.keyboard.press("Escape");
+    assert.equal(
+      await page
+        .locator('[data-seat-open="2"] [data-seat-vote-count]')
+        .getAttribute("data-seat-vote-count"),
+      "4",
+    );
+    await page.locator('[data-seat-open="3"]').click();
+    await page.locator('[data-act="toggle-dead-vote"]').click();
+    await page.keyboard.press("Escape");
+    assert.equal(
+      await page.locator('[data-seat-open="3"] [data-seat-badge="no-ghost-vote"]').count(),
+      1,
+    );
+    await page.reload();
+    await page.waitForSelector("[data-game-table]");
+    const persisted = await page.evaluate(async () => {
+      const { state } = (await window.PG_MODULES()).store;
+      return {
+        count: state.day.voteCounts?.["2"],
+        token: state.players["3"].voteToken,
+        nominations: state.day.nominations.length,
+        execution: state.day.execution,
+        phase: state.phase,
+        alive: state.players["2"].alive,
+      };
+    });
+    assert.deepEqual(
+      persisted,
+      { count: 4, token: false, nominations: 0, execution: null, phase: "day", alive: true },
+      "vote totals and spent token persist without inventing a nomination or execution",
+    );
+    await page.locator('[data-seat-open="2"]').click();
+    assert.equal(await page.locator("[data-vote-count]").inputValue(), "4");
+    assert.equal(
+      await page.locator('[data-act="toggle-dead-vote"]').count(),
+      0,
+      "living players have no dead-vote control",
+    );
+    await page.locator("[data-vote-count]").fill("0");
+    await page.locator('[data-act="save-vote-count"]').click();
+    await page.keyboard.press("Escape");
+    await page.locator('[data-seat-open="3"]').click();
+    await page.locator('[data-act="toggle-dead-vote"]').click();
+    await overflow();
+    await page.screenshot({ path: join(screenshots, `player-voting-${width}.png`) });
+    await page.keyboard.press("Escape");
+    assert.equal(
+      await page.evaluate(
+        async () => (await window.PG_MODULES()).store.state.players["3"].voteToken,
+      ),
+      true,
+      "the host can correct a mistaken spent-vote marker",
+    );
+  }
+  const registeredDead = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const game = model.createGame(5);
+    game.script = { id: "bmr", name: "Bad Moon Rising", edition: "bmr", roles: [...rules.BMR_ALL] };
+    game.scriptId = "bmr";
+    const assignment = { 1: "exorcist", 2: "courtier", 3: "gambler", 4: "assassin", 5: "zombuul" };
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.phase = "seat";
+    engine.startNight(game);
+    while (engine.currentStep(game))
+      engine.skipStep(game, engine.currentStep(game)!.key, "registered dead browser check");
+    engine.kill(game, "5", "demon");
+    engine.endNight(game);
+    store.replaceState(game);
+    return {
+      ok: true,
+      alive: game.players["5"].alive,
+      registeredDead: game.players["5"].registeredDead,
+    };
+  });
+  assert.deepEqual(registeredDead, { ok: true, alive: true, registeredDead: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/table");
+  await page.locator('[data-seat-open="5"]').click();
+  await page.locator('[data-act="toggle-dead-vote"]').click();
+  await page.keyboard.press("Escape");
+  assert.equal(
+    await page.locator('[data-seat-open="5"] [data-seat-badge="no-ghost-vote"]').count(),
+    1,
+    "a registered-dead Zombuul shows its spent vote on the bubble",
+  );
+  await page.reload();
+  await page.waitForSelector("[data-game-table]");
+  assert.equal(
+    await page.locator('[data-seat-open="5"] [data-seat-badge="no-ghost-vote"]').count(),
+    1,
+  );
+}
+
+async function lunaticSetupControls() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/bag");
+  const configured = await page.evaluate(async () => {
+    const { store, rules } = await window.PG_MODULES();
+    return store.dispatch({
+      type: "bagUpdate",
+      payload: {
+        patch: {
+          script: {
+            id: "bmr",
+            name: "Bad Moon Rising",
+            edition: "bmr",
+            source: "official",
+            roles: [...rules.BMR_ALL],
+          },
+          count: 8,
+          resetRoster: true,
+          phase: "setup",
+          roles: [
+            "lunatic",
+            "exorcist",
+            "courtier",
+            "gambler",
+            "gossip",
+            "grandmother",
+            "assassin",
+            "po",
+          ],
+          bluffs: ["sailor", "chambermaid", "innkeeper"],
+          lunaticShownExplicit: false,
+          lunaticBluffs: [],
+          drunkShownId: null,
+          evilTwinGoodId: null,
+        },
+      },
+    });
+  });
+  assert.equal(configured.status, "allowed", JSON.stringify(configured));
+  await route("/bag");
+  await page.locator('[data-tab="manual"]').click();
+  assert.equal(
+    await page.locator('[data-act="lunatic-follow-demon"]').count(),
+    1,
+    "Lunatic setup offers an explicit follow-Demon default",
+  );
+  const mask = () =>
+    page.evaluate(async () => {
+      const { setup } = (await window.PG_MODULES()).store.state;
+      return { role: setup.lunaticShownId, explicit: setup.lunaticShownExplicit };
+    });
+  assert.deepEqual(await mask(), { role: "po", explicit: false });
+  await page.locator('.bag-role[data-role="po"]').click();
+  await page.locator('.bag-role[data-role="shabaloth"]').click();
+  assert.deepEqual(await mask(), { role: "shabaloth", explicit: false });
+  await page.locator('[data-lunatic-role="zombuul"]').click();
+  await page.locator('.bag-role[data-role="shabaloth"]').click();
+  await page.locator('.bag-role[data-role="pukka"]').click();
+  assert.deepEqual(
+    await mask(),
+    { role: "zombuul", explicit: true },
+    "an explicit shown Demon survives a real Demon change",
+  );
+  await page.locator('[data-act="lunatic-follow-demon"]').click();
+  assert.deepEqual(await mask(), { role: "pukka", explicit: false });
+  await page.locator('[data-shuffle-bluffs="demon"]').click();
+  const demonBluffs = await page.evaluate(async () => {
+    const { store, rules } = await window.PG_MODULES();
+    const { setup } = store.state;
+    return {
+      ids: setup.bluffs,
+      legal: setup.bluffs.every(
+        (id) =>
+          !setup.roles.includes(id) && ["townsfolk", "outsider"].includes(rules.roleTeam(id) ?? ""),
+      ),
+    };
+  });
+  assert.equal(demonBluffs.ids.length, 3);
+  assert.equal(new Set(demonBluffs.ids).size, 3);
+  assert.equal(demonBluffs.legal, true);
+  await page.locator('[data-act="edit-bluffs"]').click();
+  assert.equal(
+    await page.locator('[data-bluff-role="exorcist"]').count(),
+    0,
+    "the real Demon picker excludes an occupied good character",
+  );
+  await page.locator('[data-shuffle-bluffs="lunatic"]').click();
+  assert.deepEqual(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.setup.bluffs),
+    demonBluffs.ids,
+    "Lunatic shuffle leaves the real Demon's bluffs alone",
+  );
+  for (let index = 0; index < 3; index++)
+    await page.locator('[data-lunatic-bluff-slot="0"]').click();
+  for (const id of ["exorcist", "courtier", "gambler"])
+    await page.locator(`[data-lunatic-bluff-role="${id}"]`).click();
+  assert.equal(
+    await page.locator('[data-bluff-role="exorcist"]').count(),
+    0,
+    "an occupied good role is not offered to the real Demon",
+  );
+  await page.locator('[data-act="library"]').click();
+  await page.locator("[data-library-name]").fill("Independent Lunatic setup");
+  await page.locator('[data-act="save-bag"]').click();
+  const savedBagId = await page.evaluate(() => {
+    const library = JSON.parse(localStorage.getItem("pg.library.v1") || "{}");
+    return library.bags.find((bag: { name: string }) => bag.name === "Independent Lunatic setup")
+      .id as string;
+  });
+  await page.locator('[data-act="close-library"]').last().click();
+  await page.locator('[data-lunatic-role="po"]').click();
+  await page.locator('[data-shuffle-bluffs="lunatic"]').click();
+  await page.locator('[data-act="library"]').click();
+  await page.locator(`[data-load-bag="${savedBagId}"]`).click();
+  await page.reload();
+  await page.waitForSelector(".setup");
+  assert.deepEqual(await mask(), { role: "pukka", explicit: false });
+  assert.deepEqual(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.setup.lunaticBluffs),
+    ["exorcist", "courtier", "gambler"],
+    "independent occupied Lunatic bluffs survive reload",
+  );
+  await overflow();
+  await page.locator('[data-act="lunatic-follow-demon"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: join(screenshots, "lunatic-setup-390.png") });
+  await page.locator('[aria-labelledby="bag-lunatic-bluffs"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: join(screenshots, "lunatic-bluffs-390.png") });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "lunatic-setup-1280.png") });
+
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const legacy = structuredClone(store.state);
+    delete legacy.setup.lunaticShownExplicit;
+    delete legacy.setup.lunaticBluffs;
+    legacy.setup.lunaticShownId = null;
+    legacy.setup.roles = legacy.setup.roles.filter((id) => id !== "lunatic" && id !== "pukka");
+    store.replaceState(legacy);
+  });
+  await route("/bag");
+  await page.locator('[data-tab="manual"]').click();
+  await page.locator('.bag-role[data-role="lunatic"]').click();
+  await page.locator('.bag-role[data-role="shabaloth"]').click();
+  assert.deepEqual(
+    await mask(),
+    { role: "shabaloth", explicit: false },
+    "editing an old setup with no mask adopts the follow-Demon default",
+  );
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const legacy = structuredClone(store.state);
+    delete legacy.setup.lunaticShownExplicit;
+    legacy.setup.lunaticShownId = "po";
+    store.replaceState(legacy);
+  });
+  await route("/bag");
+  await page.locator('[data-tab="manual"]').click();
+  await page.locator('.bag-role[data-role="shabaloth"]').click();
+  await page.locator('.bag-role[data-role="pukka"]').click();
+  assert.deepEqual(
+    await mask(),
+    { role: "po", explicit: true },
+    "editing an old setup preserves a previously chosen mask",
+  );
 }
 
 async function currentScriptRoleCorrections() {
@@ -2599,6 +2889,27 @@ async function fullChecks() {
     3,
     "the Lunatic card lists the three bluffs",
   );
+  const privateBluffs = await page.evaluate(async () => {
+    const { state } = (await window.PG_MODULES()).store;
+    const nameOf = (id: string) => window.PG?.roles?.find((role) => role.id === id)?.name ?? id;
+    return {
+      lunatic: state.setup.lunaticBluffs!.map(nameOf),
+      demon: state.setup.bluffs.map(nameOf),
+    };
+  });
+  const shownBluffs = await page
+    .locator("[data-lunatic-card] [data-info-bluffs] > *")
+    .allTextContents();
+  assert.deepEqual(
+    shownBluffs.map((name) => name.trim()),
+    privateBluffs.lunatic,
+    "the Lunatic card shows its independently selected in-play bluffs",
+  );
+  for (const name of privateBluffs.demon)
+    assert.ok(
+      !shownBluffs.includes(name),
+      "the real Demon's distinct bluff list stays out of the Lunatic card",
+    );
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
@@ -4595,6 +4906,8 @@ async function fullChecks() {
   await savedCustomBagRestoresPool();
   await currentScriptRoleCorrections();
   await madnessExecutionFromTable();
+  await playerBubbleVoting();
+  await lunaticSetupControls();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
@@ -4609,6 +4922,8 @@ try {
       "saved-custom-bag": savedCustomBagRestoresPool,
       "role-corrections": currentScriptRoleCorrections,
       "madness-execution": madnessExecutionFromTable,
+      "player-voting": playerBubbleVoting,
+      "lunatic-setup": lunaticSetupControls,
     }[focused];
     if (!check) throw new Error("Unknown browser check: " + focused);
     await page.goto(url);

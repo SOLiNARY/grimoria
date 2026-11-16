@@ -935,7 +935,9 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
   }
   if (role === "flowergirl" || role === "towncrier") {
     const day = lastDayFor(state);
-    if (!day) {
+    // Aggregate totals and token markers omit voter and nominator identities.
+    // Their presence never establishes the answer from a partial ledger.
+    if (!day || day.voteCounts !== undefined) {
       return {
         kind: "yes-no",
         impaired,

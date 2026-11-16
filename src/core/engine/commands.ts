@@ -59,6 +59,8 @@ import {
   openNominations,
   recordVirginNomination,
   recordVotes,
+  setVoteCount,
+  setDeadVoteUsed,
   recoverClaim,
   reportJugglerGuesses,
   resetVotes,
@@ -309,6 +311,12 @@ const COMMANDS = {
     apply: (state, payload, ports) =>
       recordVotes(state, payload.nominationId, payload.voterIds, ports),
   },
+  setVoteCount: {
+    apply: (state, payload, ports) => setVoteCount(state, payload.playerId, payload.count, ports),
+  },
+  setDeadVoteUsed: {
+    apply: (state, payload, ports) => setDeadVoteUsed(state, payload.playerId, payload.used, ports),
+  },
   cancelNomination: {
     apply: (state, payload, ports) => cancelNomination(state, payload.nominationId, ports),
   },
@@ -431,7 +439,7 @@ const COMMANDS = {
   setWinner: {
     apply: (state, payload, ports) => setWinner(state, payload.team, payload.reason, ports),
   },
-  bagUpdate: { apply: (state, payload) => bagUpdate(state, payload) },
+  bagUpdate: { apply: (state, payload, ports) => bagUpdate(state, payload, ports) },
   setOrder: { apply: (state, payload) => setOrder(state, payload) },
   setHerring: { apply: (state, payload) => setHerring(state, payload) },
   setSetupInfo: { apply: (state, payload) => setupInfo(state, payload) },
@@ -652,6 +660,11 @@ function deriveEvents(
   for (const execution of after.executions || []) {
     if (!beforeExecutions.has(execution.at + ":" + execution.playerId))
       push("execution.recorded", { execution });
+  }
+
+  for (const [playerId, count] of Object.entries(after.day.voteCounts || {})) {
+    if (before.day.voteCounts?.[playerId] !== count)
+      push("votes.count_changed", { playerId, count });
   }
 
   const beforeNominations = new Map(

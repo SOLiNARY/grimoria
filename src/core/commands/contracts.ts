@@ -14,6 +14,8 @@ export const COMMAND_TYPES = [
   "nominate",
   "recordVirginNomination",
   "recordVotes",
+  "setVoteCount",
+  "setDeadVoteUsed",
   "cancelNomination",
   "resetVotes",
   "execute",
@@ -99,6 +101,9 @@ export interface BagPatch {
   bluffs?: string[];
   drunkShownId?: string | null;
   lunaticShownId?: string | null;
+  lunaticShownExplicit?: boolean;
+  lunaticBluffs?: string[];
+  shuffleBluffs?: "demon" | "lunatic";
   godfatherOutsider?: 1 | -1;
   evilTwinGoodId?: string | null;
 }
@@ -167,6 +172,8 @@ export interface CommandPayloads {
   nominate: { nominatorId: string; nomineeId: string; options?: NominationOptions };
   recordVirginNomination: { nominatorId: string; virginId: string; options?: NominationOptions };
   recordVotes: { nominationId: string; voterIds: string[] };
+  setVoteCount: { playerId: string; count: number };
+  setDeadVoteUsed: { playerId: string; used: boolean };
   cancelNomination: { nominationId: string };
   resetVotes: { nominationId: string; reason: string };
   execute: { nominationId: string; options?: ExecutionOptions };
@@ -302,6 +309,8 @@ export const PAYLOAD_SCHEMA = {
     options: object,
   },
   recordVotes: { nominationId: requiredString, voterIds: ["string-array", true] },
+  setVoteCount: { playerId: requiredString, count: ["number", true] },
+  setDeadVoteUsed: { playerId: requiredString, used: ["boolean", true] },
   cancelNomination: { nominationId: requiredString },
   resetVotes: { nominationId: requiredString, reason: requiredString },
   execute: { nominationId: requiredString, options: object },

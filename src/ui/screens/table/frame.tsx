@@ -58,12 +58,25 @@ export function SidePanel({ view, className = "" }: { view: TableView; className
                 ? t(entry.phaseCode) + " " + phaseNumber
                 : t(entry.phaseCode)
               : entry.phase;
+          const voteLogKey =
+            entry.case === "vote-count"
+              ? "ui.logVoteCount"
+              : entry.case === "dead-vote-used"
+                ? "ui.logDeadVoteUsed"
+                : entry.case === "dead-vote-restored"
+                  ? "ui.logDeadVoteRestored"
+                  : null;
+          const votePlayer = entry.playerId ? playerById(state, entry.playerId) : null;
           return {
-            title:
-              typeof entry.roleId === "string"
+            title: voteLogKey
+              ? t(voteLogKey, {
+                  name: votePlayer ? displayName(votePlayer, t) : t("ui.unknown"),
+                  n: entry.detail ?? "",
+                })
+              : typeof entry.roleId === "string"
                 ? roleNameOf(entry.roleId, ports.roles.byId)
                 : entry.title,
-            detail: `${phase}${detail ? " · " + detail : ""}`,
+            detail: `${phase}${detail && !voteLogKey ? " · " + detail : ""}`,
             ...(time ? { time } : {}),
             scope,
             ...(scope === "death" ? { tone: "danger" as const } : {}),

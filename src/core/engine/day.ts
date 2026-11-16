@@ -355,6 +355,85 @@ export function recoverClaim(
   return { ok: true };
 }
 
+// In-person totals are notes, not a nomination or a complete voter ledger.
+export function setVoteCount(
+  state: GameState,
+  playerId: string,
+  count: number,
+  ports: CommandExecutionContext = systemPorts,
+) {
+  if (state.winner) return { ok: false, errorCode: "error.6", error: "Игра уже окончена." };
+  if (state.phase !== "day") return { ok: false, errorCode: "error.7", error: "Сейчас не день." };
+  if (state.day.ended) return { ok: false, errorCode: "error.8", error: "День уже завершён." };
+  if (!state.order.includes(playerId))
+    return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
+  if (!Number.isInteger(count) || count < 0 || count > state.order.length) {
+    return {
+      ok: false,
+      errorCode: "error.voteCount",
+      error: "Укажите целое число голосов от нуля до числа игроков.",
+    };
+  }
+  if (state.day.voteCounts?.[playerId] === count) return { ok: true };
+  state.day.voteCounts ??= {};
+  state.day.voteCounts[playerId] = count;
+  addLog(
+    state,
+    {
+      kind: "vote",
+      title: "Записано голосов: " + count,
+      detail: String(count),
+      playerId,
+      case: "vote-count",
+    },
+    ports,
+  );
+  return { ok: true };
+}
+
+export function setDeadVoteUsed(
+  state: GameState,
+  playerId: string,
+  used: boolean,
+  ports: CommandExecutionContext = systemPorts,
+) {
+  if (state.winner) return { ok: false, errorCode: "error.6", error: "Игра уже окончена." };
+  if (state.phase !== "day") return { ok: false, errorCode: "error.7", error: "Сейчас не день." };
+  if (state.day.ended) return { ok: false, errorCode: "error.8", error: "День уже завершён." };
+  const player = state.order.includes(playerId) ? playerById(state, playerId) : null;
+  if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
+  if (registersAlive(player)) {
+    return {
+      ok: false,
+      errorCode: "error.deadVoteLiving",
+      error: "Голос мёртвого доступен только мёртвому или считающемуся мёртвым игроку.",
+    };
+  }
+  if (typeof used !== "boolean") {
+    return {
+      ok: false,
+      errorCode: "error.deadVoteUsed",
+      error: "Укажите, использован ли голос мёртвого.",
+    };
+  }
+  if (player.voteToken === !used && state.day.voteCounts !== undefined) return { ok: true };
+  // Even token-only bookkeeping cannot establish who nominated or voted.
+  state.day.voteCounts ??= {};
+  player.voteToken = !used;
+  addLog(
+    state,
+    {
+      kind: "vote",
+      title: used ? "Голос мёртвого использован" : "Голос мёртвого восстановлен",
+      detail: player.name,
+      playerId,
+      case: used ? "dead-vote-used" : "dead-vote-restored",
+    },
+    ports,
+  );
+  return { ok: true };
+}
+
 export function recordVotes(
   state: GameState,
   nominationId: string,
@@ -1210,6 +1289,7 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
 
   state.lastDay = {
     number: state.day.number,
+    ...(state.day.voteCounts !== undefined ? { voteCounts: { ...state.day.voteCounts } } : {}),
     nominations: state.day.nominations.slice(),
     execution: state.day.execution ? { ...state.day.execution } : null,
   };

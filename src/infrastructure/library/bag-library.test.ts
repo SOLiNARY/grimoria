@@ -39,6 +39,27 @@ const bag = {
   bluffs: [],
 };
 
+test("saved bags round-trip the Lunatic mask mode and independent bluffs", () => {
+  for (const lunaticShownExplicit of [false, true]) {
+    const saved = upsertBag(emptyLibrary(), {
+      ...bag,
+      lunaticShownId: "po",
+      lunaticShownExplicit,
+      lunaticBluffs: ["chef", "empath", "monk"],
+    });
+    assert.equal(saved.ok, true);
+    if (!saved.ok) continue;
+    const restored = parseLibrary(exportLibrary(saved.library));
+    assert.equal(restored.ok, true);
+    if (!restored.ok) continue;
+    assert.equal(restored.library.bags[0].lunaticShownExplicit, lunaticShownExplicit);
+    assert.deepEqual(restored.library.bags[0].lunaticBluffs, ["chef", "empath", "monk"]);
+  }
+  const legacy = normalizeLibrary({ bags: [{ ...bag, lunaticShownId: "po" }] }).bags[0];
+  assert.equal(legacy.lunaticShownExplicit, true);
+  assert.equal(legacy.lunaticBluffs, undefined);
+});
+
 test("normalization keeps supported roles and drops malformed entries", () => {
   const library = normalizeLibrary({
     pools: [
