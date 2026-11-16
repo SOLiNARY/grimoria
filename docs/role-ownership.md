@@ -19,8 +19,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | Owner | Roles |
 | --- | --- |
 | Typed capability only | 4 |
-| Typed capability with an engine reference | 9 |
-| Engine branch | 58 |
+| Typed capability with an engine reference | 10 |
+| Engine branch | 57 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -48,7 +48,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `fanggu` | snv | nightStep | sv.ts×5 | SNV-FANGGU-01 (verified, r2974)<br>SNV-FANGGU-02 (verified, r2974)<br>SNV-FANGGU-03 (verified, r2974)<br>SNV-FANGGU-04 (verified, r2974) | engine branch |
 | `flowergirl` | snv | nightStep | sv.ts×3, host-choice.ts×1 | SNV-FLOWERGIRL-01 (verified, r2907)<br>SNV-FLOWERGIRL-02 (verified, r2907) | engine branch |
 | `fool` | bmr | — | effects.ts×1, death.ts×1, bmr.ts×1 | BMR-FOOL-01 (verified, r2636) | engine branch |
-| `fortuneteller` | tb | nightStep | night.ts×1, setup.ts×3, information.ts×1 | TB-FORTUNETELLER-01 (verified, r3123) | engine branch |
+| `fortuneteller` | tb | capability:night-step, capability:information | setup.ts×3, information.ts×1 | TB-FORTUNETELLER-01 (verified, r3123) | capability + engine reference |
 | `gambler` | bmr | nightStep, ability | bmr.ts×1 | BMR-GAMBLER-01 (verified, r3073)<br>BMR-GAMBLER-02 (verified, r3073) | capability + engine reference |
 | `godfather` | bmr | nightStep, firstNightStep | bmr.ts×2 | BMR-GODFATHER-01 (verified, r2394)<br>BMR-GODFATHER-02 (verified, r2394)<br>BMR-GODFATHER-03 (verified, r2394) | engine branch |
 | `goon` | bmr | — | bmr.ts×8 | BMR-GOON-01 (verified, r2977) | engine branch |

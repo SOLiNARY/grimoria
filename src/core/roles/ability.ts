@@ -243,6 +243,13 @@ export interface InformationContext {
   readonly at: DeadAt;
   aliveNeighborIds(playerId: string): readonly string[];
   registeredTeamOf(playerId: string): "good" | "evil" | null;
+  /**
+   * Whether the player registers as a Demon to this ability: a Demon, alive
+   * or dead, or a player the host registered as one for this step.
+   */
+  registersAsDemon(playerId: string): boolean;
+  /** The good player chosen in setup as the red herring, if the game has one. */
+  readonly redHerringId: string | null;
   actualRoleOf(playerId: string): RoleId | null;
   hasPlayer(playerId: string): boolean;
 }

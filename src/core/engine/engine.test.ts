@@ -2357,6 +2357,50 @@ test("an information role reads its seat, the night, the targets and the registr
   assert.equal(seen[1]!.registeredTeamOf("3"), "good");
 });
 
+test("an information role is told who registers as a Demon and who the red herring is", () => {
+  const state = make(
+    {
+      1: "spy",
+      2: "fortuneteller",
+      3: "recluse",
+      4: "chef",
+      5: "monk",
+      6: "soldier",
+      7: "undertaker",
+      8: "saint",
+      9: "imp",
+    },
+    { count: 9 },
+  );
+  state.setup.herringId = "5";
+  assert.equal(startNight(state).ok, true);
+  const step = roleStep(state, "fortuneteller");
+  const seen: InformationContext[] = [];
+  const module = answering({ kind: "answer", value: false, possible: [true, false] }, seen);
+
+  moduleInfoForStep(state, module, step, { registrations: { "3": "demon" } });
+  moduleInfoForStep(state, module, step, { registrations: { "3": "evil" } });
+  moduleInfoForStep(state, module, step);
+
+  const [asDemon, asEvil, unregistered] = seen as [
+    InformationContext,
+    InformationContext,
+    InformationContext,
+  ];
+  assert.equal(asDemon.redHerringId, "5");
+  assert.equal(asDemon.registersAsDemon("9"), true, "the Demon");
+  assert.equal(asDemon.registersAsDemon("3"), true, "a Recluse the host registered as the Demon");
+  assert.equal(asDemon.registersAsDemon("1"), false, "a Minion");
+  assert.equal(asDemon.registersAsDemon("5"), false, "the herring is a separate fact");
+  assert.equal(asDemon.registersAsDemon("99"), false, "a seat that does not exist");
+  assert.equal(asEvil.registersAsDemon("3"), false, "registered as evil only");
+  assert.equal(unregistered.registersAsDemon("3"), false);
+
+  state.setup.herringId = null;
+  moduleInfoForStep(state, module, step);
+  assert.equal(seen[3]!.redHerringId, null, "a game without a herring names none");
+});
+
 // The records of the Fortune Teller's step. Saved games and replays hold them,
 // so a move of the role must leave every one of them as it is.
 const FORTUNE_ROLES = {

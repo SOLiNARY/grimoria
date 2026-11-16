@@ -1,4 +1,4 @@
-import type { GameState, InfoPair, NightStep, Player, RoleId } from "../model/types.ts";
+import type { DeadAt, GameState, InfoPair, NightStep, Player, RoleId } from "../model/types.ts";
 
 type Registrations = Record<string, string>;
 type InfoOptions = { targetIds?: string[]; registrations?: Registrations };
@@ -39,6 +39,7 @@ import { isImpaired } from "./effects.ts";
 import { informationOf, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 import type { RoleModule } from "../roles/types.ts";
+import type { InformationContext } from "../roles/ability.ts";
 import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
@@ -155,18 +156,30 @@ function chefRegistrationRange(state: GameState): { min: number; max: number } {
   return { min, max };
 }
 
+/**
+ * Whether a Fortune Teller who chose these players hears yes. The rule is the
+ * role module's; this query hands it the engine's facts outside a night step.
+ */
 export function fortuneTellerYes(
   state: GameState,
   targetIds: string[] | undefined,
   registrations: Registrations = {},
 ): boolean {
-  const herringId = state.setup && state.setup.herringId ? state.setup.herringId : state.herringId;
-  return (targetIds || []).some((id) => {
-    const player = playerById(state, id);
-    if (!player) return false;
-    if (id === herringId) return true;
-    return registersAsDemon(state, player, registrations);
-  });
+  const module = roleModule("fortuneteller");
+  const information = informationOf(module);
+  if (!module || !information) return false;
+  const decision = resolveInformationCapability(
+    module,
+    informationFacts(state, {
+      actorId: "",
+      infoKind: information.infoKind,
+      targetIds: targetIds || [],
+      registrations,
+      impaired: false,
+      at: nightAt(state),
+    }),
+  );
+  return decision?.kind === "answer" && decision.value === true;
 }
 
 export function characterChoices(
@@ -195,6 +208,37 @@ export function characterChoices(
 // ---------------------------------------------------------------------------
 // Night queue
 
+/** The read-only facts an information capability resolves from. */
+function informationFacts(
+  state: GameState,
+  query: {
+    actorId: string;
+    infoKind: string;
+    targetIds: readonly string[];
+    registrations: Registrations;
+    impaired: boolean;
+    at: DeadAt;
+  },
+): InformationContext {
+  const { registrations } = query;
+  return {
+    actorId: query.actorId,
+    infoKind: query.infoKind,
+    targetIds: query.targetIds,
+    impaired: query.impaired,
+    at: query.at,
+    aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
+    registeredTeamOf: (playerId) => alignmentOf(state, playerById(state, playerId), registrations),
+    registersAsDemon: (playerId) =>
+      registersAsDemon(state, playerById(state, playerId), registrations),
+    // The setup secret first, then the top-level field, as before the move.
+    redHerringId:
+      (state.setup && state.setup.herringId ? state.setup.herringId : state.herringId) ?? null,
+    actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
+    hasPlayer: (playerId) => playerById(state, playerId) != null,
+  };
+}
+
 /**
  * The answer of a role module that owns its information. Null means the module
  * declares none and the engine keeps its own path.
@@ -215,18 +259,17 @@ export function moduleInfoForStep(
   const actor = step.actorId ? playerById(state, step.actorId) : null;
   const at = nightAt(state);
   const impaired = actor ? isImpaired(state, actor.id, at) : false;
-  const registrations = options.registrations || step.registrations || {};
-  const decision = resolveInformationCapability(module, {
-    actorId: actor ? actor.id : "",
-    infoKind: information.infoKind,
-    targetIds: options.targetIds || step.targetIds || [],
-    impaired,
-    at,
-    aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
-    registeredTeamOf: (playerId) => alignmentOf(state, playerById(state, playerId), registrations),
-    actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
-    hasPlayer: (playerId) => playerById(state, playerId) != null,
-  });
+  const decision = resolveInformationCapability(
+    module,
+    informationFacts(state, {
+      actorId: actor ? actor.id : "",
+      infoKind: information.infoKind,
+      targetIds: options.targetIds || step.targetIds || [],
+      registrations: options.registrations || step.registrations || {},
+      impaired,
+      at,
+    }),
+  );
   if (decision?.kind !== "answer") return { kind: "none" };
   return {
     kind: nightStepFor(module, at.number)?.infoKind ?? "none",
@@ -350,17 +393,6 @@ export function infoForStep(
         : registrationChoice
           ? uniqueNumbers(range.min, range.max)
           : [],
-    };
-  }
-
-  if (role === "fortuneteller") {
-    const value = fortuneTellerYes(state, options.targetIds || step.targetIds, registrations);
-    return {
-      kind: "yes-no",
-      value,
-      impaired,
-      needsChoice: impaired,
-      options: impaired ? [true, false] : [],
     };
   }
 

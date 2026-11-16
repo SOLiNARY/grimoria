@@ -99,6 +99,12 @@ export const renamedDeath: AttackDecision = {
 // answers and which options one step offers.
 // @ts-expect-error -- the information context exposes no game state
 export type InformationStateAccess = InformationContext["state"];
+// The engine applies the host's registrations behind `registersAsDemon` and
+// `registeredTeamOf`, and names the red herring by id only.
+// @ts-expect-error -- the information context exposes no host registrations
+export type InformationRegistrationAccess = InformationContext["registrations"];
+// @ts-expect-error -- the information context exposes no setup secrets
+export type InformationSetupAccess = InformationContext["setup"];
 type InformationAnswer = Extract<InformationDecision, { kind: "answer" }>;
 export const selfFalsifiedAnswer: InformationAnswer = {
   kind: "answer",

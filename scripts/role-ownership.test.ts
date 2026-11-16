@@ -77,6 +77,20 @@ test("a migrated information role is owned by its module once no coordinator nam
   assert.equal(ownerOf(empath, engineLocations("empath")), "capability");
 });
 
+test("a migrated information role keeps the references of its setup and its query, not of the night step", () => {
+  const fortuneteller = roleModules().find((candidate) => candidate.id === "fortuneteller");
+  assert.ok(fortuneteller);
+  assert.deepEqual(fortuneteller.declares, ["capability:night-step", "capability:information"]);
+  // The red herring is checked and chosen in setup, and the exported query
+  // resolves the module's capability; the night completion and the
+  // information path of a step no longer name the role.
+  assert.deepEqual(engineLocations("fortuneteller"), ["setup.ts×3", "information.ts×1"]);
+  assert.equal(
+    ownerOf(fortuneteller, engineLocations("fortuneteller")),
+    "capability + engine reference",
+  );
+});
+
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
   const source = `
     export const role = {
