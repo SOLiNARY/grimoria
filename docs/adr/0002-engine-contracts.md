@@ -521,6 +521,15 @@ carries it and no migrated rule reads it. The slice adds one intent,
 `src/core/roles/night-step.ts` as the one lookup that reads a declared step
 from the capability or from the legacy fields.
 
+`openspec/changes/tb-butler-night-step` continues the slice with the Butler.
+It adds the `record-master` intent for the master written on the acting seat
+and the `butler` kind of dated effect. It also fixes what `suppressed` means
+for a dated effect: the coordinator keeps it as a record that never applies
+and ends nothing, so a role returns the same choice on both paths and cannot
+leave a working effect behind a failed ability. The vote check in `day.ts`
+and the effect lookup in `effects.ts` still name the role; they read the
+shared effect and are not night steps.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 

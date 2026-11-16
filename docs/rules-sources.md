@@ -153,6 +153,10 @@ automatic role or win resolution.
     If the Butler casts a vote illegally, the app counts it and records a
     private host warning, matching the official Storyteller guidance; the
     player, not the Storyteller, is responsible for following the restriction.
+    The app records the chosen master on the Butler's seat every night,
+    because a drunk or poisoned Butler is run like a healthy one. A choice made
+    while drunk or poisoned is wasted: it is kept as a record that never binds
+    a vote, even after the Butler recovers.
     The execution threshold is at least half of the living players:
     `ceil(living / 2)`. Dead votes count toward the tally, not toward the living
     count. It never announces the Butler's role to the table.

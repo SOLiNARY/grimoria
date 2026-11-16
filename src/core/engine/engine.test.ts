@@ -1037,6 +1037,40 @@ test("the Butler cannot choose themself (TB-BUTLER-01)", () => {
   assert.equal(step.done, false);
 });
 
+test("an impaired Butler's recorded choice replays to the same inactive record (TB-BUTLER-01)", () => {
+  const state = make(BUTLER_ROLES);
+  startNight(state);
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const complete = (id: string, roleId: string, targetId: string) =>
+    applyCommand(
+      state,
+      {
+        id,
+        type: "completeNightStep",
+        payload: { key: roleStep(state, roleId).key, targetIds: [targetId] },
+        at: "2030-01-01T00:00:00.000Z",
+      },
+      runtime,
+    );
+
+  assert.equal(complete("poison-the-butler", "poisoner", "1").status, "allowed");
+  const applied = complete("wasted-master", "butler", "2");
+
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+  const record = state.effects.find((effect) => effect.kind === "butler");
+  assert.ok(record, "the choice is recorded");
+  assert.equal(record.active, false);
+  assert.equal(state.players["1"].butlerMasterId, "2");
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  assert.deepEqual(
+    replayed.state.effects.find((effect) => effect.kind === "butler"),
+    record,
+    "the record keeps its id from the command stream",
+  );
+});
+
 test("a suppressed ability keeps its dated effect as a record that never applies and ends nothing", () => {
   const state = make(NIGHT_ROLES);
   startNight(state);
