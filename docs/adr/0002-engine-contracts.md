@@ -283,6 +283,7 @@ export type InformationDecision =
       readonly kind: "answer";
       readonly value: boolean | number | string;
       readonly possible?: readonly (boolean | number | string)[];
+      readonly legal?: readonly (boolean | number | string)[];
     }
   | { readonly kind: "options"; readonly options: readonly string[] }
   | { readonly kind: "host-choice"; readonly case: HostChoiceCase; readonly options: readonly string[]; readonly text?: string }
@@ -568,6 +569,17 @@ still decides who registers, from the host's registrations the role never
 sees. `fortuneTellerYes` stays exported as a query that resolves the module's
 capability, so the rule has one owner. `setup.ts` still names the role where
 the red herring is validated and chosen; that is setup and not a night step.
+
+`openspec/changes/tb-chef-information` continues with the Chef, the first
+role whose working ability can need the host: a Spy or a Recluse may register
+differently for each pair of one count. The `answer` decision gains `legal`,
+every value a working ability may show under some registration; with more
+than one the engine asks the host. It is a field and not the `host-choice`
+decision of the table above for the reason `possible` is not `options`: the
+role returns one decision and never reads `impaired` to choose. The context
+gains the seat ring and whether a player may register as a team, which the
+engine answers from the registrant's own state. `chefCount` stays exported as
+a query that resolves the module's capability.
 
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
