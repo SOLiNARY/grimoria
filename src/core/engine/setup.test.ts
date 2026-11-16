@@ -889,10 +889,75 @@ test("a bluff shuffle with too few eligible roles rejects without changing eithe
   assert.equal(JSON.stringify(short), shortBefore);
 });
 
+test("unchosen Lunatic bluffs follow the Demon selection through first-night information and replay (BMR-LUNATIC-01)", () => {
+  const state = lunaticSetup();
+  assert.deepEqual(state.setup.lunaticBluffs, []);
+  const demonBluffs = ["professor", "tealady", "pacifist"];
+  assert.equal(updateSetup(state, { bluffs: demonBluffs }).status, "allowed");
+  assert.equal(
+    applyCommand(state, {
+      id: "default-lunatic-deal",
+      type: "dealGame",
+      at: "2030-01-02T00:00:00.000Z",
+      payload: {
+        options: {
+          assignment: Object.fromEntries(state.order.map((id, index) => [id, LUNATIC_BAG[index]])),
+        },
+      },
+    }).status,
+    "allowed",
+  );
+  assert.equal(
+    applyCommand(state, {
+      id: "default-lunatic-night",
+      type: "startNight",
+      at: "2030-01-03T00:00:00.000Z",
+      payload: {},
+    }).status,
+    "allowed",
+  );
+  const step = state.night.queue.find((candidate) => candidate.roleId === "lunatic")!;
+  assert.ok(step);
+  assert.deepEqual(state.bluffs, demonBluffs);
+  assert.equal(step.noteVars?.bluffs, demonBluffs.join(", "));
+  assert.equal(infoForStep(state, step).textVars?.bluffs, demonBluffs.join(", "));
+  assert.deepEqual(state.setup.lunaticBluffs, [], "reading the default does not store an override");
+  const imported = importGame(exportGame(state));
+  assert.equal(imported.ok, true);
+  if (imported.ok)
+    assert.equal(infoForStep(imported.state, step).textVars?.bluffs, demonBluffs.join(", "));
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true);
+  if (replayed.ok) assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
+
+test("clearing separate Lunatic bluffs resumes the Demon default (BMR-LUNATIC-01)", () => {
+  const state = lunaticSetup();
+  assert.equal(
+    updateSetup(state, { lunaticBluffs: ["grandmother", "sailor", "lunatic"] }).status,
+    "allowed",
+  );
+  assert.equal(updateSetup(state, { lunaticBluffs: [] }).status, "allowed");
+  assert.equal(
+    dealGame(state, {
+      assignment: Object.fromEntries(state.order.map((id, index) => [id, LUNATIC_BAG[index]])),
+    }).ok,
+    true,
+  );
+  assert.equal(startNight(state).ok, true);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "lunatic")!;
+  assert.ok(step);
+  assert.equal(infoForStep(state, step).textVars?.bluffs, state.bluffs.join(", "));
+});
+
 test("the Lunatic first-night information uses its own bluffs and preserves the legacy fallback (BMR-LUNATIC-01)", () => {
   const state = lunaticSetup();
   const lunaticBluffs = ["grandmother", "sailor", "lunatic"];
   assert.equal(updateSetup(state, { lunaticBluffs }).status, "allowed");
+  assert.equal(
+    updateSetup(state, { bluffs: ["professor", "tealady", "pacifist"] }).status,
+    "allowed",
+  );
   assert.equal(
     dealGame(state, {
       assignment: Object.fromEntries(state.order.map((id, index) => [id, LUNATIC_BAG[index]])),
@@ -910,4 +975,44 @@ test("the Lunatic first-night information uses its own bluffs and preserves the 
   delete legacy.setup.lunaticBluffs;
   assert.equal(infoForStep(legacy, step).textVars?.bluffs, legacy.bluffs.join(", "));
   assert.equal(JSON.stringify(publicGameView(state)).includes("lunaticBluffs"), false);
+});
+
+test("a legacy empty Lunatic bluff journal preserves recorded information through replay and undo (BMR-LUNATIC-01)", () => {
+  // Generated with createGame/applyCommand at 35b34c9: a fresh empty Lunatic
+  // list, an explicit deal, the first night and the completed Lunatic step.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-lunatic-bluffs-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true);
+  if (!imported.ok) return;
+  const saved = imported.state;
+  const step = saved.night.queue.find((candidate) => candidate.roleId === "lunatic")!;
+  assert.ok(step);
+  assert.deepEqual(saved.setup.lunaticBluffs, []);
+  assert.equal(step.done, true);
+  assert.deepEqual(step.targetIds, ["3"]);
+  assert.equal(step.noteVars?.bluffs, "");
+  assert.deepEqual(step.given?.textVars, { minions: 1, bluffs: "" });
+  assert.equal(infoForStep(saved, step).textVars?.bluffs, saved.bluffs.join(", "));
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true);
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  const undoJournal = clone(saved.journal);
+  const completeEntry = undoJournal.entries.pop();
+  assert.equal(completeEntry?.type, "completeStep");
+  const undone = replay(undoJournal);
+  assert.equal(undone.ok, true);
+  if (!undone.ok || !completeEntry) return;
+  assert.equal(
+    undone.state.night.queue.find((candidate) => candidate.roleId === "lunatic")?.done,
+    false,
+  );
+  assert.equal(
+    applyCommand(undone.state, { ...completeEntry, payload: completeEntry.payload ?? {} }).status,
+    "allowed",
+  );
+  assert.deepEqual(canonicalState(undone.state), canonicalState(saved));
 });
