@@ -234,9 +234,7 @@ export function SecretsScreen() {
             </div>
             <div className="grid gap-1">
               <span className={LABEL}>{t("lunaticShown")}</span>
-              <p className="m-0 text-[13px]">
-                {has("lunatic") ? lunatic || roleLabel("po") : t("none")}
-              </p>
+              <p className="m-0 text-[13px]">{has("lunatic") ? lunatic || t("none") : t("none")}</p>
             </div>
           </div>
           {supportSection(state.setup.roles || [])}

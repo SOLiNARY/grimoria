@@ -7,7 +7,14 @@ import {
   realTeamOf,
   setRoster,
 } from "../model/state.ts";
-import { isMixedEdition, isSupportedRole, requiredBluffs, roleTeam } from "../model/rules.ts";
+import {
+  bluffCandidates,
+  isMixedEdition,
+  isSupportedRole,
+  randomBluffs,
+  requiredBluffs,
+  roleTeam,
+} from "../model/rules.ts";
 import { autoSecrets, dealGame } from "./setup.ts";
 import { startNight } from "./night.ts";
 import { replaceContents } from "./command-state.ts";
@@ -118,11 +125,26 @@ function normalizeBag(state: GameState) {
 
   if (!roles.includes("lunatic")) {
     state.setup.lunaticShownId = null;
+    if (state.setup.lunaticShownExplicit !== undefined) state.setup.lunaticShownExplicit = false;
+    if (state.setup.lunaticBluffs !== undefined) state.setup.lunaticBluffs = [];
   } else {
     const demons = scriptRoles.filter((id) => roleTeam(id) === "demon");
     const inPlay = roles.find((id) => roleTeam(id) === "demon");
-    if (!state.setup.lunaticShownId || !demons.includes(state.setup.lunaticShownId)) {
+    // Older histories use a sticky mask and must keep metadata omitted: the
+    // canonical state also seeds future random commands during replay.
+    if (
+      state.setup.lunaticShownExplicit === false ||
+      !state.setup.lunaticShownId ||
+      !demons.includes(state.setup.lunaticShownId)
+    ) {
       state.setup.lunaticShownId = inPlay || demons[0] || null;
+      if (state.setup.lunaticShownExplicit !== undefined) state.setup.lunaticShownExplicit = false;
+    }
+    if (state.setup.lunaticBluffs !== undefined) {
+      const eligible = bluffCandidates({ pool: scriptRoles, roles, recipient: "lunatic" });
+      state.setup.lunaticBluffs = [...new Set(state.setup.lunaticBluffs)]
+        .filter((id) => eligible.includes(id))
+        .slice(0, 3);
     }
   }
 
@@ -148,11 +170,15 @@ function normalizeBag(state: GameState) {
     state.setup.bluffs = [];
   } else {
     const seen = new Set();
+    const eligible = bluffCandidates({
+      pool: scriptRoles,
+      roles,
+      drunkShownId: state.setup.drunkShownId,
+      recipient: "demon",
+    });
     state.setup.bluffs = (Array.isArray(state.setup.bluffs) ? state.setup.bluffs : [])
       .filter((id) => {
-        if (!id || seen.has(id) || roles.includes(id) || id === state.setup.drunkShownId)
-          return false;
-        if (!scriptRoles.includes(id)) return false;
+        if (!eligible.includes(id) || seen.has(id)) return false;
         seen.add(id);
         return true;
       })
@@ -187,7 +213,11 @@ function resetGameForSetup(state: GameState) {
   state.log = [];
 }
 
-export function bagUpdate(state: GameState, payload: CommandPayloads["bagUpdate"]) {
+export function bagUpdate(
+  state: GameState,
+  payload: CommandPayloads["bagUpdate"],
+  ports: CommandExecutionContext = systemPorts,
+) {
   const patch = payload.patch || {};
   if (patch.script) {
     const normalized = normalizeScript(patch.script);
@@ -250,12 +280,78 @@ export function bagUpdate(state: GameState, payload: CommandPayloads["bagUpdate"
     state.setup.bluffs = patch.bluffs.slice();
   }
   if (patch.drunkShownId !== undefined) state.setup.drunkShownId = patch.drunkShownId;
-  if (patch.lunaticShownId !== undefined) state.setup.lunaticShownId = patch.lunaticShownId;
+  if (patch.lunaticShownId !== undefined) {
+    state.setup.lunaticShownId = patch.lunaticShownId;
+    if (patch.lunaticShownExplicit === undefined && state.setup.lunaticShownExplicit !== undefined)
+      state.setup.lunaticShownExplicit = patch.lunaticShownId != null;
+  }
+  if (patch.lunaticShownExplicit !== undefined) {
+    if (typeof patch.lunaticShownExplicit !== "boolean")
+      return {
+        ok: false,
+        errorCode: "error.lunatic-mode",
+        error: "Некорректный режим роли Безумца.",
+      };
+    state.setup.lunaticShownExplicit = patch.lunaticShownExplicit;
+  }
+  if (patch.lunaticBluffs !== undefined) {
+    const eligible = bluffCandidates({
+      pool: scriptRoles,
+      roles: state.setup.roles,
+      recipient: "lunatic",
+    });
+    if (
+      !Array.isArray(patch.lunaticBluffs) ||
+      patch.lunaticBluffs.length > 3 ||
+      new Set(patch.lunaticBluffs).size !== patch.lunaticBluffs.length ||
+      patch.lunaticBluffs.some((id) => !eligible.includes(id))
+    )
+      return {
+        ok: false,
+        errorCode: "error.lunatic-bluffs",
+        error: "Выберите до трёх разных добрых ролей из сценария для Безумца.",
+      };
+    state.setup.lunaticBluffs = patch.lunaticBluffs.slice();
+  }
   if (patch.godfatherOutsider !== undefined)
     state.setup.godfatherOutsider = patch.godfatherOutsider;
   if (patch.evilTwinGoodId !== undefined) state.setup.evilTwinGoodId = patch.evilTwinGoodId;
 
   normalizeBag(state);
+  if (patch.shuffleBluffs !== undefined) {
+    const recipient = patch.shuffleBluffs;
+    if (recipient !== "demon" && recipient !== "lunatic")
+      return {
+        ok: false,
+        errorCode: "error.bluffs-recipient",
+        error: "Неизвестный получатель блефов.",
+      };
+    if (recipient === "demon" && !requiredBluffs(state.setup.count))
+      return {
+        ok: false,
+        errorCode: "error.bluffs-small-game",
+        error: "Демон получает блефы только при семи и более игроках.",
+      };
+    if (recipient === "lunatic" && !state.setup.roles.includes("lunatic"))
+      return { ok: false, errorCode: "error.lunatic-missing", error: "В мешке нет Безумца." };
+    const selected = randomBluffs(
+      {
+        pool: scriptRoles,
+        roles: state.setup.roles,
+        drunkShownId: state.setup.drunkShownId,
+        recipient,
+      },
+      () => ports.rng.next(),
+    );
+    if (!selected)
+      return {
+        ok: false,
+        errorCode: "error.bluffs-pool",
+        error: "В сценарии недостаточно подходящих добрых ролей для трёх блефов.",
+      };
+    if (recipient === "lunatic") state.setup.lunaticBluffs = selected;
+    else state.setup.bluffs = selected;
+  }
   return { ok: true };
 }
 

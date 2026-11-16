@@ -7,6 +7,7 @@ import { setupProjection } from "../../application/read-models/table.ts";
 import {
   TEAMS,
   bagCounts,
+  bluffCandidates,
   compositionFor,
   isBmrScript,
   isMixedEdition,
@@ -70,6 +71,8 @@ interface AnyBag {
   bluffs?: string[];
   drunkShownId?: string | null;
   lunaticShownId?: string | null;
+  lunaticShownExplicit?: boolean;
+  lunaticBluffs?: string[];
   godfatherOutsider?: 1 | -1;
   evilTwinGoodId?: string | null;
   valid?: boolean;
@@ -99,6 +102,8 @@ function snapshotOf(state: {
     bluffs: string[];
     drunkShownId: string | null;
     lunaticShownId: string | null;
+    lunaticShownExplicit?: boolean;
+    lunaticBluffs?: string[];
     godfatherOutsider: 1 | -1 | null;
     evilTwinGoodId: string | null;
   };
@@ -111,6 +116,8 @@ function snapshotOf(state: {
     bluffs: state.setup.bluffs,
     drunkShownId: state.setup.drunkShownId,
     lunaticShownId: state.setup.lunaticShownId,
+    lunaticShownExplicit: state.setup.lunaticShownExplicit,
+    lunaticBluffs: state.setup.lunaticBluffs,
     godfatherOutsider: state.setup.godfatherOutsider,
     evilTwinGoodId: state.setup.evilTwinGoodId,
     scriptId: state.scriptId,
@@ -126,6 +133,7 @@ export function BagScreen() {
 
   const [tab, setTab] = useState("recommended");
   const [bluffEdit, setBluffEdit] = useState(false);
+  const [lunaticBluffEdit, setLunaticBluffEdit] = useState(false);
   const [poolMode, setPoolMode] = useState(false);
   const [preview, setPreview] = useState<BagEntry | null>(null);
   const [bagError, setBagError] = useState("");
@@ -186,11 +194,17 @@ export function BagScreen() {
       );
   };
   const unused = () => poolRoles().filter((role) => !state.setup.roles.includes(role.id));
-  const unusedGood = () =>
-    unused().filter((role) => role.team === "townsfolk" || role.team === "outsider");
   const unusedTownsfolk = () => unused().filter((role) => role.team === "townsfolk");
 
-  const send = (patch: BagPatch) => ports.commands.bagUpdate(patch);
+  const send = (patch: BagPatch) =>
+    ports.commands.bagUpdate({
+      // Adopt the mode only on a live host edit. A pre-existing legacy mask
+      // stays explicit; an empty legacy setup follows the selected Demon.
+      ...(state.setup.lunaticShownExplicit === undefined
+        ? { lunaticShownExplicit: Boolean(state.setup.lunaticShownId) }
+        : {}),
+      ...patch,
+    });
 
   const beginSetup = () => {
     if (state.phase === "setup") return true;
@@ -240,6 +254,8 @@ export function BagScreen() {
       bluffs: (bag.bluffs || []).slice(),
       drunkShownId: bag.drunkShownId || null,
       lunaticShownId: bag.lunaticShownId || null,
+      lunaticShownExplicit: false,
+      lunaticBluffs: bag.lunaticBluffs ?? [],
       godfatherOutsider: bag.godfatherOutsider ?? 1,
       evilTwinGoodId: bag.evilTwinGoodId || null,
     });
@@ -261,6 +277,8 @@ export function BagScreen() {
       bluffs: string[];
       drunkShownId: string | null;
       lunaticShownId: string | null;
+      lunaticShownExplicit?: boolean;
+      lunaticBluffs?: string[];
       godfatherOutsider: 1 | -1 | null;
       evilTwinGoodId: string | null;
       script: Script | null;
@@ -274,6 +292,8 @@ export function BagScreen() {
       bluffs: parsed.bluffs,
       drunkShownId: parsed.drunkShownId,
       lunaticShownId: parsed.lunaticShownId,
+      lunaticShownExplicit: parsed.lunaticShownExplicit ?? Boolean(parsed.lunaticShownId),
+      lunaticBluffs: parsed.lunaticBluffs ?? parsed.bluffs,
       godfatherOutsider: parsed.godfatherOutsider === -1 ? -1 : 1,
       evilTwinGoodId: parsed.evilTwinGoodId,
     });
@@ -387,6 +407,8 @@ export function BagScreen() {
       bluffs: bag ? (bag.bluffs ?? []) : [],
       drunkShownId: bag ? bag.drunkShownId || null : null,
       lunaticShownId: null,
+      lunaticShownExplicit: false,
+      lunaticBluffs: [],
       godfatherOutsider: bag ? (bag.godfatherOutsider ?? 1) : 1,
       evilTwinGoodId: null,
     });
@@ -426,6 +448,8 @@ export function BagScreen() {
         bluffs: [],
         drunkShownId: null,
         lunaticShownId: null,
+        lunaticShownExplicit: false,
+        lunaticBluffs: [],
         evilTwinGoodId: null,
       });
       setActivePoolId(null);
@@ -495,6 +519,8 @@ export function BagScreen() {
       bluffs: bag.bluffs.slice(),
       drunkShownId: bag.drunkShownId,
       lunaticShownId: bag.lunaticShownId,
+      lunaticShownExplicit: false,
+      lunaticBluffs: bag.lunaticBluffs ?? [],
       evilTwinGoodId: bag.evilTwinGoodId,
     });
     setArmed(false);
@@ -523,6 +549,8 @@ export function BagScreen() {
       bluffs: state.setup.bluffs,
       drunkShownId: state.setup.drunkShownId,
       lunaticShownId: state.setup.lunaticShownId,
+      lunaticShownExplicit: state.setup.lunaticShownExplicit ?? Boolean(state.setup.lunaticShownId),
+      ...(state.setup.lunaticBluffs ? { lunaticBluffs: state.setup.lunaticBluffs } : {}),
       godfatherOutsider: shiftOf(state),
       evilTwinGoodId: state.setup.evilTwinGoodId,
     };
@@ -566,7 +594,19 @@ export function BagScreen() {
     if (!bag) return;
     if (hasGame && !window.confirm(t("ui.newBag"))) return;
     let script: Script | null = null;
-    if (bag.scriptId !== state.script?.id) {
+    if (
+      bag.scriptId === state.script?.id &&
+      !SCRIPT_IDS.includes(bag.scriptId) &&
+      bag.pool.length
+    ) {
+      // Editing a custom pool keeps its script ID. The saved bag still owns
+      // its original pool, even when it belongs to that same script.
+      script = {
+        ...state.script,
+        roles: bag.pool.slice(),
+        manualOnly: isMixedEdition(bag.pool),
+      };
+    } else if (bag.scriptId !== state.script?.id) {
       const factory = {
         tb: troubleBrewingScript,
         bmr: badMoonRisingScript,
@@ -594,6 +634,8 @@ export function BagScreen() {
       bluffs: bag.bluffs.slice(),
       drunkShownId: bag.drunkShownId,
       lunaticShownId: bag.lunaticShownId,
+      lunaticShownExplicit: bag.lunaticShownExplicit ?? Boolean(bag.lunaticShownId),
+      lunaticBluffs: bag.lunaticBluffs ?? bag.bluffs,
       godfatherOutsider: bag.godfatherOutsider,
       evilTwinGoodId: bag.evilTwinGoodId,
     });
@@ -632,6 +674,8 @@ export function BagScreen() {
       bluffs: [],
       drunkShownId: null,
       lunaticShownId: null,
+      lunaticShownExplicit: false,
+      lunaticBluffs: [],
       evilTwinGoodId: null,
     });
     if (result.status !== "allowed") {
@@ -1007,16 +1051,32 @@ export function BagScreen() {
       </p>
     );
 
-  const bluffsMarkup = () => {
-    if (!requiredBluffs(count)) return <p className={NOTE}>{t("noBluffs")}</p>;
-    const options = unusedGood().filter(
-      (role) => role.id !== state.setup.drunkShownId && !state.setup.bluffs.includes(role.id),
-    );
+  const bluffsMarkup = (recipient: "demon" | "lunatic" = "demon") => {
+    const lunatic = recipient === "lunatic";
+    const needed = lunatic ? 3 : requiredBluffs(count);
+    if (!needed) return <p className={NOTE}>{t("noBluffs")}</p>;
+    const selected = lunatic
+      ? (state.setup.lunaticBluffs ?? state.setup.bluffs)
+      : state.setup.bluffs;
+    const editing = lunatic ? lunaticBluffEdit : bluffEdit;
+    const setEditing = lunatic ? setLunaticBluffEdit : setBluffEdit;
+    const label = t(lunatic ? "lunaticBluffs" : "bluffs");
+    const candidates = bluffCandidates({
+      pool: scriptRoles,
+      roles: state.setup.roles,
+      drunkShownId: state.setup.drunkShownId,
+      recipient,
+    });
+    const options = candidates.filter((id) => !selected.includes(id)).map(roleOf);
+    const update = (bluffs: string[]) => {
+      const result = send(lunatic ? { lunaticBluffs: bluffs } : { bluffs });
+      setBagError(result.status === "allowed" ? "" : commandRejectionText(result) || t("illegal"));
+    };
     return (
       <div className="grid gap-3">
-        <div className="bag-bluff-slots grid grid-cols-3 gap-2" aria-label={t("bluffs")}>
+        <div className="bag-bluff-slots grid grid-cols-3 gap-2" aria-label={label}>
           {[0, 1, 2].map((index) => {
-            const role = state.setup.bluffs[index] ? roleOf(state.setup.bluffs[index]) : null;
+            const role = selected[index] ? roleOf(selected[index]) : null;
             return (
               <button
                 key={index}
@@ -1026,14 +1086,15 @@ export function BagScreen() {
                     : "border-dashed border-edge-2 bg-crypt text-muted"
                 }`}
                 type="button"
-                data-bluff-slot={index}
-                aria-label={`${t("bluffs")} ${index + 1}`}
+                data-bluff-slot={lunatic ? undefined : index}
+                data-lunatic-bluff-slot={lunatic ? index : undefined}
+                aria-label={`${label} ${index + 1}`}
                 onClick={() => {
                   if (!beginSetup()) return;
                   pushUndo();
-                  const bluffs = state.setup.bluffs.slice();
+                  const bluffs = selected.slice();
                   bluffs.splice(index, 1);
-                  send({ bluffs });
+                  update(bluffs);
                 }}
               >
                 {role ? (
@@ -1048,10 +1109,26 @@ export function BagScreen() {
             );
           })}
         </div>
-        {bluffEdit || state.setup.bluffs.length < requiredBluffs(count) ? (
+        <button
+          className="btn min-h-11 w-full"
+          type="button"
+          data-shuffle-bluffs={recipient}
+          disabled={candidates.length < needed}
+          onClick={() => {
+            if (!beginSetup()) return;
+            pushUndo();
+            const result = send({ shuffleBluffs: recipient });
+            setBagError(
+              result.status === "allowed" ? "" : commandRejectionText(result) || t("illegal"),
+            );
+          }}
+        >
+          {t("ui.shuffleBluffs")}
+        </button>
+        {editing || selected.length < needed ? (
           <div
             className="bag-bluff-pool grid grid-cols-[repeat(auto-fill,minmax(76px,1fr))] gap-1.5"
-            aria-label={t("ui.availableBluffs")}
+            aria-label={t(lunatic ? "ui.availableLunaticBluffs" : "ui.availableBluffs")}
           >
             {options.length ? (
               options.map((role) => (
@@ -1059,17 +1136,18 @@ export function BagScreen() {
                   key={role.id}
                   className="bag-bluff-token grid min-w-0 place-items-center gap-1 rounded-md border border-edge bg-crypt-3 p-1.5 text-[11px] text-muted transition-colors hover:border-edge-2 hover:text-text"
                   type="button"
-                  data-bluff-role={role.id}
+                  data-bluff-role={lunatic ? undefined : role.id}
+                  data-lunatic-bluff-role={lunatic ? role.id : undefined}
                   aria-label={role.name}
-                  disabled={state.setup.bluffs.length >= 3}
+                  disabled={selected.length >= needed}
                   onClick={() => {
                     if (!beginSetup()) return;
                     pushUndo();
-                    const bluffs = state.setup.bluffs.slice();
+                    const bluffs = selected.slice();
                     if (bluffs.includes(role.id)) return;
-                    if (bluffs.length >= 3) return;
+                    if (bluffs.length >= needed) return;
                     bluffs.push(role.id);
-                    send({ bluffs });
+                    update(bluffs);
                   }}
                 >
                   <img className="size-10 object-contain" src={ports.roles.image(role)} alt="" />
@@ -1084,23 +1162,23 @@ export function BagScreen() {
           <button
             className="btn min-h-[34px] w-full !justify-center !border-edge max-[900px]:min-h-11"
             type="button"
-            data-act="edit-bluffs"
-            onClick={() => setBluffEdit(true)}
+            data-act={lunatic ? "edit-lunatic-bluffs" : "edit-bluffs"}
+            onClick={() => setEditing(true)}
           >
-            Изменить
+            {t("ui.editBluffs")}
           </button>
         )}
-        {bluffEdit && state.setup.bluffs.length >= requiredBluffs(count) ? (
+        {editing && selected.length >= needed ? (
           <button
             className="btn btn--quiet min-h-[34px] w-full !justify-center"
             type="button"
-            onClick={() => setBluffEdit(false)}
+            onClick={() => setEditing(false)}
           >
             {t("bag.poolDone")}
           </button>
         ) : null}
         <p className={NOTE}>
-          {t("chooseBluffs")} {t("drunkWarning")}
+          {lunatic ? t("ui.chooseLunaticBluffs") : `${t("chooseBluffs")} ${t("drunkWarning")}`}
         </p>
       </div>
     );
@@ -1215,6 +1293,19 @@ export function BagScreen() {
     return (
       <div className="bag-secret-row grid gap-1.5">
         <span className={LABEL}>{t("lunaticShown")}</span>
+        <button
+          className={`btn min-h-11 w-full ${state.setup.lunaticShownExplicit === false ? "!border-amber !bg-amber-dim/40 !text-amber" : ""}`}
+          type="button"
+          data-act="lunatic-follow-demon"
+          aria-pressed={state.setup.lunaticShownExplicit === false}
+          onClick={() => {
+            if (!beginSetup()) return;
+            pushUndo();
+            send({ lunaticShownExplicit: false });
+          }}
+        >
+          {t("ui.lunaticFollowDemon")}
+        </button>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-1.5">
           {poolRoles()
             .filter((role) => role.team === "demon")
@@ -1229,7 +1320,8 @@ export function BagScreen() {
                 </>,
                 () => {
                   if (!beginSetup()) return;
-                  send({ lunaticShownId: role.id });
+                  pushUndo();
+                  send({ lunaticShownId: role.id, lunaticShownExplicit: true });
                 },
               );
             })}
@@ -2381,6 +2473,25 @@ export function BagScreen() {
               )}
               <div className="grid gap-4">{bluffsMarkup()}</div>
             </section>
+
+            {state.setup.roles.includes("lunatic") ? (
+              <section
+                aria-labelledby="bag-lunatic-bluffs"
+                className="rounded-md border border-edge bg-crypt-2 p-3"
+              >
+                {sectionHead(
+                  "",
+                  t("lunaticBluffs"),
+                  null,
+                  <b className="text-[9px] font-semibold uppercase tracking-[.06em] text-text">
+                    {(state.setup.lunaticBluffs ?? state.setup.bluffs).length}/3
+                  </b>,
+                  "h2",
+                  "bag-lunatic-bluffs",
+                )}
+                <div className="grid gap-4">{bluffsMarkup("lunatic")}</div>
+              </section>
+            ) : null}
 
             <section
               aria-labelledby="bag-deal"

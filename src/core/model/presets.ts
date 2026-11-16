@@ -35,6 +35,8 @@ export type BagSuccess = {
   bluffs: RoleId[];
   drunkShownId: RoleId | null;
   lunaticShownId: RoleId | null;
+  lunaticShownExplicit: boolean;
+  lunaticBluffs: RoleId[];
   godfatherOutsider: 1 | -1;
   evilTwinGoodId: RoleId | null;
   errors: BagError[];
@@ -43,6 +45,8 @@ export type BagExtras = {
   bluffs: RoleId[];
   drunkShownId: RoleId | null;
   lunaticShownId: RoleId | null;
+  lunaticShownExplicit: boolean;
+  lunaticBluffs: RoleId[];
   godfatherOutsider: 1 | -1;
   evilTwinGoodId: RoleId | null;
 };
@@ -285,6 +289,8 @@ export function deriveBagExtras(count: number, roles: RoleId[], pool: RoleId[] =
     bluffs,
     drunkShownId,
     lunaticShownId: used.has("lunatic") ? demon : null,
+    lunaticShownExplicit: false,
+    lunaticBluffs: [],
     godfatherOutsider: 1,
     evilTwinGoodId: used.has("eviltwin") ? roles.find((id) => isGoodRole(id)) || null : null,
   };

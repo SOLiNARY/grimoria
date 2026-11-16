@@ -13,6 +13,7 @@ import {
   roleTeam,
 } from "../model/rules.ts";
 import {
+  clone,
   createGame,
   exportGame,
   importGame,
@@ -26,6 +27,7 @@ import {
   applyCommand,
   appendConditionalSteps,
   buildSvNightQueue,
+  canonicalState,
   checkWin,
   completeStep,
   currentStep,
@@ -44,6 +46,7 @@ import {
   kill,
   nominate,
   openNominations,
+  previewCommand,
   reconcileVigormortisPoison,
   recordKlutzChoice,
   recordSvOutcome,
@@ -1967,6 +1970,65 @@ test("the Storyteller executes a player who failed to be mad", () => {
   assert.match(logged.detail, /Claimed to be the Clockmaker all day\./);
 });
 
+test("madness executions preserve command time and events through preview and replay", () => {
+  // Cerenovus r3048 and Mutant r1755 leave this execution to the Storyteller,
+  // during the day or the following night. Its records must still be replayable.
+  for (const role of ["cerenovus", "mutant"] as const) {
+    for (const phase of ["day", "night"] as const) {
+      const state =
+        role === "cerenovus"
+          ? cerenovusMadness().state
+          : make({ 1: "clockmaker", 2: "mutant", 6: "witch", 7: "fanggu" }, { count: 8 });
+      if (role === "mutant") assert.equal(startNight(state).ok, true);
+      madnessDay(state);
+      if (phase === "night") {
+        state.phase = "night";
+        state.night.number = 2;
+      }
+      const before = clone(state);
+      const command = {
+        id: `madness-replay-${role}-${phase}`,
+        type: "madnessPenalty",
+        at: "2026-01-01T00:00:00.000Z",
+        payload: {
+          playerId: "2",
+          penalty: "execute",
+          reason: "The Storyteller judged that the player broke madness.",
+        },
+      };
+
+      const previewed = previewCommand(state, command);
+      assert.equal(previewed.status, "allowed", JSON.stringify(previewed));
+      assert.deepEqual(state, before, "preview leaves the entire state unchanged");
+      const applied = applyCommand(state, command);
+      assert.equal(applied.status, "allowed", JSON.stringify(applied));
+      if (previewed.status !== "allowed" || applied.status !== "allowed") return;
+
+      assert.equal(state.players["2"].alive, false);
+      assert.equal(state.deaths.length, before.deaths.length + 1);
+      assert.equal(state.deaths.at(-1)!.at, command.at, `${role} ${phase} death time`);
+      assert.equal(state.executions.at(-1)!.at, command.at, `${role} ${phase} execution time`);
+      assert.deepEqual(previewed.events, applied.events);
+      assert.deepEqual(previewed.changes, applied.changes);
+
+      const journal = clone(state.journal);
+      const replayed = replay(journal);
+      assert.equal(replayed.ok, true, JSON.stringify(replayed));
+      if (!replayed.ok) return;
+      assert.deepEqual(replayed.events, applied.events);
+      assert.deepEqual(replayed.state, state, "replay reproduces every stored record");
+
+      const undone = replay({ base: journal.base, entries: [] });
+      assert.equal(undone.ok, true, JSON.stringify(undone));
+      if (!undone.ok) return;
+      assert.deepEqual(canonicalState(undone.state), canonicalState(before));
+      const redone = applyCommand(undone.state, command);
+      assert.equal(redone.status, "allowed", JSON.stringify(redone));
+      assert.deepEqual(undone.state, state, "reapplying the undone command restores its records");
+    }
+  }
+});
+
 test("the madness penalty only accepts the legal Storyteller options", () => {
   const { state } = cerenovusMadness();
   madnessDay(state);
@@ -2642,6 +2704,45 @@ test("the Flowergirl and Town Crier need a host answer without the ended day", (
   const blocked = stepOutcome(completeStep(state, stepFor(state, "flowergirl").key, {}));
   assert.equal(blocked.ok, false);
   assert.equal(blocked.needsChoice, true);
+});
+
+test("the Flowergirl and Town Crier require host answers after manual voting records", () => {
+  for (const tokenOnly of [false, true]) {
+    const state = make(
+      { 1: "flowergirl", 2: "towncrier", 3: "clockmaker", 7: "cerenovus", 8: "fanggu" },
+      { count: 8 },
+    );
+    startNight(state);
+    finishNight(state);
+    assert.equal(endNight(state).ok, true);
+    assert.equal(openNominations(state).ok, true);
+    const nomination = nominate(state, "7", "6");
+    assert.equal(nomination.ok, true);
+    assert.equal(recordVotes(state, nomination.nomination!.id, ["8"]).ok, true);
+    if (tokenOnly) kill(state, "3", "test");
+    const recorded = applyCommand(state, {
+      id: "manual-voting-" + tokenOnly,
+      type: tokenOnly ? "setDeadVoteUsed" : "setVoteCount",
+      payload: tokenOnly ? { playerId: "3", used: true } : { playerId: "6", count: 5 },
+    });
+    assert.equal(recorded.status, "allowed", JSON.stringify(recorded));
+    assert.equal(endDay(state).ok, true);
+    assert.deepEqual(state.lastDay?.voteCounts, tokenOnly ? {} : { 6: 5 });
+    for (const role of ["flowergirl", "towncrier"]) {
+      const step = stepFor(state, role);
+      const info = infoForStep(state, step);
+      assert.equal(info.needsChoice, true, role);
+      assert.equal(info.hostAnswer, true, role);
+      assert.equal(info.value, undefined, "partial identities do not manufacture an answer");
+      assert.deepEqual(info.options, [true, false]);
+      assert.equal(stepOutcome(completeStep(state, step.key, {})).needsChoice, true);
+      assert.equal(
+        completeStep(state, step.key, { given: { kind: "yes-no", value: true } }).ok,
+        true,
+      );
+      assert.equal(step.given?.value, true);
+    }
+  }
 });
 
 test("the stored Juggler guesses and ended day are validated", () => {

@@ -127,6 +127,8 @@ export function TableRing({ view, dismissedDawn, onDismissDawn }: TableRingProps
           return t(SEAT_BADGE_KEY[badge]) + (sourceName ? " · " + sourceName : "");
         });
         const badgeText = badgeLabels.join(", ");
+        const voteCount = state.phase === "day" ? state.day.voteCounts?.[player.id] : undefined;
+        const voteText = voteCount === undefined ? "" : t("ui.seatVoteCount", { n: voteCount });
         return (
           <button
             key={player.id}
@@ -137,7 +139,7 @@ export function TableRing({ view, dismissedDawn, onDismissDawn }: TableRingProps
             data-target={targetKey ?? undefined}
             data-id={targetKey ? player.id : undefined}
             aria-pressed={selected}
-            aria-label={`${player.seat}, ${name}, ${roleName}${badgeText ? `, ${badgeText}` : ""}`}
+            aria-label={`${player.seat}, ${name}, ${roleName}${badgeText ? `, ${badgeText}` : ""}${voteText ? `, ${voteText}` : ""}`}
             disabled={disabled}
             onClick={() => actions.selectSeat(player.id)}
           >
@@ -188,6 +190,14 @@ export function TableRing({ view, dismissedDawn, onDismissDawn }: TableRingProps
               >
                 {name}
               </b>
+              {voteCount !== undefined ? (
+                <span
+                  data-seat-vote-count={voteCount}
+                  className="rounded-full border border-brass/60 px-1 py-px text-[8px] font-semibold text-brass min-[620px]:text-[10px]"
+                >
+                  {voteText}
+                </span>
+              ) : null}
               {badges.length ? (
                 <span className="flex flex-wrap gap-0.5">
                   {badges.map((badge, index) => (

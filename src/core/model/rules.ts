@@ -563,6 +563,32 @@ export function requiredBluffs(count: number): number {
   return count >= 7 ? 3 : 0;
 }
 
+export type BluffChoices = {
+  pool: readonly RoleId[];
+  roles: readonly RoleId[];
+  drunkShownId?: RoleId | null;
+  recipient: "demon" | "lunatic";
+};
+
+// Lunatic r3112 permits in-play good characters; the real Demon's choices
+// retain the existing unused-good and Drunk-mask restrictions.
+export function bluffCandidates({
+  pool,
+  roles,
+  drunkShownId = null,
+  recipient,
+}: BluffChoices): RoleId[] {
+  return [...new Set(pool)].filter(
+    (id) =>
+      isGoodRole(id) && (recipient === "lunatic" || (!roles.includes(id) && id !== drunkShownId)),
+  );
+}
+
+export function randomBluffs(choices: BluffChoices, rng: () => number): RoleId[] | null {
+  const candidates = bluffCandidates(choices);
+  return candidates.length < 3 ? null : take(candidates, 3, rng);
+}
+
 function shuffle<T>(list: T[], rng: () => number): T[] {
   const out = list.slice();
   for (let i = out.length - 1; i > 0; i -= 1) {
@@ -593,6 +619,8 @@ export type RandomBag = {
   bluffs: RoleId[];
   drunkShownId: RoleId | null;
   lunaticShownId: RoleId | null;
+  lunaticShownExplicit: boolean;
+  lunaticBluffs: RoleId[];
   godfatherOutsider: 1 | -1;
 };
 
@@ -676,6 +704,8 @@ export function randomBag(
     bluffs,
     drunkShownId,
     lunaticShownId: roles.includes("lunatic") ? demons[0]! : null,
+    lunaticShownExplicit: false,
+    lunaticBluffs: [],
     // The direction only applies while the Godfather is actually in the bag;
     // the bag screen copies it back so the applied counters match this bag.
     godfatherOutsider: minions.includes("godfather") && options.godfatherOutsider === -1 ? -1 : 1,

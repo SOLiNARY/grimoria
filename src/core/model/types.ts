@@ -11,6 +11,8 @@ export type CommandType =
   | "nominate"
   | "recordVirginNomination"
   | "recordVotes"
+  | "setVoteCount"
+  | "setDeadVoteUsed"
   | "cancelNomination"
   | "resetVotes"
   | "execute"
@@ -208,6 +210,8 @@ export interface Setup {
   bluffs: RoleId[];
   drunkShownId: RoleId | null;
   lunaticShownId: RoleId | null;
+  lunaticShownExplicit?: boolean;
+  lunaticBluffs?: RoleId[];
   godfatherOutsider: 1 | -1 | null;
   grandmotherId: string | null;
   evilTwinGoodId: RoleId | null;
@@ -330,6 +334,8 @@ export interface Execution {
 
 export interface DayState {
   number: number;
+  /** Host totals; presence marks an incomplete external voting ledger. */
+  voteCounts?: Record<string, number>;
   morning: Array<{ playerId: string; [key: string]: unknown }>;
   nominations: Nomination[];
   activeNominationId: string | null;
@@ -434,6 +440,8 @@ export interface Juggler {
 // The day that just ended, kept for the next night's "today" questions.
 export interface LastDay {
   number: number;
+  /** Preserves external voting even when only a dead-vote token was recorded. */
+  voteCounts?: Record<string, number>;
   nominations: Nomination[];
   execution: Execution | null;
   [key: string]: unknown;

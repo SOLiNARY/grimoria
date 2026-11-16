@@ -328,7 +328,9 @@ export function buildBmrNightQueue(state: GameState): NightStep[] {
       // "Learn three bluffs and the appropriate number of Minions, but this
       // information may be wrong" (Lunatic r3112). The bluffs may be in play.
       const minions = lunaticMinions;
-      const bluffIds = (state.bluffs || state.setup.bluffs || []).map(String);
+      const bluffIds = (state.setup.lunaticBluffs ?? state.bluffs ?? state.setup.bluffs ?? []).map(
+        String,
+      );
       const bluffs = bluffIds.map((id) => roleLabel(id));
       setStepNote(
         step,
@@ -981,7 +983,9 @@ export function bmrInfoForStep(state: GameState, step: NightStep, options: BmrIn
   }
   if (role === "lunatic") {
     if (state.night.number === 1) {
-      const bluffIds = (state.bluffs || state.setup.bluffs || []).map(String);
+      const bluffIds = (state.setup.lunaticBluffs ?? state.bluffs ?? state.setup.bluffs ?? []).map(
+        String,
+      );
       const bluffs = bluffIds.map((id) => roleLabel(id));
       const minions = livingPlayers(state).filter(
         (player) => roleTeam(player.roleId || "") === "minion",

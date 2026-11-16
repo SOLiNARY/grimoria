@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ALL_ROLES, isGoodRole } from "../model/rules.ts";
-import { clone, createGame, importGame, validateState } from "../model/state.ts";
+import { clone, createGame, exportGame, importGame, validateState } from "../model/state.ts";
+import { badMoonRisingScript } from "../model/scripts.ts";
 import { validatePayload } from "../commands/contracts.ts";
 import { autoSecrets, dealGame, endDay, endNight, skipStep, startNight } from "./index.ts";
 import {
@@ -10,6 +11,7 @@ import {
   canonicalState,
   checkInvariants,
   createRuntime,
+  kill,
   previewCommand,
   replay,
   validateCommand,
@@ -85,6 +87,217 @@ function toDay(state: GameState) {
   assert.equal(ended.ok, true, JSON.stringify(ended));
   return state;
 }
+
+function manualVotingGame() {
+  const state = make({
+    1: "chef",
+    2: "empath",
+    3: "monk",
+    4: "soldier",
+    5: "mayor",
+    6: "poisoner",
+    7: "imp",
+  });
+  toDay(state);
+  kill(state, "2", "test");
+  return state;
+}
+
+test("manual vote totals record zero through roster size without inventing voting actions", () => {
+  const state = manualVotingGame();
+  const players = clone(state.players);
+  const deaths = clone(state.deaths);
+  const executions = clone(state.executions);
+  for (const count of [5, 0, 7]) {
+    const result = applyCommand(state, {
+      id: "manual-total-" + count,
+      type: "setVoteCount",
+      payload: { playerId: "2", count },
+    });
+    assert.equal(result.status, "allowed", JSON.stringify(result));
+    assert.deepEqual(state.day.voteCounts, { 2: count });
+    assert.deepEqual(state.players, players, "a tally never spends a token or changes a role");
+    assert.deepEqual(state.day.nominations, [], "there is no invented nomination or voter list");
+    assert.equal(state.day.activeNominationId, null);
+    assert.equal(state.day.execution, null);
+    assert.deepEqual(state.deaths, deaths);
+    assert.deepEqual(state.executions, executions);
+    assert.equal(state.winner, null);
+  }
+  const log = clone(state.log);
+  const repeat = outcome(
+    applyCommand(state, {
+      id: "manual-total-repeat",
+      type: "setVoteCount",
+      payload: { playerId: "2", count: 7 },
+    }),
+  );
+  assert.equal(repeat.status, "allowed", JSON.stringify(repeat));
+  assert.deepEqual(repeat.events, []);
+  assert.deepEqual(state.log, log, "repeating the same total adds no duplicate log");
+});
+
+test("manual dead-vote markers can be spent and corrected without changing other players", () => {
+  const state = manualVotingGame();
+  const alive = clone(state.players["1"]);
+  for (const used of [false, true, false, true]) {
+    const result = applyCommand(state, {
+      id: "manual-token-" + state.journal.entries.length,
+      type: "setDeadVoteUsed",
+      payload: { playerId: "2", used },
+    });
+    assert.equal(result.status, "allowed", JSON.stringify(result));
+    assert.equal(state.players["2"].voteToken, !used);
+    assert.deepEqual(state.players["1"], alive);
+    assert.deepEqual(state.day.voteCounts, {}, "token-only bookkeeping marks an incomplete ledger");
+    assert.deepEqual(state.day.nominations, []);
+  }
+  const log = clone(state.log);
+  const repeat = outcome(
+    applyCommand(state, {
+      id: "manual-token-repeat",
+      type: "setDeadVoteUsed",
+      payload: { playerId: "2", used: true },
+    }),
+  );
+  assert.equal(repeat.status, "allowed", JSON.stringify(repeat));
+  assert.deepEqual(repeat.events, []);
+  assert.deepEqual(state.log, log);
+});
+
+test("manual dead-vote markers accept a Zombuul that registers as dead", () => {
+  const state = createGame(7);
+  state.script = badMoonRisingScript();
+  state.scriptId = "bmr";
+  const roles = ["exorcist", "courtier", "gambler", "gossip", "grandmother", "assassin", "zombuul"];
+  state.setup.roles = roles;
+  state.setup.bluffs = ["sailor", "chambermaid", "innkeeper"];
+  assert.equal(
+    dealGame(state, {
+      assignment: Object.fromEntries(roles.map((role, i) => [String(i + 1), role])),
+    }).ok,
+    true,
+  );
+  autoSecrets(state);
+  toDay(state);
+  kill(state, "7", "execution");
+  assert.equal(state.players["7"].alive, true);
+  assert.equal(state.players["7"].registeredDead, true);
+  const result = applyCommand(state, {
+    id: "manual-zombuul-token",
+    type: "setDeadVoteUsed",
+    payload: { playerId: "7", used: true },
+  });
+  assert.equal(result.status, "allowed", JSON.stringify(result));
+  assert.equal(state.players["7"].voteToken, false);
+  assert.equal(state.players["7"].alive, true);
+  assert.equal(state.winner, null);
+});
+
+test("manual voting rejects invalid values, players and unavailable days without mutation", () => {
+  const state = manualVotingGame();
+  const commands: Command[] = [
+    ...[-1, 1.5, 8, NaN, Infinity, "2", null].map((count, index) => ({
+      id: "invalid-total-" + index,
+      type: "setVoteCount",
+      payload: { playerId: "1", count },
+    })),
+    { id: "unknown-total", type: "setVoteCount", payload: { playerId: "missing", count: 2 } },
+    { id: "prototype-total", type: "setVoteCount", payload: { playerId: "toString", count: 2 } },
+    { id: "proto-total", type: "setVoteCount", payload: { playerId: "__proto__", count: 2 } },
+    { id: "living-token", type: "setDeadVoteUsed", payload: { playerId: "1", used: true } },
+    { id: "unknown-token", type: "setDeadVoteUsed", payload: { playerId: "missing", used: true } },
+    {
+      id: "prototype-token",
+      type: "setDeadVoteUsed",
+      payload: { playerId: "__proto__", used: true },
+    },
+    { id: "malformed-token", type: "setDeadVoteUsed", payload: { playerId: "2", used: "yes" } },
+  ];
+  for (const command of commands) {
+    const before = JSON.stringify(state);
+    assert.equal(applyCommand(state, command).status, "rejected", command.id);
+    assert.equal(JSON.stringify(state), before, command.id);
+  }
+  for (const unavailable of ["night", "ended", "winner"] as const) {
+    const blocked = clone(state);
+    if (unavailable === "night") blocked.phase = "night";
+    if (unavailable === "ended") blocked.day.ended = true;
+    if (unavailable === "winner")
+      blocked.winner = { team: "good", reason: "test", at: "2026-01-01T00:00:00.000Z" };
+    for (const command of [
+      { id: "blocked-total", type: "setVoteCount", payload: { playerId: "1", count: 2 } },
+      { id: "blocked-token", type: "setDeadVoteUsed", payload: { playerId: "2", used: true } },
+    ]) {
+      const before = JSON.stringify(blocked);
+      assert.equal(applyCommand(blocked, command).status, "rejected", unavailable);
+      assert.equal(JSON.stringify(blocked), before, unavailable);
+    }
+  }
+});
+
+test("manual voting preserves preview, events, import, replay and undo", () => {
+  const state = manualVotingGame();
+  const events: DomainEvent[] = [];
+  const snapshots: Array<Record<string, unknown>> = [];
+  const commands = [
+    { id: "manual-replay-total", type: "setVoteCount", payload: { playerId: "3", count: 5 } },
+    { id: "manual-replay-token", type: "setDeadVoteUsed", payload: { playerId: "2", used: true } },
+  ];
+  for (const command of commands) {
+    const pinned = { ...command, at: "2026-11-16T10:00:00.000Z" };
+    snapshots.push(canonicalState(state));
+    const before = JSON.stringify(state);
+    const preview = outcome(previewCommand(state, pinned));
+    assert.equal(preview.status, "allowed", JSON.stringify(preview));
+    assert.equal(JSON.stringify(state), before, "preview is read-only");
+    const applied = outcome(applyCommand(state, pinned));
+    assert.equal(applied.status, "allowed", JSON.stringify(applied));
+    assert.deepEqual(applied.events, preview.events);
+    events.push(...applied.events);
+    assert.equal(state.log.at(-1)!.at, pinned.at);
+    const appliedState = JSON.stringify(state);
+    assert.equal(applyCommand(state, pinned).status, "allowed");
+    assert.equal(JSON.stringify(state), appliedState, "the same command ID applies once");
+  }
+  assert.ok(events.some((event) => event.type === "votes.count_changed"));
+  assert.ok(events.some((event) => event.type === "player.vote_token_changed"));
+  const imported = importGame(exportGame(state));
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  assert.deepEqual(imported.state.day.voteCounts, { 3: 5 });
+  assert.equal(imported.state.players["2"].voteToken, false);
+  const replayed = outcome(replay(imported.state.journal));
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(replayed.events, events);
+  assert.equal(JSON.stringify(replayed.state), JSON.stringify(state));
+  const undone = outcome(
+    replay({ base: state.journal.base, entries: state.journal.entries.slice(0, -1) }),
+  );
+  assert.equal(undone.ok, true, JSON.stringify(undone));
+  assert.deepEqual(canonicalState(undone.state), snapshots.at(-1));
+});
+
+test("manual vote totals clear each day while the spent dead vote persists", () => {
+  const state = manualVotingGame();
+  for (const command of [
+    { id: "manual-day-total", type: "setVoteCount", payload: { playerId: "3", count: 5 } },
+    { id: "manual-day-token", type: "setDeadVoteUsed", payload: { playerId: "2", used: true } },
+    { id: "manual-day-end", type: "endDay" },
+  ]) {
+    const result = applyCommand(state, command);
+    assert.equal(result.status, "allowed", JSON.stringify(result));
+  }
+  assert.deepEqual(state.lastDay?.voteCounts, { 3: 5 });
+  assert.equal(state.day.voteCounts, undefined);
+  while (state.night.queue.some((step) => !step.done && !step.skipped)) {
+    const step = state.night.queue.find((candidate) => !candidate.done && !candidate.skipped)!;
+    assert.equal(skipStep(state, step.key, "manual voting fixture").ok, true);
+  }
+  assert.equal(endNight(state).ok, true);
+  assert.equal(state.day.voteCounts, undefined);
+  assert.equal(state.players["2"].voteToken, false);
+});
 
 test("a corpse execution previews without mutation and applies once through commands", () => {
   const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" });
@@ -356,6 +569,11 @@ test("a legacy state without an action ledger accepts a command", () => {
   assert.equal(result.status, "allowed", JSON.stringify(result));
   assert.equal(state.applied["legacy-1"].type, "startNight");
   assert.deepEqual(validateState(state), []);
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(validateState(replayed.state), []);
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
 });
 
 test("setup commands validate order, herring and bag patches", () => {

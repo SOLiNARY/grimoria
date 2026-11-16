@@ -672,3 +672,44 @@ test("a corrupt save is backed up, left in place and reported with an explicit e
   assert.equal(game.getSnapshot().state.v, 4);
   assert.deepEqual(validateState(game.getSnapshot().state), []);
 });
+
+const malformedSaves: { name: string; patch: Record<string, unknown> }[] = [
+  { name: "a malformed effect collection", patch: { effects: {} } },
+  { name: "an invalid journal base", patch: { journal: { base: {}, entries: [] } } },
+];
+
+for (const { name, patch } of malformedSaves) {
+  test(`importing ${name} leaves the current game and disk unchanged`, () => {
+    const { game, storage } = store();
+    game.dispatch(orderCommand(game, [...game.state.order].reverse()));
+    const before = JSON.stringify(game.state);
+    const disk = storage.readRaw();
+    const writes = storage.writes;
+    const imported = JSON.stringify({ ...createGame(7), ...patch });
+
+    assert.equal(game.importGame(imported).ok, false);
+    assert.equal(JSON.stringify(game.state), before);
+    assert.equal(storage.readRaw(), disk);
+    assert.equal(storage.writes, writes);
+  });
+
+  test(`loading ${name} backs up the save and keeps recovery undo usable`, () => {
+    const corrupt = JSON.stringify({ ...createGame(7), ...patch });
+    const storage = memoryStorage(corrupt);
+    const { game } = store(storage);
+
+    assert.equal(game.loadStatus.ok, false);
+    assert.equal(storage.backupText, corrupt);
+    assert.equal(storage.readRaw(), corrupt);
+    assert.equal(storage.writes, 0);
+    assert.deepEqual(validateState(game.state), []);
+
+    const originalOrder = game.state.order.slice();
+    assert.equal(game.dispatch(orderCommand(game, [...originalOrder].reverse())).status, "allowed");
+    assert.equal(game.undo().ok, true);
+    assert.deepEqual(game.state.order, originalOrder);
+    assert.deepEqual(validateState(game.state), []);
+    assert.deepEqual(validateState(JSON.parse(storage.readRaw()!)), []);
+    assert.equal(storage.backupText, corrupt, "recovery keeps the original backup");
+  });
+}
