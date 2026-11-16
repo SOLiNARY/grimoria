@@ -6,7 +6,7 @@
 - [x] Fix the default without changing stored choices or historical replay.
 - [x] Verify overrides, replay, privacy and phone UI.
 - [x] Run the repository verification and strict OpenSpec checks.
-- [ ] Open the PR and report its CI result without merging.
+- [x] Open the PR for owner review without merging.
 
 ## Evidence
 
@@ -18,8 +18,8 @@
 - RED: `PG_BROWSER_CHECK=lunatic-setup node scripts/browser-check.ts` failed
   with zero displayed bluffs instead of the three Demon choices. Separate
   runs reproduced unwanted materialized overrides on legacy setup undo and
-  saved-bag loading. Logs: `/private/tmp/grimoria-lunatic-browser-red.log`,
-  `/private/tmp/grimoria-lunatic-browser-legacy-red.log`,
+  saved-bag loading. The initial failure is recorded in the tool output;
+  legacy-case logs: `/private/tmp/grimoria-lunatic-browser-legacy-red.log`,
   `/private/tmp/grimoria-lunatic-browser-legacy-bag-red.log`.
 - RED: the authentic `35b34c9` journal fixture exposed changed persisted
   queue notes and completed-step information under unversioned replay.
@@ -49,3 +49,5 @@
 - Review: versioned both queue construction and BMR completion information,
   preserved old command versions, and kept unchosen legacy UI lists empty.
   No dependency, stored field, schema version or rule pin changed.
+- Delivery: [PR #257](https://github.com/hose1021/grimoria/pull/257) is open;
+  CI is being monitored separately. No merge has been performed.
