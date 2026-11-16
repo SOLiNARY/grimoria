@@ -58,8 +58,8 @@ slice, which keeps the migration reviewable role by role.
 
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
-Poisoner, the Monk and the Butler have moved. `src/core/roles/night-step.ts`
-is the one lookup the queue builders and the step completion use; it reads the
+Poisoner, the Monk, the Butler and the Imp have moved.
+`src/core/roles/night-step.ts` is the one lookup the queue builders and the step completion use; it reads the
 capability or the legacy `nightStep`, `firstNightStep` and `ability` fields,
 and a module declares one form only. `docs/role-ownership.md` lists which
 roles have moved.
@@ -68,6 +68,15 @@ A resolver that reports a `suppressed` ability may still return the choice
 that was made. The coordinator keeps a dated effect from that path as a record
 that never applies, so a drunk or poisoned Butler's master stays in the
 grimoire and binds no vote.
+
+A Demon's kill is the `attack` decision: the role names the chosen player and
+the title of the attack's log line, nothing else. The coordinator runs it
+through `resolveAttack` with the acting seat as the attacker and the host's
+answer as the Mayor's redirect, and tells the step completion what is still
+owed: the shared step record, the redirect question with nothing written, or
+the attack's own record, which `finishAttackStep` in `night.ts` writes. The
+attack path, not the role, stops a drunk or poisoned attacker, so the table's
+redirect prompt and the kill read one fact.
 
 [ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
 capability for each step kind, one coordinator order (attack, protection and
