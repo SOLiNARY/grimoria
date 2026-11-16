@@ -559,6 +559,16 @@ decision of the table above, so a role never chooses a decision by reading
 engine copy of the count is removed. The remaining information roles keep
 their branches until their own pull requests.
 
+`openspec/changes/tb-fortuneteller-information` continues with the Fortune
+Teller. The information context gains two facts with the role that first
+reads them: whether a player registers as a Demon to this ability, and who
+the red herring is. The role holds the one sentence of its rule (yes when
+either chosen player is the red herring or registers as a Demon); the engine
+still decides who registers, from the host's registrations the role never
+sees. `fortuneTellerYes` stays exported as a query that resolves the module's
+capability, so the rule has one owner. `setup.ts` still names the role where
+the red herring is validated and chosen; that is setup and not a night step.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 

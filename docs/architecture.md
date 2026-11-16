@@ -58,7 +58,8 @@ slice, which keeps the migration reviewable role by role.
 
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
-Poisoner, the Monk, the Butler, the Imp and the Empath have moved.
+Poisoner, the Monk, the Butler, the Imp, the Empath and the Fortune Teller
+have moved.
 `src/core/roles/night-step.ts` is the one lookup the queue builders and the step completion use; it reads the
 capability or the legacy `nightStep`, `firstNightStep` and `ability` fields,
 and a module declares one form only. `docs/role-ownership.md` lists which
@@ -84,8 +85,12 @@ every value that answer can take. It returns the same answer whether or not
 its owner is drunk or poisoned. `moduleInfoForStep` in `information.ts` shows
 a working ability the role's value; for an impaired owner it asks the host and
 offers the possible values, the true one among them. Impairment, the question
-and the check of the host's answer stay in the engine. The Empath is the first
-role on this path; the other information roles keep their branches in
+and the check of the host's answer stay in the engine. The role reads the
+game only through the facts of the information context: the living
+neighbours, the team a player registers as, whether a player registers as a
+Demon and who the red herring is. The engine applies the host's registrations
+behind those facts, so a role never sees them. The Empath and the Fortune
+Teller are on this path; the other information roles keep their branches in
 `infoForStep` until their own slice.
 
 [ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
