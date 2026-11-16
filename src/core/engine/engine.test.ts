@@ -30,6 +30,7 @@ import {
 } from "../model/state.ts";
 import {
   autoSecrets,
+  butlerMaster,
   cancelNomination,
   checkWin,
   completeStep,
@@ -845,13 +846,252 @@ test("a Drunk shown the Monk takes the Monk step and protects no one (TB-DRUNK-0
   assert.equal(state.players["3"].alive, false);
 });
 
+const BUTLER_ROLES = {
+  1: "butler",
+  2: "chef",
+  3: "empath",
+  4: "monk",
+  5: "soldier",
+  6: "virgin",
+  7: "poisoner",
+  8: "imp",
+};
+
+test("a healthy Butler's choice records the master, one dated effect, its note and one secret log line (TB-BUTLER-01)", () => {
+  const state = make(BUTLER_ROLES);
+  startNight(state);
+  const step = roleStep(state, "butler");
+  const queued = state.night.queue.map((candidate) => candidate.key);
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["2"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(state.players["1"].butlerMasterId, "2", "the master is recorded on the Butler");
+  assert.deepEqual(plain(state.effects), [
+    {
+      id: "eff-1-k100",
+      kind: "butler",
+      sourceId: "1",
+      targetId: "2",
+      start: { phase: "night", number: 1 },
+      expires: { phase: "night", number: 2 },
+      active: true,
+    },
+  ]);
+  assert.deepEqual(plain(step), {
+    key: step.key,
+    kind: "role",
+    roleId: "butler",
+    actorId: "1",
+    actorName: "P1",
+    actorAlive: true,
+    order: step.order,
+    targetMode: "one-other",
+    infoKind: "none",
+    targetIds: ["2"],
+    redirectId: null,
+    registrations: {},
+    given: null,
+    result: null,
+    note: "Завтра голосует только вместе с: P2.",
+    pending: null,
+    done: true,
+    skipped: false,
+    completedAt: "2030-01-01T00:00:01.000Z",
+    noteKey: "note.butlerMaster",
+    noteVars: { name: "P2" },
+    impaired: false,
+  });
+  assert.deepEqual(plain(state.log.slice(logged)), [
+    {
+      id: "log-" + (logged + 1) + "-k2000",
+      at: "2030-01-01T00:00:02.000Z",
+      phase: "Ночь 1",
+      kind: "night",
+      title: "Дворецкий",
+      detail: "Завтра голосует только вместе с: P2.",
+      playerId: null,
+      secret: true,
+      roleId: "butler",
+      phaseCode: "night",
+      phaseNumber: 1,
+      noteKey: "note.butlerMaster",
+      noteVars: { name: "P2" },
+    },
+  ]);
+  assert.deepEqual(
+    draws,
+    ["id:4", "clock", "id:5", "clock"],
+    "the effect id is drawn before the step time and the log line",
+  );
+  assert.deepEqual(
+    state.night.queue.map((candidate) => candidate.key),
+    queued,
+    "the choice adds no step",
+  );
+  assert.equal(state.winner, null);
+  assert.equal(butlerMaster(state, "1", { phase: "day", number: 1 }), "2");
+});
+
+test("a new Butler choice names the new master and leaves the earlier record to expire (TB-BUTLER-01)", () => {
+  const state = make(BUTLER_ROLES);
+  startNight(state);
+  completeRole(state, "butler", { targetIds: ["2"] });
+  nextNight(state);
+  const earlier = plain(state.effects[0]);
+  const { ports } = recordingPorts();
+
+  const result = completeStep(state, roleStep(state, "butler").key, { targetIds: ["3"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(state.players["1"].butlerMasterId, "3");
+  assert.equal(state.effects.length, 2);
+  assert.deepEqual(plain(state.effects[0]), earlier, "the earlier record is not rewritten");
+  assert.equal(earlier.active, true);
+  assert.deepEqual(plain(state.effects[1]), {
+    id: "eff-2-k100",
+    kind: "butler",
+    sourceId: "1",
+    targetId: "3",
+    start: { phase: "night", number: 2 },
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  assert.equal(
+    butlerMaster(state, "1", { phase: "day", number: 2 }),
+    "3",
+    "only the choice of the last night binds the next day",
+  );
+});
+
+test("an impaired Butler's choice is recorded with an effect that never applies (TB-BUTLER-01)", () => {
+  const state = make(BUTLER_ROLES);
+  startNight(state);
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const step = roleStep(state, "butler");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["2"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(state.players["1"].butlerMasterId, "2", "the choice itself is still recorded");
+  assert.equal(state.effects.length, 2);
+  assert.deepEqual(plain(state.effects[1]), {
+    id: "eff-2-k100",
+    kind: "butler",
+    sourceId: "1",
+    targetId: "2",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "night", number: 2 },
+    active: false,
+  });
+  assert.equal(step.noteKey, "note.abilityFailed");
+  assert.equal(step.noteVars, null);
+  assert.equal(step.note, "Способность не сработала: игрок отравлен или пьян.");
+  assert.equal(step.impaired, true);
+  assert.equal(step.result, null);
+  assert.deepEqual(step.targetIds, ["2"]);
+  assert.equal(state.log.length, logged + 1);
+  assert.equal(state.log.at(-1)!.noteKey, "note.abilityFailed");
+  assert.deepEqual(
+    draws,
+    ["id:4", "clock", "id:5", "clock"],
+    "the record draws its id like a working choice",
+  );
+  assert.equal(butlerMaster(state, "1", { phase: "day", number: 1 }), null);
+});
+
+test("a choice the Butler made while impaired does not bind them once they are healthy (TB-BUTLER-01)", () => {
+  const state = make(BUTLER_ROLES);
+  startNight(state);
+  // A poison that ends at dawn: the Butler is impaired for the choice only.
+  state.effects.push({ ...testPoison("8", "1", 1), expires: { phase: "day", number: 1 } });
+  assert.equal(isImpaired(state, "1"), true);
+  completeRole(state, "butler", { targetIds: ["2"] });
+  skipNight(state);
+
+  assert.equal(isImpaired(state, "1"), false, "the Butler is healthy during the day");
+  assert.equal(butlerMaster(state, "1"), null, "a wasted choice has no effect later");
+  openNominations(state);
+  const nomination = appoint(state, "1", "2", ["1"]);
+  assert.deepEqual(nomination.votes, ["1"]);
+  assert.equal(nomination.butlerWarning.length, 0);
+});
+
+test("the Butler cannot choose themself (TB-BUTLER-01)", () => {
+  const state = make(BUTLER_ROLES);
+  startNight(state);
+  const step = roleStep(state, "butler");
+
+  const self = completeStep(state, step.key, { targetIds: ["1"] });
+
+  assert.equal(self.ok, false);
+  assert.equal("errorCode" in self ? self.errorCode : null, "error.40");
+  assert.equal(state.players["1"].butlerMasterId, null);
+  assert.deepEqual(state.effects, []);
+  assert.equal(step.done, false);
+});
+
+test("the Butler choice reports the new master and the effect as command events (TB-BUTLER-01)", () => {
+  const state = make(BUTLER_ROLES);
+  startNight(state);
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const step = roleStep(state, "butler");
+
+  const applied = applyCommand(
+    state,
+    {
+      id: "butler-master",
+      type: "completeNightStep",
+      payload: { key: step.key, targetIds: ["2"] },
+      at: "2030-01-01T00:00:00.000Z",
+    },
+    runtime,
+  );
+
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+  const events = "events" in applied ? (applied.events ?? []) : [];
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["player.butler_master_changed", "effect.added", "step.completed", "step.updated"],
+  );
+  assert.deepEqual(events[0]!.payload, { playerId: "1", masterId: "2" });
+  assert.deepEqual(events[1]!.payload, { effect: plain(state.effects[0]) });
+  assert.equal(state.effects[0]!.kind, "butler");
+});
+
 for (const scenario of [
-  { name: "Poisoner", roleId: "poisoner", effect: "poison", rule: "TB-POISONER-01", targetId: "3" },
-  { name: "Monk", roleId: "monk", effect: "protected", rule: "TB-MONK-01", targetId: "4" },
+  {
+    name: "Poisoner",
+    roleId: "poisoner",
+    effect: "poison",
+    rule: "TB-POISONER-01",
+    targetId: "3",
+    roles: NIGHT_ROLES,
+  },
+  {
+    name: "Monk",
+    roleId: "monk",
+    effect: "protected",
+    rule: "TB-MONK-01",
+    targetId: "4",
+    roles: NIGHT_ROLES,
+  },
+  {
+    name: "Butler",
+    roleId: "butler",
+    effect: "butler",
+    rule: "TB-BUTLER-01",
+    targetId: "2",
+    roles: BUTLER_ROLES,
+  },
 ] as const) {
   test(`the ${scenario.name} choice previews, applies and replays with the command clock and ids (${scenario.rule})`, () => {
     const build = (): GameState => {
-      const state = make(NIGHT_ROLES);
+      const state = make(scenario.roles);
       toDay(state);
       assert.equal(endDay(state).ok, true);
       return state;
