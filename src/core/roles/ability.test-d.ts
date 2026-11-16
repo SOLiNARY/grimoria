@@ -35,6 +35,26 @@ export const forgedTimedEffect: RoleEffect = {
   id: "eff-1-abcd",
 };
 
+// The master record belongs to the acting seat: a role cannot write it on
+// another player.
+export const foreignMaster: RoleEffect = {
+  kind: "record-master",
+  playerId: "2",
+  // @ts-expect-error -- a role cannot name the seat the record is written on
+  actorId: "3",
+};
+
+// A role cannot switch a dated effect off or on: the engine derives that from
+// the decision, so a suppressed ability never leaves a working effect.
+export const selfActivatedEffect: RoleEffect = {
+  kind: "timed-effect",
+  effect: "butler",
+  playerId: "2",
+  expires: { phase: "night", number: 2 },
+  // @ts-expect-error -- a role cannot choose whether the effect applies
+  active: true,
+};
+
 // A night-step resolver reads the same facts as every ability: no game state.
 type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
 type NightStepFacts = Parameters<NonNullable<NightStepArm["resolve"]>>[0];

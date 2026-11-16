@@ -85,7 +85,6 @@ import {
 } from "../model/state.ts";
 
 import { nightAt, addLog, insertStepInto, setStepNote } from "./context.ts";
-import { idSuffix } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
 import { applyRoleAbility } from "./ability.ts";
@@ -623,36 +622,6 @@ export function completeStep(
     // A migrated role never falls through to the branches below, so a missing
     // resolution is a visible test failure instead of a silent fallback.
     applyRoleAbility(state, module, step, targets, at, null, ports);
-    return finishStep(state, step, options, targets, at, ports);
-  }
-
-  if (role === "butler") {
-    const impaired = isImpaired(state, actor.id, at);
-    actor.butlerMasterId = targets[0]!;
-    state.effects.push({
-      id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-      kind: "butler",
-      sourceId: actor.id,
-      targetId: targets[0]!,
-      start: at,
-      expires: { phase: "night", number: at.number + 1 },
-      active: !impaired,
-    });
-    if (impaired) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-    } else {
-      setStepNote(
-        step,
-        "note.butlerMaster",
-        { name: seatName(state, targets[0]!) },
-        "Завтра голосует только вместе с: " + seatName(state, targets[0]!) + ".",
-      );
-    }
     return finishStep(state, step, options, targets, at, ports);
   }
 

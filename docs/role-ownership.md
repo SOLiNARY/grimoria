@@ -19,8 +19,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | Owner | Roles |
 | --- | --- |
 | Typed capability only | 3 |
-| Typed capability with an engine reference | 9 |
-| Engine branch | 59 |
+| Typed capability with an engine reference | 10 |
+| Engine branch | 58 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -33,7 +33,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `assassin` | bmr | nightStep | bmr.ts×5 | BMR-ASSASSIN-01 (verified, r1786)<br>BMR-ASSASSIN-02 (verified, r1786) | engine branch |
 | `barber` | snv | nightStep, deathStep | sv.ts×4 | SNV-BARBER-01 (verified, r1757)<br>SNV-BARBER-02 (verified, r1757)<br>SNV-BARBER-03 (verified, r1757)<br>SNV-BARBER-04 (verified, r1757) | engine branch |
 | `baron` | tb | — | — | TB-BARON-01 (verified, r2961) | declarative (shared mechanic) |
-| `butler` | tb | nightStep | effects.ts×2, night.ts×2, day.ts×1 | TB-BUTLER-01 (verified, r3120) | engine branch |
+| `butler` | tb | capability:night-step | effects.ts×2, day.ts×1 | TB-BUTLER-01 (verified, r3120) | capability + engine reference |
 | `cerenovus` | snv | nightStep | effects.ts×1, day.ts×1, sv.ts×4 | SNV-CERENOVUS-01 (host-choice, r3048) | engine branch |
 | `chambermaid` | bmr | nightStep | night.ts×1, bmr.ts×2 | BMR-CHAMBERMAID-01 (verified, r2966)<br>BMR-CHAMBERMAID-02 (verified, r2966)<br>BMR-CHAMBERMAID-03 (verified, r2966)<br>BMR-CHAMBERMAID-04 (host-choice, r2966)<br>BMR-CHAMBERMAID-05 (verified, r2966) | engine branch |
 | `chef` | tb | nightStep | night.ts×1, information.ts×1 | TB-CHEF-01 (verified, r2510)<br>TB-CHEF-02 (host-choice, r2510) | engine branch |

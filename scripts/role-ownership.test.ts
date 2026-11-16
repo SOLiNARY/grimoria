@@ -30,9 +30,9 @@ test("the owner classifier separates a capability from an engine branch", () => 
   const imp = facts.find((module) => module.id === "imp");
   assert.ok(imp);
   assert.equal(ownerOf(imp, engineLocations("imp")), "capability + engine reference");
-  const branch = facts.find((module) => module.id === "butler");
+  const branch = facts.find((module) => module.id === "soldier");
   assert.ok(branch);
-  assert.equal(ownerOf(branch, engineLocations("butler")), "engine branch");
+  assert.equal(ownerOf(branch, engineLocations("soldier")), "engine branch");
   assert.equal(ownerOf(undefined, []), "missing module");
 });
 
@@ -45,6 +45,16 @@ test("a migrated night step is owned by its module with no engine reference", ()
     assert.deepEqual(engineLocations(id), [], id + " is still named by a coordinator");
     assert.equal(ownerOf(module, engineLocations(id)), "capability");
   }
+});
+
+test("a migrated night step keeps the references of the shared mechanic that reads its effect", () => {
+  const butler = roleModules().find((candidate) => candidate.id === "butler");
+  assert.ok(butler);
+  assert.deepEqual(butler.declares, ["capability:night-step"]);
+  // The vote check and the effect lookup still name the role; the night
+  // completion does not.
+  assert.deepEqual(engineLocations("butler"), ["effects.ts×2", "day.ts×1"]);
+  assert.equal(ownerOf(butler, engineLocations("butler")), "capability + engine reference");
 });
 
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
