@@ -61,6 +61,8 @@
       pass; the night console is checked at 390 px with a real game.
 - [x] 6.6 `node scripts/openspec-check.ts` and
       `openspec validate --changes --strict` / `--specs --strict` pass.
+- [x] 6.7 Merge main `98b0c17` (Lunatic default bluffs) and repeat 6.2 to
+      6.6 on the merged tree.
 
 ## Evidence
 
@@ -74,18 +76,22 @@
 - GREEN: the nine characterization tests in `src/core/engine/engine.test.ts`
   passed on the untouched branches (767 tests, base 758 plus 9) and pass
   unchanged after the move.
-- GREEN: `npm test` reports 788 tests, 788 passed, 0 failed.
+- GREEN: `npm test` reports 788 tests, 788 passed, 0 failed. After the merge
+  of main `98b0c17` it reports 791 tests, 791 passed: the three new tests come
+  from the merged Lunatic fix.
 - GREEN: the seeded driver reported the same digest for 600 games on base
   `48724a2` and on this change. The games completed 8,105 night steps, 280 of
   them Poisoner and 192 Monk, and all 600 journals replayed to the same state.
+  The run was repeated after the merge, main `98b0c17` against the merged
+  tree: the digests are equal again.
 - GREEN: mutation checks show the proof reads the right facts. Taking the
   effect id from the system ports changed the digest, broke 39 of 180 replays
   and failed 6 characterization tests; a wrong poison expiry failed 5 tests;
   dropping the replacement changed the digest. Each mutation was reverted.
-- GREEN: `npm run verify` on Node 24 exited 0: typecheck, oxlint, format
-  check, 788 tests, build, fallback, offline, source policy, official
-  provenance (82 entries), acceptance (72 matrix roles) and the ownership
-  ledger.
+- GREEN: `npm run verify` on Node 24 exited 0 before and after the merge of
+  main: typecheck, oxlint, format check, the unit tests, build, fallback,
+  offline, source policy, official provenance (82 entries), acceptance (72
+  matrix roles) and the ownership ledger.
 - GREEN: `node --test scripts/*.test.ts` reports 109 passed.
 - GREEN: `node scripts/browser-check.ts` passed and
   `node scripts/run-scenarios.ts` reported 10/10 scenarios, including
