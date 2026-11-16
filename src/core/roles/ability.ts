@@ -1,4 +1,5 @@
 import type { Alignment, DeadAt, Death, RoleId } from "../model/types.ts";
+import type { NightStepSpec } from "./types.ts";
 
 /** One pending delayed death the actor's ability currently owns. */
 export interface PendingDeathFact {
@@ -31,7 +32,12 @@ export interface AbilityContext {
   actualRoleOf(playerId: string): RoleId | null;
   /** False when the id names no seat. */
   hasPlayer(playerId: string): boolean;
+  /** The seat's name, for a rule note. */
+  nameOf(playerId: string): string;
 }
+
+/** The effect kinds a dated intent may add. A kind arrives with its first migrated role. */
+export type TimedEffectKind = "poison" | "protected";
 
 /** An intent the engine applies through a shared mechanic. */
 export type RoleEffect =
@@ -61,7 +67,20 @@ export type RoleEffect =
   /** Release this ability's poisons except the named player. */
   | { readonly kind: "release-poisons"; readonly keepPlayerId?: string }
   /** Resolve one pending death now, through the shared death path. */
-  | { readonly kind: "resolve-death"; readonly pendingId: string };
+  | { readonly kind: "resolve-death"; readonly pendingId: string }
+  /**
+   * A dated effect of the acting ability on one player. The engine mints the
+   * id and stamps the source and the start. `replacesPrevious` first ends the
+   * effects of the same kind this ability already holds.
+   */
+  | {
+      readonly kind: "timed-effect";
+      readonly effect: TimedEffectKind;
+      readonly playerId: string;
+      /** The first moment the effect no longer applies. */
+      readonly expires: DeadAt;
+      readonly replacesPrevious?: boolean;
+    };
 
 export interface AbilityNote {
   readonly key: string;
@@ -234,8 +253,23 @@ export type ExecutionDecision =
 /** Host-choice cases a role may own. */
 export type AdjudicationCase = "registration";
 
+/**
+ * The nights a night-step declaration covers. "any" is one shape for every
+ * night the role wakes; "first" and "other" split a role whose first night
+ * differs, and "other" alone is a role that does not act on the first night.
+ */
+export type NightTiming = "first" | "other" | "any";
+
 /** The step-kind arms. An arm is added with its first migrated role. */
 export type RoleCapability =
+  | {
+      readonly kind: "night-step";
+      readonly timing: NightTiming;
+      /** The step the night queue builds for the role. */
+      readonly step: NightStepSpec;
+      /** Resolves the completed step. Absent means the engine keeps its own path. */
+      readonly resolve?: (context: AbilityContext) => AbilityDecision;
+    }
   | {
       readonly kind: "death-trigger";
       readonly onDeath?: (context: DeathContext) => DeathDecision;

@@ -88,6 +88,7 @@ import { nightAt, addLog, insertStepInto, setStepNote } from "./context.ts";
 import { idSuffix } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
+import { applyRoleAbility } from "./ability.ts";
 import { isImpaired } from "./effects.ts";
 
 import { infoForStep } from "./information.ts";
@@ -101,6 +102,7 @@ import {
 } from "./bmr.ts";
 import { appendSvConditionalSteps, buildSvNightQueue, completeSvStep } from "./sv.ts";
 import { minionRetainsAbility } from "./retention.ts";
+import { nightResolverFor, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 
 // Steps kept when their owner dies: the dead actor may still complete them.
@@ -174,7 +176,7 @@ export function makeRoleStep(
     actorName: actor ? actor.name : "",
     actorAlive: actor ? actor.alive : false,
     order: sequenceIndex,
-    targetMode: roleModule(roleId)?.nightStep?.target ?? "none",
+    targetMode: nightStepFor(roleModule(roleId), nightAt(state).number)?.target ?? "none",
     infoKind: infoKindFor(roleId),
     targetIds: [],
     redirectId: null,
@@ -273,7 +275,7 @@ export function buildNightQueue(state: GameState): NightStep[] {
       return;
     }
 
-    const spec = roleModule(roleId)?.nightStep;
+    const spec = nightStepFor(roleModule(roleId), night);
     if (!spec) return;
     const actor = spec.actor
       ? spec.actor(state, night)
@@ -613,65 +615,11 @@ export function completeStep(
 
   const role = step.roleId;
 
-  if (role === "poisoner") {
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-    } else {
-      state.effects.forEach((effect) => {
-        if (effect.kind === "poison" && effect.sourceId === actor.id) effect.active = false;
-      });
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "poison",
-        sourceId: actor.id,
-        targetId: targets[0]!,
-        start: at,
-        expires: { phase: "night", number: at.number + 1 },
-        active: true,
-      });
-      setStepNote(
-        step,
-        "note.poisoned",
-        { name: seatName(state, targets[0]!) },
-        "Отравлен: " + seatName(state, targets[0]!) + ".",
-      );
-    }
-    return finishStep(state, step, options, targets, at, ports);
-  }
-
-  if (role === "monk") {
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-    } else {
-      state.effects.forEach((effect) => {
-        if (effect.kind === "protected" && effect.sourceId === actor.id) effect.active = false;
-      });
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "protected",
-        sourceId: actor.id,
-        targetId: targets[0]!,
-        start: at,
-        expires: { phase: "day", number: at.number },
-        active: true,
-      });
-      setStepNote(
-        step,
-        "note.protected",
-        { name: seatName(state, targets[0]!) },
-        "Защищён этой ночью: " + seatName(state, targets[0]!) + ".",
-      );
-    }
+  const module = role ? roleModule(role) : null;
+  if (module && nightResolverFor(module, at.number)) {
+    // A migrated role never falls through to the branches below, so a missing
+    // resolution is a visible test failure instead of a silent fallback.
+    applyRoleAbility(state, module, step, targets, at, null, ports);
     return finishStep(state, step, options, targets, at, ports);
   }
 
