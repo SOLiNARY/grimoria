@@ -247,8 +247,23 @@ export interface InformationContext {
   hasPlayer(playerId: string): boolean;
 }
 
+/** One value an information answer can take. */
+export type InformationValue = boolean | number | string;
+
 export type InformationDecision =
-  | { readonly kind: "answer"; readonly value: boolean | number | string }
+  /**
+   * What the ability learns. The role gives the same decision whether or not
+   * its owner is drunk or poisoned, and does not read `impaired` for it: the
+   * engine decides who answers. A working ability shows `value`. For one that
+   * does not work the engine asks the host and offers `possible`, every value
+   * the answer can take, the true one included. The role cannot mark the
+   * answer as false, require the host or name the options of one step.
+   */
+  | {
+      readonly kind: "answer";
+      readonly value: InformationValue;
+      readonly possible?: readonly InformationValue[];
+    }
   | { readonly kind: "no-effect" };
 
 /** Read-only facts for an execution contribution. */

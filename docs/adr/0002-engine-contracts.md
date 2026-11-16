@@ -279,7 +279,11 @@ export type ExecutionDecision =
   | { readonly kind: "no-effect" };
 
 export type InformationDecision =
-  | { readonly kind: "answer"; readonly value: unknown }
+  | {
+      readonly kind: "answer";
+      readonly value: boolean | number | string;
+      readonly possible?: readonly (boolean | number | string)[];
+    }
   | { readonly kind: "options"; readonly options: readonly string[] }
   | { readonly kind: "host-choice"; readonly case: HostChoiceCase; readonly options: readonly string[]; readonly text?: string }
   | { readonly kind: "note"; readonly key: string; readonly text: string };
@@ -542,6 +546,18 @@ object. The Imp does not read `impaired`: the attack path stops an impaired
 attacker, as it did. The succession in `death.ts` and `becoming.ts` and the
 new Demon's wake in `appendConditionalSteps` still name the role; they are the
 shared succession and are not night steps.
+
+`openspec/changes/tb-empath-information` starts the Trouble Brewing
+information roles with the Empath. Its step moves to the `night-step` arm with
+the shape of its answer and no resolver, and the `answer` decision of the
+`information` arm gains `possible`: every value the answer can take. The role
+returns the same answer whether or not its owner is impaired; the engine shows
+a working ability the value and asks the host for an impaired owner, offering
+the possible values. `possible` is a field of the answer and not the `options`
+decision of the table above, so a role never chooses a decision by reading
+`impaired`. `information.ts` and `night.ts` no longer name the role, and the
+engine copy of the count is removed. The remaining information roles keep
+their branches until their own pull requests.
 
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.

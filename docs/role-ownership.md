@@ -18,8 +18,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 
 | Owner | Roles |
 | --- | --- |
-| Typed capability only | 3 |
-| Typed capability with an engine reference | 10 |
+| Typed capability only | 4 |
+| Typed capability with an engine reference | 9 |
 | Engine branch | 58 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
@@ -42,7 +42,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `devilsadvocate` | bmr | nightStep, firstNightStep | effects.ts×2, night.ts×1, bmr.ts×4 | BMR-DEVILSADVOCATE-01 (verified, r2594)<br>BMR-DEVILSADVOCATE-03 (verified, r2594)<br>BMR-DEVILSADVOCATE-02 (verified, r2594) | engine branch |
 | `dreamer` | snv | nightStep | night.ts×1, sv.ts×1 | SNV-DREAMER-01 (host-choice, r2904) | engine branch |
 | `drunk` | tb | — | model/state.ts×2, effects.ts×2, day.ts×1, setup.ts×2, information.ts×1, bmr.ts×6, sv.ts×2 | TB-DRUNK-01 (verified, r3165) | engine branch |
-| `empath` | tb | nightStep, capability:information | night.ts×1, information.ts×3 | TB-EMPATH-01 (verified, r1724)<br>TB-EMPATH-02 (host-choice, r1724)<br>TB-EMPATH-03 (host-choice, r1724) | capability + engine reference |
+| `empath` | tb | capability:night-step, capability:information | — | TB-EMPATH-01 (verified, r1724)<br>TB-EMPATH-02 (host-choice, r1724)<br>TB-EMPATH-03 (host-choice, r1724) | capability |
 | `eviltwin` | snv | firstNightStep | model/state.ts×1, death.ts×2, setup.ts×3, sv.ts×3, corrections.ts×1 | SNV-EVILTWIN-01 (verified, r3101)<br>SNV-EVILTWIN-02 (verified, r3101)<br>SNV-EVILTWIN-03 (host-choice, r3101)<br>SNV-EVILTWIN-04 (verified, r3101)<br>SNV-EVILTWIN-05 (host-choice, r3101) | engine branch |
 | `exorcist` | bmr | nightStep | bmr.ts×3 | BMR-EXORCIST-01 (verified, r2973)<br>BMR-EXORCIST-02 (verified, r2973) | engine branch |
 | `fanggu` | snv | nightStep | sv.ts×5 | SNV-FANGGU-01 (verified, r2974)<br>SNV-FANGGU-02 (verified, r2974)<br>SNV-FANGGU-03 (verified, r2974)<br>SNV-FANGGU-04 (verified, r2974) | engine branch |

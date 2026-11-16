@@ -102,7 +102,7 @@ import {
 } from "./bmr.ts";
 import { appendSvConditionalSteps, buildSvNightQueue, completeSvStep } from "./sv.ts";
 import { minionRetainsAbility } from "./retention.ts";
-import { nightResolverFor, nightStepFor } from "../roles/night-step.ts";
+import { informationOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 
 // Steps kept when their owner dies: the dead actor may still complete them.
@@ -145,6 +145,11 @@ export function targetBounds(step: NightStep): TargetBounds {
   return { min, max: step.bmr || step.sv ? step.maxTargets || 0 : min };
 }
 
+/**
+ * The shape of the answer of a role step that has not declared it. A migrated
+ * role declares the shape in its night step, and `makeRoleStep` reads that
+ * first.
+ */
 export function infoKindFor(roleId: RoleId | null): string {
   return (
     {
@@ -152,7 +157,6 @@ export function infoKindFor(roleId: RoleId | null): string {
       librarian: "one-of-two",
       investigator: "one-of-two",
       chef: "number",
-      empath: "number",
       fortuneteller: "yes-no",
       undertaker: "character",
       ravenkeeper: "character",
@@ -168,6 +172,7 @@ export function makeRoleStep(
   actor: Player | null,
   extra: Record<string, unknown> = {},
 ): NightStep {
+  const declared = nightStepFor(roleModule(roleId), nightAt(state).number);
   return {
     key: stepKey(state, sequenceIndex, roleId, actor ? actor.id : null),
     kind: "role",
@@ -176,8 +181,8 @@ export function makeRoleStep(
     actorName: actor ? actor.name : "",
     actorAlive: actor ? actor.alive : false,
     order: sequenceIndex,
-    targetMode: nightStepFor(roleModule(roleId), nightAt(state).number)?.target ?? "none",
-    infoKind: infoKindFor(roleId),
+    targetMode: declared?.target ?? "none",
+    infoKind: declared?.infoKind ?? infoKindFor(roleId),
     targetIds: [],
     redirectId: null,
     registrations: {},
@@ -662,9 +667,11 @@ export function completeStep(
     return finished;
   }
 
+  // A role that owns its answer is an information step by its declaration;
+  // the roles named here still get their answer from `infoForStep`.
   if (
+    informationOf(module) ||
     role === "chef" ||
-    role === "empath" ||
     role === "fortuneteller" ||
     role === "washerwoman" ||
     role === "librarian" ||

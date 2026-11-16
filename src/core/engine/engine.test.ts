@@ -74,6 +74,8 @@ import {
 } from "./index.ts";
 import type { InfoResult } from "./index.ts";
 import { applyRoleAbility } from "./ability.ts";
+import { moduleInfoForStep } from "./information.ts";
+import type { InformationContext, InformationDecision } from "../roles/ability.ts";
 import type { RoleModule } from "../roles/types.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import type { GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
@@ -1840,6 +1842,519 @@ test("an Imp attack on a working Mayor is a host choice on the command path and 
   const replayed = replay(state.journal, runtime);
   assert.equal(replayed.ok, true, JSON.stringify(replayed));
   assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
+
+// The Empath step before the capability move. These tests pin the records the
+// step leaves, so the move can be shown to change none of them.
+
+function empathNight(poisoned = false): GameState {
+  const state = make(NIGHT_ROLES);
+  assert.equal(startNight(state).ok, true);
+  if (poisoned) completeRole(state, "poisoner", { targetIds: ["3"] });
+  return state;
+}
+
+const EMPATH_STEP = {
+  key: "n1-7-empath-3",
+  kind: "role",
+  roleId: "empath",
+  actorId: "3",
+  actorName: "P3",
+  actorAlive: true,
+  order: 7,
+  targetMode: "none",
+  infoKind: "number",
+  targetIds: [],
+  redirectId: null,
+  registrations: {},
+  given: null,
+  result: null,
+  note: null,
+  pending: null,
+  done: false,
+  skipped: false,
+  completedAt: null,
+};
+
+const EMPATH_LINE = {
+  id: "log-3-k1000",
+  at: "2030-01-01T00:00:02.000Z",
+  phase: "Ночь 1",
+  kind: "night",
+  title: "Эмпат",
+  detail: "Шаг выполнен.",
+  playerId: null,
+  secret: true,
+  roleId: "empath",
+  phaseCode: "night",
+  phaseNumber: 1,
+  noteKey: "note.finished",
+  noteVars: null,
+};
+
+test("the Empath step is built with the number shape on every night (TB-EMPATH-01)", () => {
+  const state = empathNight();
+  assert.deepEqual(plain(roleStep(state, "empath")), EMPATH_STEP);
+
+  skipNight(state);
+  assert.equal(endDay(state).ok, true);
+  const later = roleStep(state, "empath");
+  assert.equal(later.key, "n2-5-empath-3", "the Empath wakes after the Demon on later nights");
+  assert.equal(later.targetMode, "none");
+  assert.equal(later.infoKind, "number");
+});
+
+test("the Empath step keeps the computed count as its record and writes one step line (TB-EMPATH-01)", () => {
+  const state = empathNight();
+  const step = roleStep(state, "empath");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  assert.deepEqual(infoForStep(state, step, {}), {
+    kind: "number",
+    value: 0,
+    impaired: false,
+    needsChoice: false,
+    options: [],
+  });
+  const result = completeStep(state, step.key, {}, ports);
+
+  assert.deepEqual(Object.keys(result), ["ok", "step"]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(plain(step), {
+    ...EMPATH_STEP,
+    given: { kind: "number", value: 0, impaired: false, needsChoice: false, options: [] },
+    note: "Шаг выполнен.",
+    done: true,
+    completedAt: "2030-01-01T00:00:01.000Z",
+    impaired: false,
+    noteKey: "note.finished",
+    noteVars: null,
+  });
+  assert.deepEqual(
+    Object.keys(step.given!),
+    ["kind", "value", "impaired", "needsChoice", "options"],
+    "saved games hold the answer in this key order",
+  );
+  assert.deepEqual(plain(state.log.slice(logged)), [EMPATH_LINE]);
+  assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+});
+
+test("a healthy Empath step stores what the host sends and journals no choice (TB-EMPATH-01)", () => {
+  const state = empathNight();
+  const step = roleStep(state, "empath");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(
+    state,
+    step.key,
+    { targetIds: ["1"], given: { kind: "number", value: 2 } },
+    ports,
+  );
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step.given), { kind: "number", value: 2 });
+  assert.deepEqual(step.targetIds, ["1"]);
+  assert.equal(step.impaired, false);
+  assert.deepEqual(plain(state.log.slice(logged)), [EMPATH_LINE]);
+  assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+});
+
+test("an impaired Empath waits for the host's number and changes nothing (TB-EMPATH-03)", () => {
+  const state = empathNight(true);
+  const step = roleStep(state, "empath");
+  const info = { kind: "number", value: 0, impaired: true, needsChoice: true, options: [0, 1, 2] };
+  const before = JSON.stringify(canonicalState(state));
+  const { ports, draws } = recordingPorts();
+
+  assert.deepEqual(infoForStep(state, step, {}), info);
+  assert.deepEqual(completeStep(state, step.key, {}, ports), {
+    ok: false,
+    needsChoice: true,
+    info,
+  });
+  const rejected = {
+    ok: false,
+    needsChoice: true,
+    info,
+    errorCode: "error.66",
+    error: "Выберите один из предложенных вариантов.",
+  };
+  assert.deepEqual(
+    completeStep(state, step.key, { given: { kind: "number", value: 3 } }, ports),
+    rejected,
+    "a number outside 0 to 2 is not offered",
+  );
+  assert.deepEqual(
+    completeStep(state, step.key, { given: { kind: "yes-no", value: true } }, ports),
+    rejected,
+    "an answer of another shape is not offered",
+  );
+  assert.equal(JSON.stringify(canonicalState(state)), before);
+  assert.deepEqual(plain(step), EMPATH_STEP);
+  assert.deepEqual(draws, []);
+});
+
+for (const answer of [2, 0]) {
+  test(`an impaired Empath records the host's ${answer} and journals it as false information (TB-EMPATH-03)`, () => {
+    const state = empathNight(true);
+    const step = roleStep(state, "empath");
+    const logged = state.log.length;
+    const { ports, draws } = recordingPorts();
+
+    const result = completeStep(
+      state,
+      step.key,
+      { given: { kind: "number", value: answer } },
+      ports,
+    );
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(plain(step), {
+      ...EMPATH_STEP,
+      given: { kind: "number", value: answer },
+      note: "Шаг выполнен.",
+      done: true,
+      completedAt: "2030-01-01T00:00:01.000Z",
+      impaired: true,
+      noteKey: "note.finished",
+      noteVars: null,
+    });
+    assert.deepEqual(plain(state.log.slice(logged)), [
+      { ...EMPATH_LINE, id: "log-4-k1000" },
+      {
+        id: "log-5-k2000",
+        at: "2030-01-01T00:00:03.000Z",
+        phase: "Ночь 1",
+        kind: "choice",
+        title:
+          "Способность даёт ложную информацию (Вортокс, отравление или опьянение): ведущий выбирает, что именно услышит игрок.",
+        detail: String(answer),
+        playerId: "3",
+        secret: true,
+        case: "false-information",
+      },
+    ]);
+    assert.deepEqual(draws, ["clock", "id:5", "clock", "id:5", "clock"]);
+  });
+}
+
+test("the Empath step journals the host's registration before the step line (TB-EMPATH-02)", () => {
+  const state = make(
+    {
+      1: "spy",
+      2: "empath",
+      3: "recluse",
+      4: "chef",
+      5: "monk",
+      6: "soldier",
+      7: "undertaker",
+      8: "saint",
+      9: "imp",
+    },
+    { count: 9 },
+  );
+  assert.equal(startNight(state).ok, true);
+  const step = roleStep(state, "empath");
+  const logged = state.log.length;
+  const registrations = { "1": "good", "3": "evil" };
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { registrations }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step.given), {
+    kind: "number",
+    value: 1,
+    impaired: false,
+    needsChoice: false,
+    options: [],
+  });
+  assert.deepEqual(step.registrations, registrations);
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => [line.kind, line.case ?? null, line.detail]),
+    [
+      ["choice", "registration", "P1 → good, P3 → evil"],
+      ["night", null, "Шаг выполнен."],
+    ],
+  );
+  assert.deepEqual(draws, ["id:5", "clock", "clock", "id:5", "clock"]);
+});
+
+test("a Drunk shown the Empath gets the same host question and record (TB-EMPATH-03, TB-DRUNK-01)", () => {
+  const state = make(
+    {
+      1: "monk",
+      2: "soldier",
+      3: "drunk",
+      4: "chef",
+      5: "mayor",
+      6: "virgin",
+      7: "poisoner",
+      8: "imp",
+    },
+    { count: 8, drunkShownId: "empath" },
+  );
+  assert.equal(startNight(state).ok, true);
+  const step = roleStep(state, "empath");
+  assert.equal(step.actorId, "3", "the Drunk takes the Empath's step");
+  const info = { kind: "number", value: 0, impaired: true, needsChoice: true, options: [0, 1, 2] };
+
+  assert.deepEqual(completeStep(state, step.key, {}), { ok: false, needsChoice: true, info });
+  const { ports, draws } = recordingPorts();
+  const result = completeStep(state, step.key, { given: { kind: "number", value: 1 } }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step.given), { kind: "number", value: 1 });
+  assert.equal(step.impaired, true);
+  assert.equal(state.log.at(-1)!.case, "false-information");
+  assert.deepEqual(draws, ["clock", "id:5", "clock", "id:5", "clock"]);
+});
+
+test("the Empath step previews, applies and replays with the command clock and ids (TB-EMPATH-01)", () => {
+  const state = empathNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const command = {
+    id: "empath-step",
+    type: "completeNightStep",
+    payload: { key: roleStep(state, "empath").key },
+    at: "2030-01-01T00:00:00.000Z",
+  };
+  const before = canonicalState(state);
+
+  const preview = previewCommand(state, command, runtime);
+  assert.equal(preview.status, "allowed", JSON.stringify(preview));
+  assert.deepEqual(canonicalState(state), before, "preview must not mutate");
+  const applied = applyCommand(state, command, runtime);
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+  assert.deepEqual(
+    "events" in preview ? preview.events : null,
+    "events" in applied ? applied.events : undefined,
+    "preview and apply derive the same events",
+  );
+  assert.deepEqual(
+    ("events" in applied ? (applied.events ?? []) : []).map((event) => event.type),
+    ["step.completed", "step.updated"],
+  );
+  const step = state.night.queue.find((candidate) => candidate.roleId === "empath")!;
+  assert.deepEqual(plain(step.given), {
+    kind: "number",
+    value: 0,
+    impaired: false,
+    needsChoice: false,
+    options: [],
+  });
+  assert.equal(step.completedAt, "2030-01-01T00:00:00.000Z", "the step uses the command clock");
+
+  const twin = empathNight();
+  assert.equal(applyCommand(twin, command, runtime).status, "allowed");
+  assert.deepEqual(twin.log.at(-1), state.log.at(-1), "the line id comes from the command stream");
+
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+
+  const saved = importGame(exportGame(state));
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  if (!saved.ok) return;
+  const reloaded = replay(saved.state.journal, runtime);
+  assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
+  assert.deepEqual(canonicalState(reloaded.state), canonicalState(state));
+});
+
+test("an impaired Empath is a host choice on the command path and the answer completes it (TB-EMPATH-03)", () => {
+  const state = empathNight(true);
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const key = roleStep(state, "empath").key;
+  const before = canonicalState(state);
+  const journaled = state.journal.entries.length;
+  const send = (id: string, given?: Record<string, unknown>) =>
+    applyCommand(
+      state,
+      {
+        id,
+        type: "completeNightStep",
+        payload: given ? { key, given } : { key },
+        at: "2030-01-01T00:00:00.000Z",
+      },
+      runtime,
+    );
+  const question = {
+    kind: "info",
+    options: [0, 1, 2],
+    context: { kind: "number", value: 0, impaired: true, needsChoice: true, options: [0, 1, 2] },
+  };
+
+  const asked = send("empath-asked");
+  assert.equal(asked.status, "requires-storyteller-choice", JSON.stringify(asked));
+  assert.deepEqual("choice" in asked ? asked.choice : null, question);
+  assert.equal("errorCode" in asked ? asked.errorCode : undefined, null);
+
+  const refused = send("empath-refused", { kind: "number", value: 5 });
+  assert.equal(refused.status, "requires-storyteller-choice", JSON.stringify(refused));
+  assert.deepEqual("choice" in refused ? refused.choice : null, question);
+  assert.equal("errorCode" in refused ? refused.errorCode : undefined, "error.66");
+  assert.deepEqual(canonicalState(state), before, "the question leaves the game as it was");
+  assert.equal(state.journal.entries.length, journaled, "and writes no journal entry");
+
+  const answered = send("empath-answered", { kind: "number", value: 2 });
+  assert.equal(answered.status, "allowed", JSON.stringify(answered));
+  const step = state.night.queue.find((candidate) => candidate.roleId === "empath")!;
+  assert.deepEqual(plain(step.given), { kind: "number", value: 2 });
+  assert.equal(step.impaired, true);
+  assert.equal(state.log.at(-1)!.case, "false-information");
+  assert.equal(state.journal.entries.length, journaled + 1);
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
+
+// A module that owns a yes or no answer and records what it was shown. The
+// tests below use it, so they do not depend on the Empath's count.
+function answering(decision: InformationDecision, seen: InformationContext[] = []): RoleModule {
+  return {
+    id: "empath",
+    edition: "tb",
+    capabilities: [
+      { kind: "night-step", timing: "any", step: { target: "two", infoKind: "yes-no" } },
+      {
+        kind: "information",
+        infoKind: "probe",
+        resolve(context) {
+          seen.push(context);
+          return decision;
+        },
+      },
+    ],
+  };
+}
+
+test("a role module's answer reaches the host as is while its owner's ability works", () => {
+  const state = empathNight();
+  const before = canonicalState(state);
+  const module = answering({ kind: "answer", value: true, possible: [true, false] });
+
+  const info = moduleInfoForStep(state, module, roleStep(state, "empath"));
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: true,
+    impaired: false,
+    needsChoice: false,
+    options: [],
+  });
+  assert.deepEqual(canonicalState(state), before, "asking changes nothing");
+});
+
+test("an impaired owner of an information role is asked with the answers its module names", () => {
+  const state = empathNight(true);
+  const possible = ["never", "once", "twice"];
+  const module = answering({ kind: "answer", value: "once", possible });
+
+  const info = moduleInfoForStep(state, module, roleStep(state, "empath"));
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: "once",
+    impaired: true,
+    needsChoice: true,
+    options: ["never", "once", "twice"],
+  });
+  assert.notEqual(info?.options, possible, "the host's list is a copy of the module's");
+});
+
+test("an impaired owner of a module that names no possible answers gets an empty list, not an invented one", () => {
+  const state = empathNight(true);
+
+  const info = moduleInfoForStep(
+    state,
+    answering({ kind: "answer", value: 4 }),
+    roleStep(state, "empath"),
+  );
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: 4,
+    impaired: true,
+    needsChoice: true,
+    options: [],
+  });
+});
+
+test("an information role that learns nothing yields no information", () => {
+  const state = empathNight();
+
+  const info = moduleInfoForStep(
+    state,
+    answering({ kind: "no-effect" }),
+    roleStep(state, "empath"),
+  );
+
+  assert.deepEqual(info, { kind: "none" });
+});
+
+test("a module without an information capability leaves the answer to the engine", () => {
+  const state = empathNight();
+  const step = roleStep(state, "empath");
+  const stepOnly: RoleModule = {
+    id: "empath",
+    edition: "tb",
+    capabilities: [{ kind: "night-step", timing: "any", step: { infoKind: "number" } }],
+  };
+
+  assert.equal(moduleInfoForStep(state, stepOnly, step), null);
+  assert.equal(moduleInfoForStep(state, { id: "empath", edition: "tb" }, step), null);
+  assert.equal(moduleInfoForStep(state, null, step), null);
+});
+
+test("an information role reads its seat, the night, the targets and the registrations through its context", () => {
+  const state = make(
+    {
+      1: "spy",
+      2: "empath",
+      3: "recluse",
+      4: "chef",
+      5: "monk",
+      6: "soldier",
+      7: "undertaker",
+      8: "saint",
+      9: "imp",
+    },
+    { count: 9 },
+  );
+  assert.equal(startNight(state).ok, true);
+  const step = roleStep(state, "empath");
+  const seen: InformationContext[] = [];
+  const module = answering({ kind: "answer", value: false, possible: [true, false] }, seen);
+
+  moduleInfoForStep(state, module, step, {
+    targetIds: ["4", "9"],
+    registrations: { "1": "good", "3": "evil" },
+  });
+
+  const context = seen[0]!;
+  assert.equal(context.actorId, "2");
+  assert.equal(context.infoKind, "probe");
+  assert.deepEqual(context.targetIds, ["4", "9"]);
+  assert.equal(context.impaired, false);
+  assert.deepEqual(context.at, { phase: "night", number: 1 });
+  assert.deepEqual(context.aliveNeighborIds("2"), ["1", "3"]);
+  assert.equal(context.registeredTeamOf("1"), "good", "a Spy registered as good");
+  assert.equal(context.registeredTeamOf("3"), "evil", "a Recluse registered as evil");
+  assert.equal(context.registeredTeamOf("9"), "evil");
+  assert.equal(context.registeredTeamOf("4"), "good");
+  assert.equal(context.actualRoleOf("3"), "recluse");
+  assert.equal(context.hasPlayer("9"), true);
+  assert.equal(context.hasPlayer("10"), false);
+
+  // Without an answer from the host the registrants count as their real teams,
+  // and the targets are the ones recorded on the step.
+  step.targetIds = ["5"];
+  moduleInfoForStep(state, module, step);
+  assert.deepEqual(seen[1]!.targetIds, ["5"]);
+  assert.equal(seen[1]!.registeredTeamOf("1"), "evil");
+  assert.equal(seen[1]!.registeredTeamOf("3"), "good");
 });
 
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {
