@@ -49,6 +49,7 @@ import { kill, checkWin } from "./death.ts";
 import { isImpaired } from "./effects.ts";
 import { pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
 import { roleModule } from "../roles/registry.ts";
+import { LEGACY_RULESET_VERSION } from "./command-versions.ts";
 
 const DEMON_ROLES = new Set(["po", "pukka", "shabaloth", "zombuul"]);
 
@@ -107,6 +108,20 @@ function livingLunatic(state: GameState): Player | null {
   return (
     orderedPlayers(state).find((player) => player.roleId === "lunatic" && player.alive) || null
   );
+}
+
+function lunaticBluffIds(state: GameState, ports: CommandExecutionContext): string[] {
+  const separate = state.setup.lunaticBluffs;
+  const demon = state.bluffs ?? state.setup.bluffs ?? [];
+  // Notes and given information are persisted and seed later random commands.
+  // Old histories must retain their original empty-list result during replay.
+  return (
+    ports.rulesetVersion === LEGACY_RULESET_VERSION
+      ? (separate ?? demon)
+      : separate?.length
+        ? separate
+        : demon
+  ).map(String);
 }
 
 function bmrStepKey(
@@ -252,7 +267,10 @@ function demonInfoStep(state: GameState, index: number): NightStep | null {
   };
 }
 
-export function buildBmrNightQueue(state: GameState): NightStep[] {
+export function buildBmrNightQueue(
+  state: GameState,
+  ports: CommandExecutionContext = systemPorts,
+): NightStep[] {
   const night = nightAt(state).number;
   const sequence = nightSequence(night, "bmr");
   const steps: NightStep[] = [];
@@ -328,9 +346,7 @@ export function buildBmrNightQueue(state: GameState): NightStep[] {
       // "Learn three bluffs and the appropriate number of Minions, but this
       // information may be wrong" (Lunatic r3112). The bluffs may be in play.
       const minions = lunaticMinions;
-      const bluffIds = (state.setup.lunaticBluffs ?? state.bluffs ?? state.setup.bluffs ?? []).map(
-        String,
-      );
+      const bluffIds = lunaticBluffIds(state, ports);
       const bluffs = bluffIds.map((id) => roleLabel(id));
       setStepNote(
         step,
@@ -924,7 +940,12 @@ export function applyBmrGoonTrigger(
   return applyGoonTrigger(state, goon, actor, at, step, ports);
 }
 
-export function bmrInfoForStep(state: GameState, step: NightStep, options: BmrInfoOptions = {}) {
+export function bmrInfoForStep(
+  state: GameState,
+  step: NightStep,
+  options: BmrInfoOptions = {},
+  ports: CommandExecutionContext = systemPorts,
+) {
   const actor = step.actorId ? playerById(state, step.actorId) : null;
   const role = step.roleId;
   const at = nightAt(state);
@@ -983,9 +1004,7 @@ export function bmrInfoForStep(state: GameState, step: NightStep, options: BmrIn
   }
   if (role === "lunatic") {
     if (state.night.number === 1) {
-      const bluffIds = (state.setup.lunaticBluffs ?? state.bluffs ?? state.setup.bluffs ?? []).map(
-        String,
-      );
+      const bluffIds = lunaticBluffIds(state, ports);
       const bluffs = bluffIds.map((id) => roleLabel(id));
       const minions = livingPlayers(state).filter(
         (player) => roleTeam(player.roleId || "") === "minion",
