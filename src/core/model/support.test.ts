@@ -9,6 +9,9 @@ import { JINX_PAIRS, JINX_RESOURCES_VERSION, jinxFor, lookupJinx, scriptJinxes }
 import {
   ROLE_SUPPORT,
   SUPPORT_LEVELS,
+  SUPPORT_STORYTELLER,
+  SUPPORT_UNSUPPORTED,
+  SUPPORT_VERIFIED,
   roleSupport,
   roleSupportEntries,
   scriptSupport,
@@ -70,7 +73,7 @@ const readMatrixLevels = (): Map<RoleId, SupportLevel> => {
   return levels;
 };
 
-test("every supported role has an explicit support level that matches the rules matrix", () => {
+test("every supported role has an explicit support level that matches the rules matrix (SYS-SCRIPTS-07)", () => {
   const matrix = readMatrixLevels();
   assert.equal(SUPPORTED_ROLES.length, 72);
   for (const id of SUPPORTED_ROLES) {
@@ -83,21 +86,31 @@ test("every supported role has an explicit support level that matches the rules 
 test("the three support levels name exactly the roles the matrix records", () => {
   const byLevel = (level: SupportLevel) =>
     SUPPORTED_ROLES.filter((id) => ROLE_SUPPORT[id] === level);
-  assert.equal(byLevel("verified").length, 61);
+  assert.equal(byLevel("verified").length, 58);
   assert.deepEqual(byLevel("requires-storyteller-choice").sort(), [
     "artist",
     "cerenovus",
     "chambermaid",
+    "chef",
     "dreamer",
     "empath",
+    "eviltwin",
     "mathematician",
     "mutant",
     "pacifist",
+    "pukka",
     "savant",
     "tinker",
     "vortox",
   ]);
   assert.deepEqual(byLevel("unsupported").sort(), []);
+});
+
+test("the three support lists partition the supported roles without duplicates", () => {
+  const listed = [...SUPPORT_VERIFIED, ...SUPPORT_STORYTELLER, ...SUPPORT_UNSUPPORTED];
+  assert.equal(new Set(listed).size, listed.length, "a support list repeats a role");
+  assert.equal(listed.length, SUPPORTED_ROLES.length, "the lists do not cover all roles");
+  assert.deepEqual([...listed].sort(), [...SUPPORTED_ROLES].sort());
 });
 
 test("an unknown character is an explicit unsupported result, not a silent fallback", () => {
@@ -112,32 +125,32 @@ test("an unknown character is an explicit unsupported result, not a silent fallb
 test("a script reports the three support levels instead of claiming full support", () => {
   const tb = scriptSupport(ALL_ROLES);
   assert.equal(tb.level, "requires-storyteller-choice");
-  assert.equal(tb.counts.verified, 21);
-  assert.equal(tb.counts["requires-storyteller-choice"], 1);
+  assert.equal(tb.counts.verified, 20);
+  assert.equal(tb.counts["requires-storyteller-choice"], 2);
   assert.equal(tb.counts.unsupported, 0);
 
   const bmr = scriptSupport(BMR_ALL);
   assert.equal(bmr.level, "requires-storyteller-choice");
-  assert.equal(bmr.counts.verified, 22);
+  assert.equal(bmr.counts.verified, 21);
   assert.equal(bmr.counts.unsupported, 0);
-  assert.equal(bmr.counts["requires-storyteller-choice"], 3);
+  assert.equal(bmr.counts["requires-storyteller-choice"], 4);
 
   const snv = scriptSupport(SNV_ALL);
   assert.equal(snv.level, "requires-storyteller-choice");
   assert.equal(snv.counts.unsupported, 0);
-  assert.equal(snv.counts["requires-storyteller-choice"], 7);
-  assert.equal(snv.counts.verified, 18);
+  assert.equal(snv.counts["requires-storyteller-choice"], 8);
+  assert.equal(snv.counts.verified, 17);
 
   const tinker = scriptSupport(["chef", "tinker", "poisoner", "imp"]);
   assert.equal(tinker.level, "requires-storyteller-choice");
-  assert.equal(tinker.counts["requires-storyteller-choice"], 1);
+  assert.equal(tinker.counts["requires-storyteller-choice"], 2);
 
   const unknown = scriptSupport(["chef", "notarole"]);
   assert.equal(unknown.level, "unsupported");
   assert.deepEqual(unknown.unknown, ["notarole"]);
 
   const mixed = scriptSupport(["chef", "goon"]);
-  assert.equal(mixed.roles.chef, "verified");
+  assert.equal(mixed.roles.chef, "requires-storyteller-choice");
   assert.equal(mixed.roles.goon, "verified");
 });
 
@@ -166,7 +179,7 @@ test("every character has a screen support entry, so no manual fallback is silen
   );
 });
 
-test("the jinx table is versioned and every applicable pair has a source and a reason", () => {
+test("the jinx table is versioned and every applicable pair has a source and a reason (SYS-SCRIPTS-08)", () => {
   assert.equal(JINX_SNAPSHOT.committed, JINX_RESOURCES_VERSION);
   assert.equal(JINX_PAIRS.length, 7);
   const expected = new Set();

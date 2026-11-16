@@ -3,13 +3,9 @@ import type {
   CommandResult,
   DomainEvent,
   GameState,
-  InfoPair,
-  JournalEntry,
   RejectedResult,
-  ScriptEdition,
 } from "../model/types.ts";
 import type { CommandPayloads } from "../commands/contracts.ts";
-import { legacyRecord } from "../model/validated.ts";
 
 interface DomainOutcome {
   [key: string]: unknown;
@@ -39,20 +35,12 @@ interface DomainOutcome {
 // A successful command is recorded in `state.applied` by command id, so a
 // repeated apply is a no-op. Event derivation is the domain diff used by
 // preview and by the future replay log.
-import {
-  clone,
-  createGame,
-  importGame as importState,
-  playerById,
-  realTeamOf,
-  setRoster,
-  withClock,
-} from "../model/state.ts";
+import { clone } from "../model/state.ts";
+import { createExecutionContext } from "../model/ports.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
 import { effectGraph } from "../model/effect-graph.ts";
-import { isMixedEdition, isSupportedRole, requiredBluffs, roleTeam } from "../model/rules.ts";
 
 import { currentAt } from "./context.ts";
-import { runWithExecutionContext } from "./execution.ts";
 import { defaultRuntime, hashString } from "./runtime.ts";
 import type { Runtime } from "./runtime.ts";
 
@@ -84,22 +72,37 @@ import { recordBmrOutcome, resurrectPlayer } from "./bmr.ts";
 import { resolveSuspendedPukkaDeaths } from "./pukka.ts";
 import { recordAbnormal, recordKlutzChoice, recordSvOutcome } from "./sv.ts";
 import { chooseDemonHeir, setWinner } from "./death.ts";
+import { commandVersion, recordJournalEntry } from "./command-journal.ts";
+import {
+  canonicalState,
+  checkInvariants,
+  fingerprintOf,
+  replaceContents,
+  sameValue,
+} from "./command-state.ts";
+export { canonicalState, checkInvariants } from "./command-state.ts";
+import type { CommandMeta } from "./command-journal.ts";
+export { startGame } from "./setup-commands.ts";
+import {
+  bagUpdate,
+  importGame,
+  newGame,
+  normalizeSecrets,
+  setHerring,
+  setNotes,
+  setOrder,
+  setReviewOpen,
+  setupInfo,
+  startGame,
+} from "./setup-commands.ts";
 
-export const RULESET_VERSION = "tb-bmr-snv-2026-11-10";
-export const SUPPORTED_RULESET_VERSIONS = new Set([RULESET_VERSION]);
+export { RULESET_VERSION, SUPPORTED_RULESET_VERSIONS } from "./command-versions.ts";
+import { SUPPORTED_RULESET_VERSIONS } from "./command-versions.ts";
 export const COMMAND_STATUS = {
   ALLOWED: "allowed",
   REJECTED: "rejected",
   CHOICE: "requires-storyteller-choice",
 } as const;
-
-export function newCommandId() {
-  const source = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  if (source && typeof source.randomUUID === "function") {
-    return source.randomUUID();
-  }
-  return "cmd-" + Math.random().toString(36).slice(2, 12);
-}
 
 // ---------------------------------------------------------------------------
 // Command handlers
@@ -190,7 +193,11 @@ function finish(raw: unknown): DomainOutcome {
   return { ok: true, result, followUp };
 }
 
-function completeNightStep(state: GameState, payload: CommandPayloads["completeNightStep"]) {
+function completeNightStep(
+  state: GameState,
+  payload: CommandPayloads["completeNightStep"],
+  ports: CommandExecutionContext,
+) {
   const step = state.night.queue.find((candidate) => candidate.key === payload.key);
   if (!step) return { ok: false, errorCode: "error.36", error: "Шаг не найден." };
   const options: Parameters<typeof completeStep>[2] = {
@@ -202,35 +209,47 @@ function completeNightStep(state: GameState, payload: CommandPayloads["completeN
     drunkId: payload.drunkId ?? null,
   };
   if (payload.given != null) options.given = payload.given;
-  const result = completeStep(state, payload.key, options);
+  const result = completeStep(state, payload.key, options, ports);
   if (!result || result.ok === false) return result;
   if (step.bmr || step.sv) {
     const deathIds = payload.deathIds || [];
     if (deathIds.length || payload.resurrectId) {
       const outcome = step.sv
-        ? recordSvOutcome(state, step.key, {
-            deathIds,
-            poisonId: payload.poisonId ?? null,
-          })
-        : recordBmrOutcome(state, step.key, {
-            deathIds,
-            resurrectId: payload.resurrectId || null,
-          });
+        ? recordSvOutcome(
+            state,
+            step.key,
+            {
+              deathIds,
+              poisonId: payload.poisonId ?? null,
+            },
+            ports,
+          )
+        : recordBmrOutcome(
+            state,
+            step.key,
+            {
+              deathIds,
+              resurrectId: payload.resurrectId || null,
+            },
+            ports,
+          );
       if (!outcome.ok) return outcome;
     }
   }
   return result;
 }
 
-function applyJugglerGuess(state: GameState, payload: CommandPayloads["jugglerGuess"]) {
-  if (Array.isArray(payload.guesses)) return reportJugglerGuesses(state, payload.guesses);
+function applyJugglerGuess(
+  state: GameState,
+  payload: CommandPayloads["jugglerGuess"],
+  ports: CommandExecutionContext,
+) {
+  if (Array.isArray(payload.guesses)) return reportJugglerGuesses(state, payload.guesses, ports);
   if (typeof payload.playerId !== "string" || typeof payload.roleId !== "string") {
     return { ok: false, errorCode: "error.39", error: "Передайте список догадок Жонглёра." };
   }
-  return jugglerGuess(state, payload.playerId, payload.roleId);
+  return jugglerGuess(state, payload.playerId, payload.roleId, ports);
 }
-
-const INFO_ROLES = new Set(["washerwoman", "librarian", "investigator"]);
 
 /**
  * Takes a prepared bag into the first night in one host action: deal the
@@ -238,496 +257,180 @@ const INFO_ROLES = new Set(["washerwoman", "librarian", "investigator"]);
  * A bag that still needs a host choice (the Drunk's false information) stays
  * rejected by `startNight` and the host records it with `setSetupInfo`.
  */
-export function startGame(
-  state: GameState,
-  options: { assignment?: Record<string, string>; secrets?: boolean } = {},
-) {
-  if (state.winner) return { ok: false, errorCode: "error.6", error: "Игра уже окончена." };
-  if (state.phase !== "setup" && state.phase !== "deal" && state.phase !== "seat") {
-    return { ok: false, errorCode: "error.47", error: "Игра уже началась." };
-  }
-  if (!state.setup.roles.length) {
-    return { ok: false, errorCode: "error.34", error: "Сначала соберите мешок." };
-  }
-  if (state.phase === "setup") {
-    const dealt = dealGame(state, options.assignment ? { assignment: options.assignment } : {});
-    if (!dealt.ok) return dealt;
-  }
-  state.order.forEach((id, index) => {
-    const player = state.players[id];
-    if (player) player.seat = index + 1;
-  });
-  if (state.phase === "deal") state.phase = "seat";
-  if (options.secrets !== false) autoSecrets(state, { onlyMissing: true });
-  return startNight(state);
-}
-
-function normalizeScript(script: unknown) {
-  if (!script || typeof script !== "object")
-    return { ok: false, errorCode: "error.script", error: "Некорректный сценарий." };
-  const value = script as Record<string, unknown>;
-  if (typeof value.id !== "string" || !value.id)
-    return { ok: false, errorCode: "error.script", error: "У сценария нет id." };
-  if (typeof value.name !== "string" || !value.name)
-    return { ok: false, errorCode: "error.script", error: "У сценария нет названия." };
-  if (!Array.isArray(value.roles)) {
-    return { ok: false, errorCode: "error.roles", error: "В сценарии нет списка ролей." };
-  }
-  if (!value.roles.length && value.edition !== "custom") {
-    return { ok: false, errorCode: "error.roles", error: "В сценарии нет ролей." };
-  }
-  const unique: string[] = [];
-  for (const id of value.roles) {
-    if (
-      typeof id !== "string" ||
-      !isSupportedRole(id) ||
-      (roleTeam(id) as string) === "traveller"
-    ) {
-      return {
-        ok: false,
-        errorCode: "error.unknown",
-        error: "Неподдерживаемая роль в сценарии: " + id,
-      };
-    }
-    if (!unique.includes(id)) unique.push(id);
-  }
-  return {
-    ok: true,
-    script: {
-      id: value.id.slice(0, 80),
-      name: value.name.slice(0, 80),
-      edition: (typeof value.edition === "string" ? value.edition : "custom") as ScriptEdition,
-      source: typeof value.source === "string" ? value.source : "manual",
-      author: String(value.author || "").slice(0, 80),
-      roles: unique,
-      manualOnly: typeof value.manualOnly === "boolean" ? value.manualOnly : isMixedEdition(unique),
-    },
-  };
-}
-
-function normalizeBag(state: GameState) {
-  const roles = state.setup.roles || [];
-  const scriptRoles = (state.script && state.script.roles) || [];
-
-  if (!roles.includes("godfather")) state.setup.godfatherOutsider = 1;
-  else if (
-    state.setup.godfatherOutsider == null ||
-    ![1, -1].includes(state.setup.godfatherOutsider)
-  )
-    state.setup.godfatherOutsider = 1;
-
-  if (!roles.includes("eviltwin")) {
-    state.setup.evilTwinGoodId = null;
-  } else {
-    const good = roles.filter(
-      (id) => id !== "eviltwin" && (roleTeam(id) === "townsfolk" || roleTeam(id) === "outsider"),
-    );
-    if (!state.setup.evilTwinGoodId || !good.includes(state.setup.evilTwinGoodId))
-      state.setup.evilTwinGoodId = good[0] || null;
-  }
-
-  if (!roles.includes("lunatic")) {
-    state.setup.lunaticShownId = null;
-  } else {
-    const demons = scriptRoles.filter((id) => roleTeam(id) === "demon");
-    const inPlay = roles.find((id) => roleTeam(id) === "demon");
-    if (!state.setup.lunaticShownId || !demons.includes(state.setup.lunaticShownId)) {
-      state.setup.lunaticShownId = inPlay || demons[0] || null;
-    }
-  }
-
-  if (!roles.includes("drunk")) {
-    state.setup.drunkShownId = null;
-  } else {
-    const current = state.setup.drunkShownId;
-    const valid =
-      current &&
-      scriptRoles.includes(current) &&
-      roleTeam(current) === "townsfolk" &&
-      !roles.includes(current);
-    if (!valid) {
-      const unused = scriptRoles.filter(
-        (id) => roleTeam(id) === "townsfolk" && !roles.includes(id),
-      );
-      state.setup.drunkShownId = unused[0] || null;
-    }
-  }
-
-  const needed = requiredBluffs(state.setup.count);
-  if (!needed) {
-    state.setup.bluffs = [];
-  } else {
-    const seen = new Set();
-    state.setup.bluffs = (Array.isArray(state.setup.bluffs) ? state.setup.bluffs : [])
-      .filter((id) => {
-        if (!id || seen.has(id) || roles.includes(id) || id === state.setup.drunkShownId)
-          return false;
-        if (!scriptRoles.includes(id)) return false;
-        seen.add(id);
-        return true;
-      })
-      .slice(0, 3);
-  }
-}
-
-function resetGameForSetup(state: GameState) {
-  state.night = { number: 0, queue: [], currentIndex: 0, demonChanged: false };
-  state.day = {
-    number: 0,
-    morning: [],
-    nominations: [],
-    activeNominationId: null,
-    execution: null,
-    ended: false,
-    open: false,
-  };
-  state.deaths = [];
-  state.executions = [];
-  state.effects = [];
-  state.corrections = [];
-  state.gossip = null;
-  state.mastermind = null;
-  state.fangguJumped = false;
-  state.winner = null;
-  state.reviewOpen = false;
-  state.publicRevealed = false;
-  state.bluffs = [];
-  state.herringId = null;
-  state.setup.ready = false;
-  state.log = [];
-}
-
-function bagUpdate(state: GameState, payload: CommandPayloads["bagUpdate"]) {
-  const patch = payload.patch || {};
-  if (patch.script) {
-    const normalized = normalizeScript(patch.script);
-    if (!normalized.ok) return normalized;
-    if (!normalized.script)
-      return { ok: false, errorCode: "error.script", error: "Некорректный сценарий." };
-    state.script = normalized.script;
-    state.scriptId = normalized.script.id;
-  }
-
-  const count = patch.count != null ? Number(patch.count) : state.setup.count;
-  if (!Number.isInteger(count) || count < 5 || count > 15) {
-    return { ok: false, errorCode: "error.bag-count", error: "Игроков должно быть от 5 до 15." };
-  }
-
-  if (patch.resetRoster) {
-    setRoster(state, count);
-    resetGameForSetup(state);
-    state.phase = patch.phase || "setup";
-  } else if (patch.count != null) {
-    setRoster(state, count);
-    resetGameForSetup(state);
-  } else if (patch.phase) {
-    state.phase = patch.phase;
-  }
-
-  const scriptRoles = (state.script && state.script.roles) || [];
-  if (patch.roles != null) {
-    if (!Array.isArray(patch.roles))
-      return { ok: false, errorCode: "error.roles", error: "Некорректный список ролей." };
-    for (const id of patch.roles) {
-      if (!isSupportedRole(id)) {
-        return { ok: false, errorCode: "error.unknown", error: "Неизвестная роль: " + id };
-      }
-      if (!scriptRoles.includes(id)) {
-        return {
-          ok: false,
-          errorCode: "error.outside-script",
-          error: "Роль не входит в сценарий: " + id,
-        };
-      }
-    }
-    state.setup.roles = patch.roles.slice();
-  }
-  if (patch.bluffs != null) {
-    if (!Array.isArray(patch.bluffs))
-      return { ok: false, errorCode: "error.roles", error: "Некорректный список блефов." };
-    for (const id of patch.bluffs) {
-      if (!isSupportedRole(id)) {
-        return { ok: false, errorCode: "error.unknown", error: "Неизвестная роль: " + id };
-      }
-      if (!scriptRoles.includes(id)) {
-        return {
-          ok: false,
-          errorCode: "error.bluffs-outside-script",
-          error: "Блеф не входит в сценарий: " + id,
-        };
-      }
-    }
-    state.setup.bluffs = patch.bluffs.slice();
-  }
-  if (patch.drunkShownId !== undefined) state.setup.drunkShownId = patch.drunkShownId;
-  if (patch.lunaticShownId !== undefined) state.setup.lunaticShownId = patch.lunaticShownId;
-  if (patch.godfatherOutsider !== undefined)
-    state.setup.godfatherOutsider = patch.godfatherOutsider;
-  if (patch.evilTwinGoodId !== undefined) state.setup.evilTwinGoodId = patch.evilTwinGoodId;
-
-  normalizeBag(state);
-  return { ok: true };
-}
-
-function setOrder(state: GameState, payload: CommandPayloads["setOrder"]) {
-  const order = Array.isArray(payload.order) ? payload.order.map(String) : null;
-  if (!order) return { ok: false, errorCode: "error.order", error: "Некорректный порядок мест." };
-  const ids = Object.keys(state.players);
-  if (
-    order.length !== ids.length ||
-    new Set(order).size !== order.length ||
-    order.some((id) => !state.players[id])
-  ) {
-    return {
-      ok: false,
-      errorCode: "error.order",
-      error: "Порядок мест должен содержать каждого игрока один раз.",
-    };
-  }
-  state.order = order;
-  // `seat` mirrors the order: validateState and importGame require it, so an
-  // unsynced reorder would save a game that cannot be loaded back.
-  order.forEach((id, index) => {
-    const player = state.players[id];
-    if (player) player.seat = index + 1;
-  });
-  if (state.phase === "deal") state.phase = "seat";
-  return { ok: true };
-}
-
-function setHerring(state: GameState, payload: CommandPayloads["setHerring"]) {
-  if (payload.playerId == null || payload.playerId === "") {
-    state.setup.herringId = null;
-    return { ok: true };
-  }
-  const player = playerById(state, payload.playerId);
-  if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
-  if (realTeamOf(player) !== "good")
-    return {
-      ok: false,
-      errorCode: "error.herring-team",
-      error: "Красная селёдка должна быть добрым игроком.",
-    };
-  state.setup.herringId = player.id;
-  return { ok: true };
-}
-
-function setupInfo(
-  state: GameState,
-  payload: {
-    roleId: CommandPayloads["setSetupInfo"]["roleId"];
-    info?: unknown;
-  },
-) {
-  const roleId = payload.roleId;
-  if (!INFO_ROLES.has(roleId)) return { ok: false, error: "Неизвестная информационная роль." };
-  const patch = (
-    payload.info !== null && typeof payload.info === "object" ? payload.info : null
-  ) as Record<string, unknown> | null;
-  if (!patch) return { ok: false, error: "Некорректная информация." };
-  if (patch.zero === true) {
-    state.setup.info[roleId] = { zero: true, pair: [] };
-    return { ok: true };
-  }
-  const current = state.setup.info[roleId];
-  const basePair: [string, string] = current && "roleId" in current ? current.pair : ["", ""];
-  const pair =
-    Array.isArray(patch.pair) &&
-    patch.pair.length === 2 &&
-    typeof patch.pair[0] === "string" &&
-    typeof patch.pair[1] === "string"
-      ? ([patch.pair[0], patch.pair[1]] as [string, string])
-      : basePair;
-  // An explicit string is the host's choice: a supported role, or "" to clear
-  // it. Anything else keeps the stored role, so a pair edit cannot drop it.
-  const chosenRole =
-    typeof patch.roleId === "string" && (patch.roleId === "" || isSupportedRole(patch.roleId))
-      ? (patch.roleId as InfoPair["roleId"])
-      : current && "roleId" in current
-        ? current.roleId
-        : ("" as InfoPair["roleId"]);
-  const next: InfoPair = {
-    roleId: chosenRole,
-    pair,
-    ...(typeof patch.matchIndex === "number" ? { matchIndex: patch.matchIndex } : {}),
-    ...(typeof patch.forDrunk === "boolean" ? { forDrunk: patch.forDrunk } : {}),
-  };
-  state.setup.info[roleId] = next;
-  return { ok: true };
-}
-
-function normalizeSecrets(state: GameState) {
-  const players = Object.values(state.players || {});
-  const has = (roleId: string) => players.some((player): boolean => player.roleId === roleId);
-  if (has("librarian") && !players.some((player) => roleTeam(player.roleId || "") === "outsider")) {
-    state.setup.info.librarian = { zero: true, pair: [] };
-  }
-  return { ok: true };
-}
-
-function setNotes(state: GameState, payload: CommandPayloads["setNotes"]) {
-  state.notes = String(payload.notes || "");
-  return { ok: true };
-}
-
-function setReviewOpen(state: GameState, payload: CommandPayloads["setReviewOpen"]) {
-  state.reviewOpen = Boolean(payload.open);
-  return { ok: true };
-}
-
-function newGame(state: GameState, payload: CommandPayloads["newGame"]) {
-  const count = payload.count == null ? 8 : Number(payload.count);
-  if (!Number.isInteger(count) || count < 5 || count > 15) {
-    return { ok: false, error: "Игроков должно быть от 5 до 15." };
-  }
-  replaceContents(state, createGame(count));
-  return { ok: true };
-}
-
-function importGame(state: GameState, payload: CommandPayloads["importGame"]) {
-  const imported = importState(String(payload.text == null ? "" : payload.text));
-  if (!imported.ok) return { ok: false, error: imported.error };
-  replaceContents(state, imported.state);
-  return { ok: true };
-}
-
 interface CommandSpec<K extends keyof CommandPayloads> {
-  apply: (state: GameState, payload: CommandPayloads[K]) => unknown;
+  apply: (state: GameState, payload: CommandPayloads[K], ports: CommandExecutionContext) => unknown;
   undoable?: boolean;
   record?: boolean;
   resetHistory?: boolean;
 }
 
 const COMMANDS = {
-  startNight: { apply: (state) => startNight(state) },
+  startNight: { apply: (state, _payload, ports) => startNight(state, ports) },
   completeStep: {
-    apply: (state, payload) =>
-      completeStep(state, payload.key, payload.options as Parameters<typeof completeStep>[2]),
+    apply: (state, payload, ports) =>
+      completeStep(
+        state,
+        payload.key,
+        payload.options as Parameters<typeof completeStep>[2],
+        ports,
+      ),
   },
-  completeNightStep: { apply: (state, payload) => completeNightStep(state, payload) },
-  endNight: { apply: (state) => endNight(state) },
-  skipStep: { apply: (state, payload) => skipStep(state, payload.key, payload.reason) },
+  completeNightStep: { apply: (state, payload, ports) => completeNightStep(state, payload, ports) },
+  endNight: { apply: (state, _payload, ports) => endNight(state, ports) },
+  skipStep: {
+    apply: (state, payload, ports) => skipStep(state, payload.key, payload.reason, ports),
+  },
   chooseDemonHeir: {
-    apply: (state, payload) => chooseDemonHeir(state, payload.stepKey, payload.heirId),
+    apply: (state, payload, ports) =>
+      chooseDemonHeir(state, payload.stepKey, payload.heirId, ports),
   },
-  openNominations: { apply: (state) => openNominations(state) },
+  openNominations: { apply: (state, _payload, ports) => openNominations(state, ports) },
   nominate: {
-    apply: (state, payload) =>
+    apply: (state, payload, ports) =>
       nominate(
         state,
         payload.nominatorId,
         payload.nomineeId,
         payload.options as Parameters<typeof nominate>[3],
+        ports,
       ),
   },
   recordVirginNomination: {
-    apply: (state, payload) =>
+    apply: (state, payload, ports) =>
       recordVirginNomination(
         state,
         payload.nominatorId,
         payload.virginId,
         payload.options as Parameters<typeof recordVirginNomination>[3],
+        ports,
       ),
   },
   recordVotes: {
-    apply: (state, payload) => recordVotes(state, payload.nominationId, payload.voterIds),
+    apply: (state, payload, ports) =>
+      recordVotes(state, payload.nominationId, payload.voterIds, ports),
   },
-  cancelNomination: { apply: (state, payload) => cancelNomination(state, payload.nominationId) },
+  cancelNomination: {
+    apply: (state, payload, ports) => cancelNomination(state, payload.nominationId, ports),
+  },
   resetVotes: {
-    apply: (state, payload) => resetVotes(state, payload.nominationId, payload.reason),
+    apply: (state, payload, ports) =>
+      resetVotes(state, payload.nominationId, payload.reason, ports),
   },
   execute: {
-    apply: (state, payload) =>
-      execute(state, payload.nominationId, payload.options as Parameters<typeof execute>[2]),
+    apply: (state, payload, ports) =>
+      execute(state, payload.nominationId, payload.options as Parameters<typeof execute>[2], ports),
   },
   executeByDecision: {
-    apply: (state, payload) =>
+    apply: (state, payload, ports) =>
       executeByDecision(
         state,
         payload.playerId,
         payload.options as Parameters<typeof executeByDecision>[2],
+        ports,
       ),
   },
   madnessPenalty: {
-    apply: (state, payload) =>
+    apply: (state, payload, ports) =>
       applyMadnessPenalty(
         state,
         payload.playerId,
         payload.penalty,
         payload.reason,
         payload.effectId,
+        ports,
       ),
   },
-  endDay: { apply: (state) => endDay(state) },
+  endDay: { apply: (state, _payload, ports) => endDay(state, ports) },
   useSlayer: {
-    apply: (state, payload) =>
+    apply: (state, payload, ports) =>
       useSlayer(
         state,
         payload.slayerId,
         payload.targetId,
         payload.options as Parameters<typeof useSlayer>[3],
+        ports,
       ),
   },
-  gossipStatement: { apply: (state, payload) => gossipStatement(state, Boolean(payload.truth)) },
-  jugglerGuess: { apply: (state, payload) => applyJugglerGuess(state, payload) },
+  gossipStatement: {
+    apply: (state, payload, ports) => gossipStatement(state, Boolean(payload.truth), ports),
+  },
+  jugglerGuess: { apply: (state, payload, ports) => applyJugglerGuess(state, payload, ports) },
   artistQuestion: {
-    apply: (state, payload) =>
-      artistQuestion(state, payload.playerId, payload.question, payload.answer),
+    apply: (state, payload, ports) =>
+      artistQuestion(state, payload.playerId, payload.question, payload.answer, ports),
   },
   savantVisit: {
-    apply: (state, payload) =>
-      savantVisit(state, payload.playerId, payload.statements, payload.truth),
+    apply: (state, payload, ports) =>
+      savantVisit(state, payload.playerId, payload.statements, payload.truth, ports),
   },
   recordAbnormal: {
-    apply: (state, payload) => recordAbnormal(state, payload.playerId, payload.reason),
+    apply: (state, payload, ports) =>
+      recordAbnormal(state, payload.playerId, payload.reason, ports),
   },
-  moonchildChoice: { apply: (state, payload) => moonchildChoice(state, payload.targetId) },
+  moonchildChoice: {
+    apply: (state, payload, ports) => moonchildChoice(state, payload.targetId, ports),
+  },
   recordKlutzChoice: {
-    apply: (state, payload) => recordKlutzChoice(state, payload.targetId),
+    apply: (state, payload, ports) => recordKlutzChoice(state, payload.targetId, ports),
   },
-  tinkerDeath: { apply: (state, payload) => tinkerDeath(state, payload.playerId) },
+  tinkerDeath: {
+    apply: (state, payload, ports) => tinkerDeath(state, payload.playerId, ports),
+  },
   recoverClaim: {
-    apply: (state, payload) => recoverClaim(state, payload.playerId, payload.reason),
+    apply: (state, payload, ports) => recoverClaim(state, payload.playerId, payload.reason, ports),
   },
   dealGame: {
-    apply: (state, payload) => dealGame(state, payload.options as Parameters<typeof dealGame>[1]),
+    apply: (state, payload, ports) =>
+      dealGame(state, payload.options as Parameters<typeof dealGame>[1], ports),
   },
   startGame: {
-    apply: (state, payload) => {
+    apply: (state, payload, ports) => {
       const options = asRecordOrNull(payload.options) || {};
       const assignment = asRecordOrNull(options.assignment);
-      return startGame(state, {
-        ...(assignment ? { assignment: assignment as Record<string, string> } : {}),
-        secrets: options.secrets !== false,
-      });
+      return startGame(
+        state,
+        {
+          ...(assignment ? { assignment: assignment as Record<string, string> } : {}),
+          secrets: options.secrets !== false,
+        },
+        ports,
+      );
     },
   },
-  claimSeat: { apply: (state, payload) => claimSeat(state, payload.playerId, payload.name) },
+  claimSeat: {
+    apply: (state, payload, ports) => claimSeat(state, payload.playerId, payload.name, ports),
+  },
   autoSecrets: {
     apply: (state, payload) =>
       autoSecrets(state, payload.options as Parameters<typeof autoSecrets>[1]),
   },
-  manualCorrection: { apply: (state, payload) => manualCorrection(state, payload.change) },
+  manualCorrection: {
+    apply: (state, payload, ports) => manualCorrection(state, payload.change, ports),
+  },
   recordBmrOutcome: {
-    apply: (state, payload) =>
+    apply: (state, payload, ports) =>
       recordBmrOutcome(
         state,
         payload.stepKey,
         payload.options as Parameters<typeof recordBmrOutcome>[2],
+        ports,
       ),
   },
   recordSvOutcome: {
-    apply: (state, payload) => recordSvOutcome(state, payload.stepKey, payload.options || {}),
+    apply: (state, payload, ports) =>
+      recordSvOutcome(state, payload.stepKey, payload.options || {}, ports),
   },
   resurrectPlayer: {
-    apply: (state, payload) => {
-      const player = resurrectPlayer(state, payload.playerId);
+    apply: (state, payload, ports) => {
+      const player = resurrectPlayer(state, payload.playerId, {}, ports);
       return player
         ? { ok: true, playerId: player.id }
         : { ok: false, error: "Игрок не может вернуться." };
     },
   },
-  setWinner: { apply: (state, payload) => setWinner(state, payload.team, payload.reason) },
+  setWinner: {
+    apply: (state, payload, ports) => setWinner(state, payload.team, payload.reason, ports),
+  },
   bagUpdate: { apply: (state, payload) => bagUpdate(state, payload) },
   setOrder: { apply: (state, payload) => setOrder(state, payload) },
   setHerring: { apply: (state, payload) => setHerring(state, payload) },
@@ -743,17 +446,11 @@ const COMMANDS = {
     undoable: false,
     record: false,
   },
-  newGame: { apply: (state, payload) => newGame(state, payload), resetHistory: true },
+  newGame: { apply: (state, payload, ports) => newGame(state, payload, ports), resetHistory: true },
   importGame: { apply: (state, payload) => importGame(state, payload), resetHistory: true },
 } satisfies { [K in keyof CommandPayloads]: CommandSpec<K> };
 
 type CommandName = keyof typeof COMMANDS;
-
-interface CommandMeta {
-  undoable?: boolean;
-  record?: boolean;
-  resetHistory?: boolean;
-}
 
 function commandMeta(type: string): CommandMeta {
   return COMMANDS[type as CommandName] as CommandMeta;
@@ -761,167 +458,18 @@ function commandMeta(type: string): CommandMeta {
 
 // The payload union is narrowed by the caller's `type` at compile time; the
 // runtime gate is validatePayload (contracts), which prepareCommand runs.
-function runCommand(type: string, state: GameState, payload: Record<string, unknown>): unknown {
+function runCommand(
+  type: string,
+  state: GameState,
+  payload: Record<string, unknown>,
+  ports: CommandExecutionContext,
+): unknown {
   const spec = COMMANDS[type as CommandName] as {
-    apply: (s: GameState, p: Record<string, unknown>) => unknown;
+    apply: (s: GameState, p: Record<string, unknown>, ports: CommandExecutionContext) => unknown;
   };
-  return spec.apply(state, payload);
+  return spec.apply(state, payload, ports);
 }
 
-// ---------------------------------------------------------------------------
-// Invariants and canonical comparison
-
-export function checkInvariants(state: GameState): string[] {
-  const errors = [];
-  if (!state || typeof state !== "object") return ["Состояние отсутствует."];
-  const players = state.players || {};
-  const order = state.order || [];
-  const scriptRoles = (state.script && state.script.roles) || [];
-
-  if (!["setup", "deal", "seat", "night", "day", "over"].includes(state.phase)) {
-    errors.push("Неизвестная фаза: " + state.phase);
-  }
-  if (new Set(order).size !== order.length) errors.push("Порядок мест содержит повторы.");
-  for (const id of order) if (!players[id]) errors.push("Место без игрока: " + id);
-  if (Object.keys(players).length !== order.length)
-    errors.push("Игроки не совпадают с порядком мест.");
-  for (const [id, player] of Object.entries(players)) {
-    if (!player || player.id !== id) errors.push("Некорректный игрок: " + id);
-    if (player && player.roleId != null && !scriptRoles.includes(player.roleId)) {
-      errors.push("Роль вне сценария: " + id);
-    }
-    if (player && player.shownRoleId != null && !isSupportedRole(player.shownRoleId)) {
-      errors.push("Показанная роль неизвестна: " + id);
-    }
-    if (player && player.butlerMasterId != null && !players[player.butlerMasterId]) {
-      errors.push("Мастер Дворецкого не найден: " + id);
-    }
-  }
-
-  const seenEffects = new Set();
-  for (const effect of state.effects || []) {
-    if (!effect || typeof effect.id !== "string") {
-      errors.push("Эффект без id.");
-      continue;
-    }
-    if (seenEffects.has(effect.id)) errors.push("Повтор эффекта: " + effect.id);
-    seenEffects.add(effect.id);
-    if (effect.sourceId != null && !players[effect.sourceId])
-      errors.push("Источник эффекта не найден: " + effect.id);
-    if (effect.targetId != null && !players[effect.targetId])
-      errors.push("Цель эффекта не найдена: " + effect.id);
-  }
-  for (const death of state.deaths || []) {
-    if (!death || !players[death.playerId]) errors.push("Смерть без игрока.");
-  }
-  for (const execution of state.executions || []) {
-    if (!execution || !players[execution.playerId]) errors.push("Казнь без игрока.");
-  }
-  if (state.day) {
-    for (const nomination of state.day.nominations || []) {
-      if (!nomination || !players[nomination.nominatorId] || !players[nomination.nomineeId]) {
-        errors.push("Номинация ссылается на отсутствующего игрока.");
-      }
-    }
-    for (const death of state.day.morning || []) {
-      if (!death || !players[death.playerId]) errors.push("Утренняя смерть без игрока.");
-    }
-    if (state.day.execution && !players[state.day.execution.playerId])
-      errors.push("Казнь без игрока.");
-  }
-  if (state.setup) {
-    const setupRefs = [
-      state.setup.grandmotherId,
-      state.setup.evilTwinGoodPlayerId,
-      state.setup.evilTwinPlayerId,
-      state.setup.herringId,
-    ];
-    if (setupRefs.some((id) => id != null && !players[id]))
-      errors.push("Ссылка настройки не найдена.");
-  }
-  if (
-    state.mastermind &&
-    typeof state.mastermind.playerId === "string" &&
-    !players[state.mastermind.playerId]
-  ) {
-    errors.push("Кукловод не найден.");
-  }
-
-  const keys = new Set();
-  for (const step of (state.night && state.night.queue) || []) {
-    if (!step || typeof step.key !== "string") {
-      errors.push("Ночной шаг без ключа.");
-      continue;
-    }
-    if (keys.has(step.key)) errors.push("Повтор ночного шага: " + step.key);
-    keys.add(step.key);
-    if (step.actorId != null && !players[step.actorId])
-      errors.push("Ночной актёр не найден: " + step.actorId);
-  }
-
-  if (state.winner && state.phase !== "over")
-    errors.push("Победитель объявлен вне фазы завершения.");
-  if (
-    state.winner &&
-    ((state.night && state.night.queue) || []).some(
-      (step) => step.pending && step.pending.kind === "demon-inheritance",
-    )
-  ) {
-    errors.push("Победитель объявлен до выбора наследника Демона.");
-  }
-  if (state.day && state.day.activeNominationId) {
-    const found = (state.day.nominations || []).some(
-      (nomination) => nomination.id === state.day.activeNominationId,
-    );
-    if (!found) errors.push("Активная номинация не найдена.");
-  }
-  return errors;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort())
-      out[key] = canonicalize((value as Record<string, unknown>)[key]);
-    return out;
-  }
-  return value;
-}
-
-// Domain equality ignores volatile persistence and audit fields. It keeps the
-// rule state: phase, players, effects, queue, day, deaths, winner and setup.
-export function canonicalState(state: GameState): Record<string, unknown> {
-  const copy = { ...state } as Record<string, unknown>;
-  delete copy.storageError;
-  delete copy.revision;
-  delete copy.updatedAt;
-  delete copy.createdAt;
-  delete copy.applied;
-  delete copy.journal;
-  delete copy.migratedFrom;
-  delete copy.log;
-  delete copy.corrections;
-  return canonicalize(copy) as Record<string, unknown>;
-}
-
-function sameValue(a: unknown, b: unknown): boolean {
-  return JSON.stringify(canonicalize(a)) === JSON.stringify(canonicalize(b));
-}
-
-function fingerprintOf(command: Command, version: string): string {
-  return JSON.stringify(
-    canonicalize({
-      type: command.type,
-      payload: command.payload == null ? {} : command.payload,
-      rulesetVersion: version,
-    }),
-  );
-}
-
-// `state.applied` is the idempotency ledger: one id bound to the canonical
-// fingerprint of its input. The journal contains the same accepted commands
-// (before the current call), so a repeated id is found here.
 interface StoredCommand {
   type: string;
   fingerprint: string | null;
@@ -969,9 +517,10 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function withDeterminism<T>(seedText: string, at: Date, fn: () => T, runtime: Runtime): T {
-  return runWithExecutionContext({ random: seededRandom(runtime.random.seed(seedText)) }, () =>
-    withClock(at, fn),
+function commandPorts(seedText: string, at: Date, runtime: Runtime): CommandExecutionContext {
+  return createExecutionContext(
+    () => at.toISOString(),
+    seededRandom(runtime.random.seed(seedText)),
   );
 }
 
@@ -1271,54 +820,6 @@ function futureOf(after: GameState, followUp: Record<string, unknown> | null) {
 // ---------------------------------------------------------------------------
 // Public API
 
-function commandVersion(command: Command): string {
-  return command.rulesetVersion == null ? RULESET_VERSION : String(command.rulesetVersion);
-}
-
-function recordJournalEntry(
-  state: GameState,
-  command: Command,
-  meta: CommandMeta,
-  version: string,
-  fingerprint: string,
-  at: string,
-  undoable: boolean,
-  base: GameState | null,
-): void {
-  if (meta.resetHistory) {
-    // A reset command (new game, import) starts a new history: the state it
-    // produced is the base and nothing before it can be undone or replayed.
-    const resetBase = clone(state);
-    delete (resetBase as Partial<GameState>).journal;
-    state.journal = { base: resetBase, entries: [] };
-    return;
-  }
-  const journal =
-    state.journal && Array.isArray(state.journal.entries)
-      ? state.journal
-      : { base: null, entries: [] };
-  if (!journal.base) journal.base = base;
-  const entry: JournalEntry = {
-    id: command.id,
-    type: command.type,
-    payload: clone(command.payload || {}),
-    at,
-    rulesetVersion: version,
-    fingerprint,
-    undoable,
-  };
-  // A record-only command (notes, review, secret normalization) changes the
-  // state but does not need its own history step. Coalesce a trailing entry of
-  // the same type so 300 keystrokes stay one replayable command.
-  const last = journal.entries[journal.entries.length - 1];
-  if (!undoable && last && last.undoable === false && last.type === command.type) {
-    journal.entries[journal.entries.length - 1] = entry;
-  } else {
-    journal.entries.push(entry);
-  }
-  state.journal = journal;
-}
-
 function normalizeCommand(
   command: Command,
 ): { ok: true; version: string } | { ok: false; error: string; errorCode?: string } {
@@ -1378,14 +879,10 @@ function runDraft(
   const atIso = at.toISOString();
   const seedText =
     command.id + "|" + fingerprint + "|" + hashString(JSON.stringify(canonicalState(state)));
+  const ports = commandPorts(seedText, at, runtime);
   let outcome: DomainOutcome;
   try {
-    outcome = withDeterminism(
-      seedText,
-      at,
-      () => finish(runCommand(command.type, draft, command.payload || {})),
-      runtime,
-    );
+    outcome = finish(runCommand(command.type, draft, command.payload || {}, ports));
   } catch (error) {
     return {
       outcome: {
@@ -1434,7 +931,7 @@ function runDraft(
       at: atIso,
     };
   }
-  resolveSuspendedPukkaDeaths(draft, gameAt);
+  resolveSuspendedPukkaDeaths(draft, gameAt, ports);
   const violations = checkInvariants(draft);
   if (violations.length) {
     return {
@@ -1623,9 +1120,4 @@ export function applyCommand(
     undoable,
     resetHistory: Boolean(entry.resetHistory),
   };
-}
-
-function replaceContents(target: object, source: object) {
-  for (const key of Object.keys(target)) delete (target as Record<string, unknown>)[key];
-  Object.assign(target, clone(legacyRecord(source)));
 }

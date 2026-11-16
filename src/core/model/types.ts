@@ -148,6 +148,7 @@ export interface Used {
   jugglerGuesses?: string[];
   lunaticTarget?: string;
   moonchildResolved?: boolean;
+  moonchildImpaired?: boolean;
   moonchildTarget?: string;
   philosopher?: boolean;
   poNoOne?: boolean;
@@ -293,6 +294,10 @@ export interface Nomination {
   at: string;
   votes: string[];
   deadVoters?: string[];
+  /** Voters who were Demons when the votes were recorded. */
+  demonVoters?: string[];
+  /** The nominator's team when the nomination was made. */
+  minionNomination?: boolean;
   count: number;
   threshold: number;
   recorded: boolean;
@@ -421,6 +426,8 @@ export interface JugglerGuess {
 export interface Juggler {
   day: number;
   guesses: JugglerGuess[] | Record<string, RoleId>;
+  /** Correct guesses at the moment the guesses were recorded. */
+  correct?: number;
   [key: string]: unknown;
 }
 
@@ -496,6 +503,8 @@ export interface GameState {
   juggler: Juggler | null;
   artist: ArtistRecord | null;
   savant: SavantRecord | null;
+  /** Every Savant visit, including a borrowed copy; `savant` is the latest. */
+  savantVisits?: SavantRecord[];
   abnormal: AbnormalMark[];
   lastDay: LastDay | null;
   mastermind: Mastermind | null;

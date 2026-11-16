@@ -26,7 +26,7 @@ flowchart LR
 | `src/ui` | React shell, router store, legacy bridge, shared components, native screens, translations, Tailwind entry and tokens | `core` (types), `application` (snapshot type), React, Radix |
 | `src/entry` | composition root: store facade, locale boot, offline registration and the two DOM screens | everything |
 
-The policy scan (`scripts/check-types-policy.mjs`) enforces the direction, the
+The policy scan (`scripts/check-types-policy.ts`) enforces the direction, the
 production/test split, every static import form, the ban on `node:` outside
 scripts and tests, the rejection of the retired `js/` path and the restricted
 assertions. It is a textual scan; review remains the second control.
@@ -56,15 +56,33 @@ edition-specific branch. The Gambler and Pukka are migrated; the remaining role
 branches stay in `bmr.ts`, `sv.ts` and `night.ts` until their own reviewed
 slice, which keeps the migration reviewable role by role.
 
+[ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
+capability for each step kind, one coordinator order (attack, protection and
+redirect, death or execution, on-death and character change, win), the command
+transaction boundary, per-command execution ports and the migration order.
+`src/core/roles/architecture.test.ts` locks the role-to-engine dependency
+direction; no exception remains.
+
 ## Deterministic execution
 
-`src/core/engine/execution.ts` is the one scoped execution context for a
-command. `runDraft` installs it through `runWithExecutionContext` with the
-seeded generator for that command; rule handlers draw state ids through
-`randomSuffix` and the random deal through `nextRandom`. The global
-`Math.random` is never replaced, so a command cannot leak randomness to another
-command or to concurrent work. Outside a command the helpers fall back to the
-platform default, which keeps direct engine calls in tests unchanged.
+`src/core/model/ports.ts` defines the one explicit record a command needs:
+
+```ts
+export interface CommandExecutionContext {
+  readonly clock: { readonly now: () => string };
+  readonly rng: { readonly next: () => number };
+  readonly idFactory: { readonly suffix: (length: number) => string };
+}
+```
+
+`runDraft` builds one record per command from the command timestamp and the
+seeded generator (`createExecutionContext`), and passes it to every domain
+function that stamps time, mints an id, or resolves a random deal. The clock and
+the generator therefore travel as values, not through module state: a module
+cannot read an ambient clock, and interleaved games cannot share a sequence.
+`src/core/model/state.ts` has no clock override and `src/core/engine/execution.ts`
+is gone. Direct engine calls outside a command use the immutable `systemPorts`
+default; a store command always passes its own ports.
 
 ## Store transaction
 
@@ -125,11 +143,11 @@ unchanged; the store and the model own them.
   `.label` primitives or an Arcane component;
   `css/bag.css`, `css/seat.css`, `css/setup.css`, `css/sheet.css`,
   `css/player.css`, `css/table.css` and `css/host.css` are removed.
-  `scripts/check-types-policy.mjs` fails when a second stylesheet appears, when
+  `scripts/check-types-policy.ts` fails when a second stylesheet appears, when
   the entry stops being a layered Tailwind entry, when a theme token is unused,
   or when a `var(--…)` reference resolves to nothing.
 - Converted elements keep legacy class names as inert hooks for
-  `scripts/browser-check.mjs`; the classes carry no declarations.
+  `scripts/browser-check.ts`; the classes carry no declarations.
 - Runtime dependencies are `react`, `react-dom`, `@radix-ui/react-dialog` and
   `@radix-ui/react-label`; build dependencies add `vite`, `typescript`,
   `tailwindcss`, `@tailwindcss/vite`, `@types/react`, `@types/react-dom`,
@@ -137,11 +155,11 @@ unchanged; the store and the model own them.
 
 ## Build and publication
 
-- `BASE_PATH` is normalized once in `scripts/base-path.mjs` and feeds Vite, the
+- `BASE_PATH` is normalized once in `scripts/base-path.ts` and feeds Vite, the
   router root, `dist/404.html` and the worker registration.
-- `scripts/build-offline.mjs --root dist --out dist/sw.js` hashes the artifact;
+- `scripts/build-offline.ts --root dist --out dist/sw.js` hashes the artifact;
   the worker never reads the source tree.
-- `scripts/serve-dist.mjs` reproduces GitHub Pages: unknown paths get the real
+- `scripts/serve-dist.ts` reproduces GitHub Pages: unknown paths get the real
   404 document, never an SPA fallback.
 
 ## Migration map

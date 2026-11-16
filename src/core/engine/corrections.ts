@@ -8,24 +8,29 @@ import {
   roleLabel,
   roleTeam,
 } from "../model/rules.ts";
-import { nowIso, playerById } from "../model/state.ts";
+import { nowIso, playerById, realTeamOf } from "../model/state.ts";
 
 import { currentAt, addLog } from "./context.ts";
 import { setupErrors, secretsErrors } from "./setup.ts";
+import { systemPorts } from "../model/ports.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
 
 import { reconcileNoDashiiPoison } from "./sv.ts";
 
-function applyManualCorrection(state: GameState, change: unknown) {
+function applyManualCorrection(state: GameState, change: unknown, ports: CommandExecutionContext) {
   const view = (change !== null && typeof change === "object" ? change : {}) as Record<
     string,
     unknown
   >;
   const reason = String(view.reason || "").trim();
   if (!reason) return { ok: false, errorCode: "error.0", error: "Укажите причину ручной правки." };
-  const at = nowIso();
+  const at = nowIso(ports);
   const player = typeof view.playerId === "string" ? playerById(state, view.playerId) : null;
   const record = { at, reason, ...view };
-  state.corrections.push(record);
+  const commit = (): { ok: true } => {
+    state.corrections.push(record);
+    return { ok: true };
+  };
 
   if (view.kind === "alive") {
     if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
@@ -43,14 +48,18 @@ function applyManualCorrection(state: GameState, change: unknown) {
       };
       player.voteToken = true;
     }
-    addLog(state, {
-      secret: true,
-      kind: "correction",
-      title: "Ручная правка: " + (alive ? "возвращён" : "отмечен мёртвым"),
-      detail: player.name + ". Причина: " + reason,
-      playerId: player.id,
-    });
-    return { ok: true };
+    addLog(
+      state,
+      {
+        secret: true,
+        kind: "correction",
+        title: "Ручная правка: " + (alive ? "возвращён" : "отмечен мёртвым"),
+        detail: player.name + ". Причина: " + reason,
+        playerId: player.id,
+      },
+      ports,
+    );
+    return commit();
   }
 
   if (view.kind === "role") {
@@ -67,14 +76,61 @@ function applyManualCorrection(state: GameState, change: unknown) {
     player.roleId = roleId;
     player.shownRoleId = roleId;
     player.team = roleTeam(roleId) === "minion" || roleTeam(roleId) === "demon" ? "evil" : "good";
-    addLog(state, {
-      secret: true,
-      kind: "correction",
-      title: "Ручная правка роли",
-      detail: player.name + ": " + roleLabel(roleId) + ". Причина: " + reason,
-      playerId: player.id,
-    });
-    return { ok: true };
+    addLog(
+      state,
+      {
+        secret: true,
+        kind: "correction",
+        title: "Ручная правка роли",
+        detail: player.name + ": " + roleLabel(roleId) + ". Причина: " + reason,
+        playerId: player.id,
+      },
+      ports,
+    );
+    return commit();
+  }
+
+  if (view.kind === "twin") {
+    if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
+    if (!isSnvScript(state.script)) {
+      return { ok: false, errorCode: "error.74", error: "Правка Близнецов доступна только в S&V." };
+    }
+    if (player.roleId !== "eviltwin") {
+      return { ok: false, errorCode: "error.75", error: "У игрока нет роли Злого Близнеца." };
+    }
+    const partner = typeof view.value === "string" ? playerById(state, view.value) : null;
+    if (!partner || partner.id === player.id) {
+      return { ok: false, errorCode: "error.31", error: "Партнёр не найден." };
+    }
+    if (realTeamOf(partner) === realTeamOf(player)) {
+      return {
+        ok: false,
+        errorCode: "error.76",
+        error: "Партнёр должен быть другого мировоззрения.",
+      };
+    }
+    const good = realTeamOf(player) === "good" ? player : partner;
+    const evil = good.id === player.id ? partner : player;
+    state.setup.evilTwinGoodPlayerId = good.id;
+    state.setup.evilTwinPlayerId = evil.id;
+    // A mid-game good holder already has the `eviltwin` character, which is not
+    // a legal setup good role; the stored player ids are authoritative then.
+    const goodRole = good.roleId;
+    if (goodRole && (roleTeam(goodRole) === "townsfolk" || roleTeam(goodRole) === "outsider")) {
+      state.setup.evilTwinGoodId = goodRole;
+    }
+    addLog(
+      state,
+      {
+        secret: true,
+        kind: "correction",
+        title: "Ручная правка Близнецов",
+        detail: player.name + " и " + partner.name + ". Причина: " + reason,
+        playerId: player.id,
+      },
+      ports,
+    );
+    return commit();
   }
 
   if (view.kind === "shown") {
@@ -84,14 +140,18 @@ function applyManualCorrection(state: GameState, change: unknown) {
       return { ok: false, errorCode: "error.2", error: "Неизвестная роль." };
     }
     player.shownRoleId = shown;
-    addLog(state, {
-      secret: true,
-      kind: "correction",
-      title: "Ручная правка показанной роли",
-      detail: player.name + ". Причина: " + reason,
-      playerId: player.id,
-    });
-    return { ok: true };
+    addLog(
+      state,
+      {
+        secret: true,
+        kind: "correction",
+        title: "Ручная правка показанной роли",
+        detail: player.name + ". Причина: " + reason,
+        playerId: player.id,
+      },
+      ports,
+    );
+    return commit();
   }
 
   if (view.kind === "reminder") {
@@ -104,14 +164,18 @@ function applyManualCorrection(state: GameState, change: unknown) {
     } else if (!player.reminders.includes(text)) {
       player.reminders.push(text);
     }
-    addLog(state, {
-      secret: true,
-      kind: "correction",
-      title: "Ручная правка напоминаний",
-      detail: player.name + ": " + text + ". Причина: " + reason,
-      playerId: player.id,
-    });
-    return { ok: true };
+    addLog(
+      state,
+      {
+        secret: true,
+        kind: "correction",
+        title: "Ручная правка напоминаний",
+        detail: player.name + ": " + text + ". Причина: " + reason,
+        playerId: player.id,
+      },
+      ports,
+    );
+    return commit();
   }
 
   if (view.kind === "effect") {
@@ -119,13 +183,17 @@ function applyManualCorrection(state: GameState, change: unknown) {
     const effect = state.effects.find((item) => item.id === effectId);
     if (!effect) return { ok: false, errorCode: "error.4", error: "Эффект не найден." };
     effect.active = Boolean(view.value);
-    addLog(state, {
-      secret: true,
-      kind: "correction",
-      title: "Ручная правка эффекта",
-      detail: effect.kind + ". Причина: " + reason,
-    });
-    return { ok: true };
+    addLog(
+      state,
+      {
+        secret: true,
+        kind: "correction",
+        title: "Ручная правка эффекта",
+        detail: effect.kind + ". Причина: " + reason,
+      },
+      ports,
+    );
+    return commit();
   }
 
   if (view.kind === "clear-winner") {
@@ -133,20 +201,28 @@ function applyManualCorrection(state: GameState, change: unknown) {
     state.reviewOpen = false;
     state.publicRevealed = false;
     state.phase = state.day && state.day.number ? "day" : "night";
-    addLog(state, {
-      secret: true,
-      kind: "correction",
-      title: "Результат партии сброшен",
-      detail: "Причина: " + reason,
-    });
-    return { ok: true };
+    addLog(
+      state,
+      {
+        secret: true,
+        kind: "correction",
+        title: "Результат партии сброшен",
+        detail: "Причина: " + reason,
+      },
+      ports,
+    );
+    return commit();
   }
 
   return { ok: false, errorCode: "error.5", error: "Неизвестный тип правки." };
 }
 
-export function manualCorrection(state: GameState, change: unknown) {
-  const result = applyManualCorrection(state, change);
+export function manualCorrection(
+  state: GameState,
+  change: unknown,
+  ports: CommandExecutionContext = systemPorts,
+) {
+  const result = applyManualCorrection(state, change, ports);
   if (result && result.ok && isSnvScript(state.script)) {
     reconcileNoDashiiPoison(state);
   }

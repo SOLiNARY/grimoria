@@ -18,6 +18,8 @@ export type InfoResult = {
   textVars?: Record<string, string | number | undefined>;
   /** Runs of false information end with the shared Storyteller suffix. */
   falsifiedSuffix?: boolean;
+  /** An impaired actor may receive false or true information; not mandatory. */
+  mayBeFalseSuffix?: boolean;
   missing?: boolean;
   /** The host answers because the data source is missing, not because the answer is false. */
   hostAnswer?: boolean;
@@ -34,6 +36,8 @@ import { orderedPlayers, playerById, realTeamOf, executionDeathForDay } from "..
 
 import { nightAt, aliveNeighbors } from "./context.ts";
 import { isImpaired } from "./effects.ts";
+import { roleModule } from "../roles/registry.ts";
+import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
 import { svInfoForStep } from "./sv.ts";
 
@@ -122,6 +126,29 @@ export function chefCount(state: GameState, registrations: Registrations = {}): 
       pairs += 1;
   }
   return pairs;
+}
+
+// Chef r2510 Example 4 and Recluse r3007: a Spy or Recluse may register
+// differently for each pair of one Chef query. Each pair is then independently
+// evil or not, so every count between the unavoidable minimum and the possible
+// maximum is legal. The host chooses the count; the engine picks no registration.
+function chefRegistrationRange(state: GameState): { min: number; max: number } {
+  const ids = state.order;
+  let min = 0;
+  let max = 0;
+  const canBeEvil = (player: Player | null): boolean =>
+    alignmentOf(state, player) === "evil" ||
+    Boolean(player && player.roleId === "recluse" && registrationApplies(state, player));
+  const canBeGood = (player: Player | null): boolean =>
+    alignmentOf(state, player) === "good" ||
+    Boolean(player && player.roleId === "spy" && registrationApplies(state, player));
+  for (let i = 0; i < ids.length; i += 1) {
+    const a = playerById(state, ids[i]!);
+    const b = playerById(state, ids[(i + 1) % ids.length]!);
+    if (canBeEvil(a) && canBeEvil(b)) max += 1;
+    if (!canBeGood(a) && !canBeGood(b)) min += 1;
+  }
+  return { min, max };
 }
 
 export function empathCount(
@@ -233,13 +260,16 @@ export function infoForStep(
           .map((player) => player.id);
         return {
           kind: "one-of-two",
+          zero: true,
           roleId: options[0] || null,
           pair: others.slice(0, 2),
           matchIndex: 0,
           impaired,
           needsChoice: true,
-          options,
-          text: "Игрок отравлен или пьян: предложена ложная информация.",
+          // The true zero answer stays legal: a drunk or poisoned player may
+          // still receive true information (Drunk r3165 "may give false").
+          options: [...options, "zero"],
+          text: "Игрок отравлен или пьян: можно показать ложную пару или верный ответ «нет Изгоев».",
         };
       }
       return { kind: "one-of-two", zero: true, text: "В игре нет Изгоев." };
@@ -267,17 +297,41 @@ export function infoForStep(
 
   if (role === "chef") {
     const value = chefCount(state, registrations);
+    const range = chefRegistrationRange(state);
+    const registrationChoice = !impaired && range.min < range.max;
     return {
       kind: "number",
       value,
       impaired,
-      needsChoice: impaired,
-      options: impaired ? uniqueNumbers(0, orderedPlayers(state).length) : [],
+      needsChoice: impaired || registrationChoice,
+      options: impaired
+        ? uniqueNumbers(0, orderedPlayers(state).length)
+        : registrationChoice
+          ? uniqueNumbers(range.min, range.max)
+          : [],
     };
   }
 
   if (role === "empath") {
-    const value = empathCount(state, actor ? actor.id : "", registrations);
+    const module = roleModule("empath");
+    const decision =
+      module &&
+      resolveInformationCapability(module, {
+        actorId: actor ? actor.id : "",
+        infoKind: "empath",
+        targetIds: options.targetIds || step.targetIds || [],
+        impaired,
+        at,
+        aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
+        registeredTeamOf: (playerId) =>
+          alignmentOf(state, playerById(state, playerId), registrations),
+        actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
+        hasPlayer: (playerId) => playerById(state, playerId) != null,
+      });
+    const value =
+      decision?.kind === "answer" && typeof decision.value === "number"
+        ? decision.value
+        : empathCount(state, actor ? actor.id : "", registrations);
     return {
       kind: "number",
       value,

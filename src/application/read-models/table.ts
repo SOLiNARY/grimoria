@@ -9,6 +9,7 @@ import {
   currentStep,
   demonChangePending,
   executionThreshold,
+  evilTwinHolder,
   infoForStep,
   isImpaired,
   madnessEffects,
@@ -42,6 +43,7 @@ export interface TableProjection {
   pendingDemonChange: NightStep | null;
   living: number;
   threshold: number;
+  twinHolderId: string | null;
 }
 
 export function tableProjection(state: GameState): TableProjection {
@@ -52,6 +54,7 @@ export function tableProjection(state: GameState): TableProjection {
     pendingDemonChange: demonChangePending(state),
     living,
     threshold: executionThreshold(living),
+    twinHolderId: evilTwinHolder(state)?.id ?? null,
   };
 }
 
@@ -97,16 +100,30 @@ export interface MadnessReviewProjection {
 export function madnessReviewProjection(state: GameState): MadnessReviewProjection[] {
   const due = new Set(madnessReviewsDue(state).map((effect) => effect.id));
   const seatOrder = new Map(orderedPlayers(state).map((player, index) => [player.id, index]));
-  return madnessEffects(state)
-    .map((effect) => ({
-      effect,
-      playerId: String(effect.targetId || ""),
-      pending: due.has(effect.id),
-    }))
-    .sort(
-      (left, right) =>
-        (seatOrder.get(left.playerId) ?? Infinity) - (seatOrder.get(right.playerId) ?? Infinity),
-    );
+  return (
+    madnessEffects(state)
+      // A token told on this night is for tomorrow: it must not offer the
+      // Storyteller a night execution before the player had that day.
+      .filter(
+        (effect) =>
+          !(
+            state.phase === "night" &&
+            effect.madness === "cerenovus" &&
+            effect.start &&
+            effect.start.phase === "night" &&
+            effect.start.number === state.night.number
+          ),
+      )
+      .map((effect) => ({
+        effect,
+        playerId: String(effect.targetId || ""),
+        pending: due.has(effect.id),
+      }))
+      .sort(
+        (left, right) =>
+          (seatOrder.get(left.playerId) ?? Infinity) - (seatOrder.get(right.playerId) ?? Infinity),
+      )
+  );
 }
 
 export interface StepProjectionInput {

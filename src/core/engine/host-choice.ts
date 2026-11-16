@@ -3,7 +3,10 @@
 // and records the answer the host gives.
 import type { GameState, NightStep, RoleId } from "../model/types.ts";
 import { addLog } from "./context.ts";
+import { systemPorts } from "../model/ports.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
 import { isImpaired } from "./effects.ts";
+import { roleModule } from "../roles/registry.ts";
 
 export const HOST_CHOICE_CASES = [
   "false-information",
@@ -41,6 +44,7 @@ export interface LegalInfo {
   kind?: string;
   options?: unknown[];
   needsChoice?: boolean;
+  zero?: boolean;
 }
 
 /** The case a step's discretionary answer belongs to. */
@@ -70,6 +74,11 @@ export function givenIsLegal(
   if (info.kind === "yes-no") {
     return typeof given.value === "boolean" && options.includes(given.value);
   }
+  if (info.kind === "one-of-two" && given.zero === true) {
+    // A payload may not claim zero and name a role at the same time.
+    if (given.roleId != null) return false;
+    return info.zero === true && options.map(String).includes("zero");
+  }
   if (info.kind === "character" || info.kind === "one-of-two" || info.kind === "role") {
     return options.map(String).includes(String(given.roleId));
   }
@@ -93,6 +102,7 @@ export function describeRegistrations(
 /** What the journal shows for an applied answer. */
 export function describeGiven(given: Record<string, unknown> | null | undefined): string {
   if (!given) return "—";
+  if (given.zero === true) return "0";
   if (Array.isArray(given.pair)) return given.pair.map(String).join(" / ");
   if (typeof given.value === "boolean") return given.value ? "да" : "нет";
   if (typeof given.value === "number") return String(given.value);
@@ -107,27 +117,33 @@ export function recordHostChoice(
   caseId: HostChoiceCase,
   answer: string,
   playerId: string | null = null,
+  ports: CommandExecutionContext = systemPorts,
 ): void {
-  addLog(state, {
-    secret: true,
-    kind: "choice",
-    title: HOST_CHOICE_REASONS[caseId],
-    detail: answer,
-    ...(playerId ? { playerId } : {}),
-    case: caseId,
-  });
+  addLog(
+    state,
+    {
+      secret: true,
+      kind: "choice",
+      title: HOST_CHOICE_REASONS[caseId],
+      detail: answer,
+      ...(playerId ? { playerId } : {}),
+      case: caseId,
+    },
+    ports,
+  );
 }
 
-// Only the Spy and the Recluse change what abilities see, and only the values
-// the information path reads: alignment and Demon registration.
-const REGISTRATION_VALUES: Partial<Record<RoleId, readonly string[]>> = {
-  spy: ["good"],
-  recluse: ["evil", "demon"],
-};
-
+// Only a role that declares the registration adjudication arm changes what
+// abilities see: the Spy and the Recluse today.
 /** The registration values a role may take, or an empty list for every other role. */
 export function legalRegistrations(roleId: RoleId | null | undefined): readonly string[] {
-  return REGISTRATION_VALUES[roleId || ""] ?? [];
+  const module = roleModule(roleId || "");
+  for (const capability of module?.capabilities || []) {
+    if (capability.kind === "adjudication" && capability.case === "registration") {
+      return capability.options;
+    }
+  }
+  return [];
 }
 
 /**

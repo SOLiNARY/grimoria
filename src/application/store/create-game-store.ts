@@ -64,6 +64,8 @@ export interface GameStore {
   readonly state: ValidatedState;
   readonly loadStatus: LoadStatus;
   prepare(input: CommandInput): PrepareResult;
+  /** A fresh id from the injected source, for previews and host actions. */
+  nextCommandId(): string;
   preview(command: PreparedCommand): DomainOutcome;
   dispatch(command: PreparedCommand): DispatchResult;
   persist(): SaveOutcome;
@@ -251,6 +253,10 @@ export function createGameStore(ports: StorePorts): GameStore {
     if (disk !== diskSnapshot) {
       failure = "Another tab changed this game. Reload before continuing.";
     } else {
+      // A write that throws keeps the persisted revision and timestamp: the
+      // save status reports the failure, the game claims no new version.
+      const previousUpdatedAt = state.updatedAt;
+      const previousRevision = state.revision;
       try {
         state.updatedAt = clock.now().toISOString();
         state.revision = savedRevision + 1;
@@ -264,6 +270,9 @@ export function createGameStore(ports: StorePorts): GameStore {
         publish();
         return { ok: true, error: null };
       } catch (error) {
+        state.updatedAt = previousUpdatedAt;
+        if (previousRevision === undefined) delete (state as Partial<GameState>).revision;
+        else state.revision = previousRevision;
         failure = "Could not save the game: " + messageOf(error) + ". Export your game.";
       }
     }
@@ -362,6 +371,10 @@ export function createGameStore(ports: StorePorts): GameStore {
         rulesetVersion: RULESET_VERSION,
         supportedRulesetVersions: SUPPORTED_RULESET_VERSIONS,
       });
+    },
+
+    nextCommandId() {
+      return ids.next();
     },
 
     preview(command) {
@@ -481,6 +494,9 @@ export function createGameStore(ports: StorePorts): GameStore {
 
     run(mutator): RunOutcome {
       const before = clone(state);
+      const floorBefore = undoFloor;
+      const undoBefore = legacyUndo;
+      const redoBefore = [...redoStack];
       try {
         const result = mutator(state);
         const rejected =
@@ -491,15 +507,25 @@ export function createGameStore(ports: StorePorts): GameStore {
         }
         // Legacy escape hatch: an arbitrary mutation cannot be replayed, so it
         // keeps one snapshot and starts a fresh journal at the mutated state.
-        const floorBefore = undoFloor;
         resetJournal();
         legacyUndo = { state: before, floor: floorBefore };
         redoStack.length = 0;
         undoFloor = 0;
-        const saved = persist();
-        return { ok: true, error: saved.error, persisted: saved.ok, result };
+        const saved = persist(false);
+        if (!saved.ok) {
+          replaceContents(state, before);
+          undoFloor = floorBefore;
+          legacyUndo = undoBefore;
+          redoStack.splice(0, redoStack.length, ...redoBefore);
+          markFailed(saved.error || "Could not save.");
+          return { ok: false, error: saved.error, persisted: false, result };
+        }
+        return { ok: true, error: saved.error, persisted: true, result };
       } catch (error) {
         replaceContents(state, before);
+        undoFloor = floorBefore;
+        legacyUndo = undoBefore;
+        redoStack.splice(0, redoStack.length, ...redoBefore);
         return { ok: false, error: messageOf(error), persisted: false };
       }
     },

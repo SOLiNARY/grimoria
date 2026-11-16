@@ -20,13 +20,17 @@ import {
 } from "../model/state.ts";
 
 import { dayAt, currentAt, addLog } from "./context.ts";
-import { randomSuffix } from "./execution.ts";
+import { idSuffix } from "../model/ports.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
+import { systemPorts } from "../model/ports.ts";
 import { isImpaired, protectionFor, soldierSafe, mayorRedirects, bmrCannotDie } from "./effects.ts";
 import { HOST_CHOICE_REASONS } from "./host-choice.ts";
 
 import { demonChangePending } from "./night.ts";
 import { minionRetainsAbility } from "./retention.ts";
 import { becomeDemon } from "./becoming.ts";
+import { resolveDeathCapability } from "./death-ability.ts";
+import { resolveWinCapability } from "./win-ability.ts";
 import { roleModule } from "../roles/registry.ts";
 import type { DeathOutcome } from "../roles/types.ts";
 
@@ -52,6 +56,7 @@ export function kill(
     ability?: string;
     bmr?: string | boolean;
   } = {},
+  ports: CommandExecutionContext = systemPorts,
 ): Death | null {
   const player = playerById(state, playerId);
   if (!player || !player.alive) return null;
@@ -73,36 +78,44 @@ export function kill(
         // stays alive but a death is recorded for the day, so "if no-one died
         // today" abilities (the Zombuul's own wake) see it.
         state.deaths.push({
-          id: "death-" + (state.deaths.length + 1) + "-" + randomSuffix(4),
+          id: "death-" + (state.deaths.length + 1) + "-" + idSuffix(ports, 4),
           playerId,
           roleId: player.roleId,
           cause,
           phase: at.phase,
           number: at.number,
-          at: nowIso(),
+          at: nowIso(ports),
           impaired: false,
           livingBefore: livingPlayers(state).length,
           zombuul: true,
         });
-        addLog(state, {
-          secret: true,
-          kind: "death",
-          title: player.name + ": первая смерть Зомбула",
-          detail: "Зомбул остаётся жив, но регистрируется как мёртвый.",
-          playerId,
-          consequence: "prevented",
-        });
-        checkWin(state);
+        addLog(
+          state,
+          {
+            secret: true,
+            kind: "death",
+            title: player.name + ": первая смерть Зомбула",
+            detail: "Зомбул остаётся жив, но регистрируется как мёртвый.",
+            playerId,
+            consequence: "prevented",
+          },
+          ports,
+        );
+        checkWin(state, {}, ports);
         return null;
       }
-      addLog(state, {
-        secret: true,
-        kind: "death",
-        title: player.name + ": смерть предотвращена",
-        detail: "Причина: " + cause + ". Защита: " + prevented + ".",
-        playerId,
-        consequence: "prevented",
-      });
+      addLog(
+        state,
+        {
+          secret: true,
+          kind: "death",
+          title: player.name + ": смерть предотвращена",
+          detail: "Причина: " + cause + ". Защита: " + prevented + ".",
+          playerId,
+          consequence: "prevented",
+        },
+        ports,
+      );
       return null;
     }
   }
@@ -112,26 +125,30 @@ export function kill(
   player.deadAt = { phase: at.phase, number: at.number, cause };
   player.voteToken = true;
   const death = {
-    id: "death-" + (state.deaths.length + 1) + "-" + randomSuffix(4),
+    id: "death-" + (state.deaths.length + 1) + "-" + idSuffix(ports, 4),
     playerId,
     roleId: player.roleId,
     cause,
     phase: at.phase,
     number: at.number,
-    at: nowIso(),
+    at: nowIso(ports),
     impaired,
     livingBefore,
     ...extra,
   };
   state.deaths.push(death);
-  addLog(state, {
-    secret: true,
-    kind: "death",
-    title: player.name + " погибает",
-    detail: "Причина: " + cause + ". Роль: " + roleLabel(player.roleId) + ".",
-    playerId,
-    consequence: "death",
-  });
+  addLog(
+    state,
+    {
+      secret: true,
+      kind: "death",
+      title: player.name + " погибает",
+      detail: "Причина: " + cause + ". Роль: " + roleLabel(player.roleId) + ".",
+      playerId,
+      consequence: "death",
+    },
+    ports,
+  );
   return death;
 }
 
@@ -144,15 +161,23 @@ export function resolveDemonDeath(
     livingBefore,
     at = currentAt(state),
   }: { playerId: string; roleId: RoleId | null; cause: string; livingBefore: number; at?: DeadAt },
+  ports: CommandExecutionContext = systemPorts,
 ): DeathOutcome {
-  // Trouble Brewing's succession is the shared Demon-death rule until a Demon
-  // declares its own hook.
-  const hook = roleModule(roleId ?? "")?.onDeath ?? roleModule("imp")?.onDeath;
-  if (!hook) return { inherited: false };
-  return hook(state, { playerId, roleId, cause, at, livingBefore }) ?? { inherited: false };
+  const event = { playerId, roleId, cause, at, livingBefore };
+  // A role with its own death capability owns succession; every other Demon
+  // falls back to the Imp's shared rule.
+  return (
+    resolveDeathCapability(state, roleModule(roleId ?? ""), event, ports) ??
+    resolveDeathCapability(state, roleModule("imp"), event, ports) ?? { inherited: false }
+  );
 }
 
-export function chooseDemonHeir(state: GameState, stepKey: string, heirId: string) {
+export function chooseDemonHeir(
+  state: GameState,
+  stepKey: string,
+  heirId: string,
+  ports: CommandExecutionContext = systemPorts,
+) {
   const step = state.night.queue.find((candidate) => candidate.key === stepKey);
   if (!step || !step.pending || step.pending.kind !== "demon-inheritance") {
     return { ok: false, errorCode: "error.32", error: "Здесь нет выбора наследника." };
@@ -165,17 +190,21 @@ export function chooseDemonHeir(state: GameState, stepKey: string, heirId: strin
       error: "Наследником может стать только живой Приспешник.",
     };
   }
-  becomeDemon(state, heir, "imp", currentAt(state));
+  becomeDemon(state, heir, "imp", currentAt(state), ports);
   step.pending = null;
-  checkWin(state);
-  addLog(state, {
-    secret: true,
-    kind: "choice",
-    title: HOST_CHOICE_REASONS["demon-heir"],
-    detail: heir.name || "Игрок " + heir.seat,
-    playerId: heir.id,
-    case: "demon-heir",
-  });
+  checkWin(state, {}, ports);
+  addLog(
+    state,
+    {
+      secret: true,
+      kind: "choice",
+      title: HOST_CHOICE_REASONS["demon-heir"],
+      detail: heir.name || "Игрок " + heir.seat,
+      playerId: heir.id,
+      case: "demon-heir",
+    },
+    ports,
+  );
   return { ok: true, heir };
 }
 
@@ -217,6 +246,7 @@ export function resolveAttack(
     at,
     redirectId = null,
   }: { attackerId: string; targetId: string; at: DeadAt; redirectId?: string | null },
+  ports: CommandExecutionContext = systemPorts,
 ) {
   const blocked = attackBlockReason(state, { attackerId, targetId, at });
   if (blocked) return { noDeath: true, reason: blocked };
@@ -260,17 +290,21 @@ export function resolveAttack(
   // abilities see as dead, such as a registered-dead Zombuul.
   const livingBefore = livingPlayers(state).filter(registersAlive).length;
   const selfKill = !redirected && victimId === attackerId;
-  const death = kill(state, victimId, selfKill ? "imp-self-kill" : "demon", at);
+  const death = kill(state, victimId, selfKill ? "imp-self-kill" : "demon", at, {}, ports);
 
   let inheritance = null;
   if (wasDemon && death) {
-    inheritance = resolveDemonDeath(state, {
-      playerId: victimId,
-      roleId: victim.roleId,
-      cause: death.cause,
-      livingBefore,
-      at,
-    });
+    inheritance = resolveDemonDeath(
+      state,
+      {
+        playerId: victimId,
+        roleId: victim.roleId,
+        cause: death.cause,
+        livingBefore,
+        at,
+      },
+      ports,
+    );
   }
 
   return {
@@ -284,13 +318,14 @@ export function resolveAttack(
   };
 }
 
-// The Evil Twin pair is the two players stored at the deal, regardless of which
-// character each holds: swapping the two twins keeps the pair. The ability
-// holder is the player currently holding the `eviltwin` character (it may be
-// either pair member), and it must be alive and unimpaired. The execution is
-// resolved before its death: the holder may be the player being executed (the
-// two twins swapped characters). A pair without such a holder has no ability.
-// Legacy saves store only the roles, so resolve the pair by role as a fallback.
+// The Evil Twin pair is the two players the Storyteller chose, stored as ids at
+// the deal or by the `twin` correction: it never follows a character, so
+// swapping the two twins keeps the pair. The ability holder is the player
+// currently holding the `eviltwin` character (it may be either pair member),
+// and it must be alive and unimpaired. The execution is resolved before its
+// death: the holder may be the player being executed (the two twins swapped
+// characters). An unchosen pair or one without such a holder has no ability.
+// Legacy saves without the ids are resolved once at import.
 export function evilTwinPair(
   state: GameState,
   { executingId = null }: { executingId?: string | null } = {},
@@ -298,15 +333,13 @@ export function evilTwinPair(
   const good =
     typeof state.setup.evilTwinGoodPlayerId === "string"
       ? playerById(state, state.setup.evilTwinGoodPlayerId)
-      : state.setup.evilTwinGoodId
-        ? orderedPlayers(state).find((player) => player.roleId === state.setup.evilTwinGoodId) ||
-          null
-        : null;
+      : null;
   const evil =
     typeof state.setup.evilTwinPlayerId === "string"
       ? playerById(state, state.setup.evilTwinPlayerId)
-      : orderedPlayers(state).find((player) => player.roleId === "eviltwin") || null;
+      : null;
   if (!good || !evil || good.id === evil.id) return null;
+  if (realTeamOf(good) !== "good" || realTeamOf(evil) !== "evil") return null;
   const holder = orderedPlayers(state).find((player) => player.roleId === "eviltwin") || null;
   // A Minion killed by the Vigormortis keeps its ability, including the Evil
   // Twin's execution win (r3015).
@@ -321,9 +354,38 @@ export function evilTwinPair(
   return { good, evil };
 }
 
+// A living Evil Twin holder without a stored pair naming it means the
+// Storyteller has not chosen the opposing player yet. The night cannot be
+// resolved on an inferred pair, so `endNight` refuses to close it.
+export function evilTwinHolder(state: GameState): Player | null {
+  return (
+    orderedPlayers(state).find(
+      (player) =>
+        player.roleId === "eviltwin" && (player.alive || minionRetainsAbility(state, player.id)),
+    ) || null
+  );
+}
+
+export function evilTwinPartnerMissing(state: GameState): boolean {
+  const holder = evilTwinHolder(state);
+  if (!holder) return false;
+  const good =
+    typeof state.setup.evilTwinGoodPlayerId === "string"
+      ? playerById(state, state.setup.evilTwinGoodPlayerId)
+      : null;
+  const evil =
+    typeof state.setup.evilTwinPlayerId === "string"
+      ? playerById(state, state.setup.evilTwinPlayerId)
+      : null;
+  if (!good || !evil || good.id === evil.id) return true;
+  if (realTeamOf(good) !== "good" || realTeamOf(evil) !== "evil") return true;
+  return holder.id !== good.id && holder.id !== evil.id;
+}
+
 export function checkWin(
   state: GameState,
   { endOfDay = false }: { endOfDay?: boolean } = {},
+  ports: CommandExecutionContext = systemPorts,
 ): Winner | null {
   if (state.winner) return state.winner;
   // Manual-only games never claim an automatic rule outcome. The host declares
@@ -346,7 +408,7 @@ export function checkWin(
       realTeamOf(twins.good) === "good" &&
       state.day.execution.playerId === twins.good.id
     ) {
-      return setWinner(state, "evil", "evil-twin");
+      return setWinner(state, "evil", "evil-twin", ports);
     }
     if (endOfDay && state.day && !state.day.execution) {
       const living = livingPlayers(state);
@@ -355,7 +417,7 @@ export function checkWin(
           (player) => player.roleId === "vortox" && !isImpaired(state, player.id, dayAt(state)),
         )
       ) {
-        return setWinner(state, "evil", "vortox");
+        return setWinner(state, "evil", "vortox", ports);
       }
     }
   }
@@ -375,60 +437,73 @@ export function checkWin(
           triggerDay: state.day.number,
           playerId: mastermind.id,
         };
-        addLog(state, {
-          secret: true,
-          kind: "phase",
-          title: "Кукловод продлевает игру",
-          detail: "Демон казнён, но игра продолжается ещё один день.",
-        });
+        addLog(
+          state,
+          {
+            secret: true,
+            kind: "phase",
+            title: "Кукловод продлевает игру",
+            detail: "Демон казнён, но игра продолжается ещё один день.",
+          },
+          ports,
+        );
         return null;
       }
     }
   }
 
-  const saintDeath = state.deaths.find(
-    (death) =>
-      death.cause === "execution" &&
-      !death.impaired &&
-      death.roleId === "saint" &&
-      death.phase === "day" &&
-      (!state.day || death.number === state.day.number),
-  );
-  if (saintDeath) return setWinner(state, "evil", "saint");
+  const dayExecution =
+    state.deaths.find(
+      (death) =>
+        death.cause === "execution" &&
+        death.phase === "day" &&
+        (!state.day || death.number === state.day.number),
+    ) || null;
+  const win = resolveWinCapability(state, roleModule(dayExecution?.roleId ?? ""), dayExecution);
+  if (win && win.kind === "win") return setWinner(state, win.team, win.reason, ports);
 
   const living = livingPlayers(state);
   // States r1039 and Mayor r2995: execution is distinct from death, including
   // an execution of an already dead player.
   if (endOfDay && state.day && !state.day.execution && living.length === 3) {
     const mayor = living.find((player) => mayorRedirects(state, player.id, dayAt(state)));
-    if (mayor) return setWinner(state, "good", "mayor");
+    if (mayor) return setWinner(state, "good", "mayor", ports);
   }
 
   const demon = living.find((player) => roleTeam(player.roleId || "") === "demon");
   if (!demon) {
     const twins = isSnvScript(state.script) ? evilTwinPair(state) : null;
     if (twins && twins.evil.alive && twins.good.alive) return null;
-    return setWinner(state, "good", "demon-dead");
+    return setWinner(state, "good", "demon-dead", ports);
   }
-  if (living.length <= 2) return setWinner(state, "evil", "two-alive");
+  if (living.length <= 2) return setWinner(state, "evil", "two-alive", ports);
   return null;
 }
 
-export function setWinner(state: GameState, team: Alignment, reason: string): Winner {
+export function setWinner(
+  state: GameState,
+  team: Alignment,
+  reason: string,
+  ports: CommandExecutionContext = systemPorts,
+): Winner {
   state.winner = {
     team,
     reason,
     title: team === "good" ? "Победа добра" : "Победа зла",
     detail: (DEMON_REASONS as Record<string, string>)[reason] || "",
-    at: nowIso(),
+    at: nowIso(ports),
   };
   state.phase = "over";
   state.reviewOpen = false;
-  addLog(state, {
-    kind: "winner",
-    title: state.winner.title || "",
-    detail: state.winner.detail || "",
-  });
+  addLog(
+    state,
+    {
+      kind: "winner",
+      title: state.winner.title || "",
+      detail: state.winner.detail || "",
+    },
+    ports,
+  );
   return state.winner;
 }
 

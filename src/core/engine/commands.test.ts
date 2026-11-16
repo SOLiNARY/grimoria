@@ -9,6 +9,7 @@ import {
   applyCommand,
   canonicalState,
   checkInvariants,
+  createRuntime,
   previewCommand,
   replay,
   validateCommand,
@@ -226,7 +227,7 @@ test("apply is atomic: a rejected correction leaves no record", () => {
   assert.equal(state.players["1"].alive, false);
 });
 
-test("apply is idempotent by command id and rejects id conflicts", () => {
+test("apply is idempotent by command id and rejects id conflicts (SYS-STATE-02)", () => {
   const state = make({
     1: "chef",
     2: "empath",
@@ -594,7 +595,7 @@ test("a repeated command id with a different payload is rejected", () => {
   assert.deepEqual(canonicalState(state), before);
 });
 
-test("unsupported ruleset versions are rejected before any mutation", () => {
+test("unsupported ruleset versions are rejected before any mutation (SYS-SCRIPTS-09)", () => {
   const state = make({
     1: "chef",
     2: "empath",
@@ -797,7 +798,7 @@ test("same-night mutual poison is rejected as a cyclic dependency", () => {
   }
 });
 
-test("a three-source poison cycle is rejected", () => {
+test("a three-source poison cycle is rejected (SYS-EFFECTS-04)", () => {
   const state = poisonFixture();
   state.effects.push(
     poisonEffect("cycle-1-2", "1", "2", 1),
@@ -824,7 +825,7 @@ test("cyclic poison rejection does not depend on effect array order", () => {
   assert.deepEqual(one.errors, two.errors);
 });
 
-test("effect start and expiry bound impairing effects", () => {
+test("effect start and expiry bound impairing effects (SYS-EFFECTS-03)", () => {
   const state = poisonFixture();
   state.effects.push(
     poisonEffect("future-poison", "1", "2", 2),
@@ -1089,7 +1090,7 @@ function replayFixture() {
   return { state, snapshots, events };
 }
 
-test("replay rebuilds the saved state from the recorded journal", () => {
+test("replay rebuilds the saved state from the recorded journal (SYS-STATE-03)", () => {
   const { state, snapshots, events } = replayFixture();
   const journal = state.journal;
   assert.ok(Array.isArray(journal.entries) && journal.entries.length > 0, "a journal is recorded");
@@ -1143,6 +1144,29 @@ test("replay rebuilds the saved state from the recorded journal", () => {
   assert.ok(
     journal.entries.slice(1).some((entry) => entry.id === dependent.entryId),
     "the failing entry is named",
+  );
+});
+
+test("replay is deterministic twice and never rewrites the journal it reads", () => {
+  const { state } = replayFixture();
+  const journal = state.journal;
+  const recorded = JSON.stringify(journal);
+
+  const first = outcome(replay(journal));
+  const second = outcome(replay(journal));
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(second.ok, true, JSON.stringify(second));
+  assert.equal(
+    JSON.stringify(first.state),
+    JSON.stringify(second.state),
+    "two replays of one journal serialise identically",
+  );
+  assert.deepEqual(first.events, second.events, "every pinned timestamp and seeded id repeats");
+  assert.equal(JSON.stringify(journal), recorded, "replay must not rewrite its input journal");
+  assert.equal(
+    first.state.journal.entries.length,
+    journal.entries.length,
+    "replay appends no duplicate journal entry",
   );
 });
 
@@ -1284,6 +1308,70 @@ test("record-only commands coalesce into one replayable journal entry", () => {
   });
   assert.equal(start.status, "allowed", JSON.stringify(start));
   assert.equal(state.journal.entries.length, 2, "a domain command adds its own entry");
+});
+
+test("two interleaved games keep their own clock, random sequence and ids", () => {
+  const build = () =>
+    make({
+      1: "chef",
+      2: "empath",
+      3: "monk",
+      4: "soldier",
+      5: "mayor",
+      6: "poisoner",
+      7: "imp",
+    });
+  const commandFor = (state: GameState): Command => {
+    const step = state.night.queue.find((candidate) => candidate.roleId === "poisoner")!;
+    return {
+      id: "interleaved-poison",
+      type: "completeStep",
+      payload: { key: step.key, options: { targetIds: ["2"] } },
+    };
+  };
+  const first = build();
+  const solo = build();
+  const second = build();
+  startNight(first);
+  startNight(solo);
+  startNight(second);
+
+  const firstRuntime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const secondRuntime = createRuntime({ now: () => new Date("2040-01-01T00:00:00.000Z") });
+
+  // A preview of one game, then a full apply of another, then the first apply.
+  const preview = outcome(previewCommand(first, commandFor(first), firstRuntime));
+  assert.equal(preview.status, "allowed", JSON.stringify(preview));
+  const other = outcome(applyCommand(second, commandFor(second), secondRuntime));
+  assert.equal(other.status, "allowed", JSON.stringify(other));
+  const applied = outcome(applyCommand(first, commandFor(first), firstRuntime));
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+
+  const soloRuntime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const alone = outcome(applyCommand(solo, commandFor(solo), soloRuntime));
+  assert.equal(alone.status, "allowed", JSON.stringify(alone));
+
+  assert.deepEqual(
+    canonicalState(first),
+    canonicalState(solo),
+    "the interleaved apply matches the same game applied alone",
+  );
+  assert.deepEqual(preview.events, applied.events, "preview and apply still agree");
+  assert.equal(
+    first.log.at(-1)!.at,
+    "2030-01-01T00:00:00.000Z",
+    "the first game uses its own clock",
+  );
+  assert.equal(
+    second.log.at(-1)!.at,
+    "2040-01-01T00:00:00.000Z",
+    "the second game uses its own clock",
+  );
+  assert.equal(
+    first.log.at(-1)!.id,
+    solo.log.at(-1)!.id,
+    "the same game state and command give the same id",
+  );
 });
 
 test("an imported save without a journal keeps the recorded key order", () => {

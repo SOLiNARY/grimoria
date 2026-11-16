@@ -169,9 +169,10 @@ const SCENARIO: Row[] = [
       const registrations = { "6": "evil" };
       play(state, {
         type: "completeNightStep",
-        payload: { key: chef!.key, registrations },
+        payload: { key: chef!.key, registrations, given: { value: 2 } },
       });
       const stored = state.night.queue.find((step) => step.key === chef!.key)!;
+      assert.equal(stored.given!.value, 2, "the host's count is the recorded answer");
       assert.equal(infoForStep(state, stored).value, 2);
       assert.deepEqual(
         stepProjection(state, stored, { registrations }).info,
@@ -377,11 +378,35 @@ test("the day projection exposes pending and reviewed madness to the Storyteller
   assert.equal(madnessReviewProjection(game)[0].pending, false);
 });
 
+test("a madness told on the current night waits for the next day in the projection", () => {
+  const game = scene();
+  game.phase = "night";
+  game.night.number = 1;
+  game.effects.push({
+    id: "cerenovus-fresh",
+    kind: "madness",
+    madness: "cerenovus",
+    roleId: "clockmaker",
+    sourceId: "4",
+    targetId: "1",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "day", number: 2 },
+    active: true,
+  });
+
+  assert.equal(madnessReviewProjection(game).length, 0, "the telling night offers no execution");
+  game.night.number = 2;
+  assert.equal(madnessReviewProjection(game).length, 1, "the following night offers it");
+  game.phase = "day";
+  game.day.number = 1;
+  assert.equal(madnessReviewProjection(game).length, 1, "the mad day offers the review");
+});
+
 test("the dispatch preview issues a fresh id without touching the state", () => {
   const game = scene();
   const before = JSON.stringify(game);
-  const first = previewOnState(game, { type: "startNight", payload: {} });
-  const second = previewOnState(game, { type: "startNight", payload: {} });
+  const first = previewOnState(game, { type: "startNight", payload: {} }, "preview-1");
+  const second = previewOnState(game, { type: "startNight", payload: {} }, "preview-2");
   assert.equal(first.status, "allowed");
   assert.equal(second.status, "allowed");
   const firstId = first.status === "allowed" ? first.id : "";

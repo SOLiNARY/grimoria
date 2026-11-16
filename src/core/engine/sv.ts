@@ -31,13 +31,23 @@ type SvInfoOptions = { targetIds?: string[]; registrations?: Record<string, stri
 // Vortox/Evil Twin/Witch win conditions.
 import { isSupportedRole, nightSequence, roleLabel, roleTeam } from "../model/rules.ts";
 
-import { livingPlayers, nowIso, orderedPlayers, playerById, realTeamOf } from "../model/state.ts";
+import {
+  hasAbility,
+  livingPlayers,
+  nowIso,
+  orderedPlayers,
+  playerById,
+  realTeamOf,
+} from "../model/state.ts";
 
 import { addLog, currentAt, dayAt, insertStepInto, nightAt, setStepNote } from "./context.ts";
+import { systemPorts } from "../model/ports.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, evilTwinPair, kill, setWinner } from "./death.ts";
 import { activeEffects, isImpaired } from "./effects.ts";
 import { vigormortisActive } from "./retention.ts";
 import { roleModule } from "../roles/registry.ts";
+import { resolveTransformationCapability } from "./ability.ts";
 import { stillWakes } from "../roles/sv-common.ts";
 
 const DEMON_ROLES = new Set(["fanggu", "nodashii", "vigormortis", "vortox"]);
@@ -120,13 +130,26 @@ export function abnormalCount(state: GameState): number {
   return ids.size;
 }
 
-export function recordAbnormal(state: GameState, playerId: string, reason: string) {
+export function recordAbnormal(
+  state: GameState,
+  playerId: string,
+  reason: string,
+  ports: CommandExecutionContext = systemPorts,
+) {
   if (state.winner) return { ok: false, errorCode: "error.6", error: "Игра уже окончена." };
   if (state.phase !== "day" && state.phase !== "night") {
     return { ok: false, errorCode: "error.7", error: "Сейчас не игровой день или ночь." };
   }
   const player = playerById(state, playerId);
   if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
+  // Mathematician r3153: "The Mathematician does not detect their own ability
+  // failing." The Storyteller cannot mark the Mathematician's own working.
+  if (hasAbility(player, "mathematician"))
+    return {
+      ok: false,
+      errorCode: "error.mathematician-self",
+      error: "Математик не замечает собственную аномальную способность.",
+    };
   const text = String(reason == null ? "" : reason).trim();
   if (!text)
     return { ok: false, errorCode: "error.72", error: "Запишите причину аномальной работы." };
@@ -139,13 +162,17 @@ export function recordAbnormal(state: GameState, playerId: string, reason: strin
       error: "У этого игрока уже есть отметка с прошлого пробуждения Математика.",
     };
   state.abnormal = [...(state.abnormal || []), { playerId: player.id, reason: text, at }];
-  addLog(state, {
-    secret: true,
-    kind: "ability",
-    title: "Отметка аномальной способности",
-    detail: player.name + ": " + text + ".",
-    playerId: player.id,
-  });
+  addLog(
+    state,
+    {
+      secret: true,
+      kind: "ability",
+      title: "Отметка аномальной способности",
+      detail: player.name + ": " + text + ".",
+      playerId: player.id,
+    },
+    ports,
+  );
   return { ok: true, mark: state.abnormal.at(-1) };
 }
 
@@ -473,21 +500,13 @@ export function replaceCharacter(
     if (roleId === "philosopher") delete player.used.philosopher;
   }
   if (Array.isArray(state.bluffs)) state.bluffs = state.bluffs.filter((id) => id !== roleId);
-  // Evil Twin r2964: "You & an opposing player know each other." A twin created
-  // mid-game still needs a partner, otherwise both the execution win and the
-  // "good can't win" block disappear.
+  // Evil Twin r3101: "You & an opposing player know each other." The opposing
+  // player is the Storyteller's choice, not an inferred default. A character
+  // gained mid-game starts unpaired; `endNight` refuses to close the night
+  // until the host records the pair with the `twin` correction.
   if (roleId === "eviltwin") {
-    state.setup.evilTwinPlayerId = player.id;
-    const stored = state.setup.evilTwinGoodPlayerId;
-    const current = typeof stored === "string" ? playerById(state, stored) : null;
-    const goodTwin =
-      current && current.alive && current.id !== player.id && realTeamOf(current) === "good"
-        ? current
-        : orderedPlayers(state).find(
-            (candidate) =>
-              candidate.alive && candidate.id !== player.id && realTeamOf(candidate) === "good",
-          ) || null;
-    state.setup.evilTwinGoodPlayerId = goodTwin ? goodTwin.id : null;
+    state.setup.evilTwinGoodPlayerId = null;
+    state.setup.evilTwinPlayerId = null;
   }
   requeueForCharacter(
     state,
@@ -541,17 +560,33 @@ function swapCharacters(
 // A Philosopher keeps using the borrowed ability on later nights, including a
 // death-triggered ability after their own death. The step belongs to the
 // Philosopher, not to the character they borrowed.
-function philosopherAbilityStep(state: GameState, player: Player): NightStep | null {
+function philosopherAbilityStep(
+  state: GameState,
+  player: Player,
+  chosenNow: boolean = false,
+): NightStep | null {
   if (player.roleId !== "philosopher") return null;
   const ability = player.used ? player.used.philosopherAbility : null;
   if (typeof ability !== "string") return null;
   const roleId = ability as RoleId;
   const night = nightAt(state).number;
   const declared = roleModule(roleId);
+  // r2421: "If this ability is used on the first night only, they use it
+  // tonight." A first-night ability gained on a later night has no slot in that
+  // night's printed order, so it resolves right after the Philosopher's step.
   const spec =
-    night === 1 ? (declared?.firstNightStep ?? declared?.nightStep) : declared?.nightStep;
-  const index = nightSequence(night, "snv").indexOf(roleId);
-  if (!spec || index === -1) return null;
+    night === 1
+      ? (declared?.firstNightStep ?? declared?.nightStep)
+      : (declared?.nightStep ?? (chosenNow ? declared?.firstNightStep : undefined));
+  let index = nightSequence(night, "snv").indexOf(roleId);
+  if (index === -1) {
+    if (!chosenNow || night === 1) return null;
+    const own = state.night.queue.find(
+      (candidate) => candidate.roleId === "philosopher" && candidate.actorId === player.id,
+    );
+    index = own && own.order != null ? own.order + 0.1 : nightSequence(night, "snv").length;
+  }
+  if (!spec) return null;
   const actor = spec.actor
     ? spec.actor(state, night, player)
     : stillWakes(state, player)
@@ -716,7 +751,10 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
   }
   if (role === "clockmaker") {
     const demon = livingPlayers(state).find((player) => roleTeam(player.roleId || "") === "demon");
-    const minions = livingPlayers(state).filter(
+    // Glossary "In play": a character exists in the current game, alive or
+    // dead. The distance ends at the nearest Minion in play, not only a living
+    // one (Clockmaker r2967).
+    const minions = orderedPlayers(state).filter(
       (player) => roleTeam(player.roleId || "") === "minion",
     );
     const ids = state.order;
@@ -732,55 +770,65 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
       );
     }
     const value = distance == null ? 0 : distance;
-    const falsified = impaired || vortoxFalsifies(state, role);
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
     return {
       kind: "number",
       value,
       impaired,
       needsChoice: falsified,
       options: falsified
-        ? numberChoices(orderedPlayers(state).length).filter((choice) => choice !== value)
+        ? numberChoices(orderedPlayers(state).length).filter(
+            (choice) => !vortox || choice !== value,
+          )
         : [],
       textKey: "note.sv.clockmaker",
       textVars: { value },
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text:
         "Расстояние от Демона до ближайшего Приспешника: " +
         value +
-        (falsified ? ". Ведущий даёт ложную информацию: выберите число." : "."),
+        (falsified ? ". Ведущий может дать ложную информацию: выберите число." : "."),
     };
   }
   if (role === "oracle") {
     const value = orderedPlayers(state).filter(
       (player) => !player.alive && realTeamOf(player) === "evil",
     ).length;
-    const falsified = impaired || vortoxFalsifies(state, role);
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
     return {
       kind: "number",
       value,
       impaired,
       needsChoice: falsified,
       options: falsified
-        ? numberChoices(orderedPlayers(state).length).filter((choice) => choice !== value)
+        ? numberChoices(orderedPlayers(state).length).filter(
+            (choice) => !vortox || choice !== value,
+          )
         : [],
       textKey: "note.sv.oracle",
       textVars: { value },
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text:
         "Мёртвых злых игроков: " +
         value +
-        (falsified ? ". Ведущий даёт ложную информацию: выберите число." : "."),
+        (falsified ? ". Ведущий может дать ложную информацию: выберите число." : "."),
     };
   }
   if (role === "dreamer") {
-    const falsified = impaired || vortoxFalsifies(state, role);
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
     return {
       kind: "note",
       impaired,
       needsChoice: falsified,
       textKey: target ? "note.sv.dreamer" : "note.sv.dreamerChoose",
       textVars: target ? { target: target.name } : {},
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text: target
         ? "Сон о " +
           target.name +
@@ -788,7 +836,7 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
           target.name +
           "." +
           (falsified
-            ? " Ведущий даёт ложную информацию: ни одна из ролей не обязана быть верной."
+            ? " Ведущий может дать ложную информацию: ни одна из ролей не обязана быть верной."
             : "")
         : "Выберите игрока: покажите 1 добрую и 1 злую роль.",
     };
@@ -805,37 +853,41 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
       };
     }
     const same = realTeamOf(a) === realTeamOf(b);
-    const falsified = impaired || vortoxFalsifies(state, role);
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
     return {
       kind: "yes-no",
       value: same,
       impaired,
       needsChoice: falsified,
-      options: falsified ? [true, false].filter((choice) => choice !== same) : [],
+      options: falsified ? [true, false].filter((choice) => !vortox || choice !== same) : [],
       textKey: same ? "note.sv.seamstressSame" : "note.sv.seamstressDifferent",
       textVars: { a: a.name, b: b.name },
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text:
         a.name +
         " и " +
         b.name +
         ": " +
         (same ? "на одной стороне." : "на разных сторонах.") +
-        (falsified ? " Ведущий даёт ложную информацию." : ""),
+        (falsified ? " Ведущий может дать ложную информацию." : ""),
     };
   }
   if (role === "sage") {
-    const falsified = impaired || vortoxFalsifies(state, role);
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
     return {
       kind: "note",
       impaired,
       needsChoice: falsified,
       textKey: "note.sv.sage",
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text:
         "Демон убил Мудреца. Покажите 2 игроков, один из которых — Демон." +
         (falsified
-          ? " Ведущий даёт ложную информацию: ни один из них не обязан быть Демоном."
+          ? " Ведущий может дать ложную информацию: ни один из них не обязан быть Демоном."
           : ""),
     };
   }
@@ -894,13 +946,18 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
         text: "Нет данных о прошедшем дне: ведущий отвечает вручную.",
       };
     }
-    const falsified = impaired || vortoxFalsifies(state, role);
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
     const value = Boolean(
       day.nominations.some((nomination) => {
         if (role === "towncrier") {
+          if (typeof nomination.minionNomination === "boolean") {
+            return nomination.minionNomination;
+          }
           const nominator = playerById(state, nomination.nominatorId);
           return Boolean(nominator && roleTeam(nominator.roleId || "") === "minion");
         }
+        if (Array.isArray(nomination.demonVoters)) return nomination.demonVoters.length > 0;
         return (nomination.votes || []).some((id) => {
           const voter = playerById(state, String(id));
           return Boolean(voter && roleTeam(voter.roleId || "") === "demon");
@@ -912,7 +969,7 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
       value,
       impaired,
       needsChoice: falsified,
-      options: falsified ? [true, false].filter((choice) => choice !== value) : [],
+      options: falsified ? [true, false].filter((choice) => !vortox || choice !== value) : [],
       textKey:
         role === "flowergirl"
           ? value
@@ -921,36 +978,43 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
           : value
             ? "note.sv.towncrierYes"
             : "note.sv.towncrierNo",
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text:
         (role === "flowergirl" ? "Демон голосовал сегодня: " : "Приспешник выдвигал сегодня: ") +
         (value ? "да." : "нет.") +
-        (falsified ? " Ведущий даёт ложную информацию." : ""),
+        (falsified ? " Ведущий может дать ложную информацию." : ""),
     };
   }
   if (role === "juggler") {
     const guesses = jugglerGuesses(state);
-    const value = guesses.filter((guess) => {
-      const player = playerById(state, guess.playerId);
-      return Boolean(player && player.roleId === guess.roleId);
-    }).length;
-    const falsified = impaired || vortoxFalsifies(state, role);
+    const stored = state.juggler ? state.juggler.correct : undefined;
+    const value =
+      typeof stored === "number"
+        ? stored
+        : guesses.filter((guess) => {
+            const player = playerById(state, guess.playerId);
+            return Boolean(player && player.roleId === guess.roleId);
+          }).length;
+    const vortox = vortoxFalsifies(state, role);
+    const falsified = impaired || vortox;
     return {
       kind: "number",
       value,
       impaired,
       needsChoice: falsified,
-      options: falsified ? numberChoices(5).filter((choice) => choice !== value) : [],
+      options: falsified ? numberChoices(5).filter((choice) => !vortox || choice !== value) : [],
       textKey: "note.sv.juggler",
       textVars: { value, total: guesses.length },
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text:
         "Жонглёр угадал верно: " +
         value +
         " из " +
         guesses.length +
         "." +
-        (falsified ? " Ведущий даёт ложную информацию: выберите число." : ""),
+        (falsified ? " Ведущий может дать ложную информацию: выберите число." : ""),
     };
   }
   if (role === "mathematician") {
@@ -969,12 +1033,13 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
       needsChoice: falsified,
       options,
       textKey: "note.sv.mathematician",
-      falsifiedSuffix: falsified,
+      falsifiedSuffix: vortox,
+      mayBeFalseSuffix: impaired && !vortox,
       text:
         "Способности сработали некорректно: " +
         value +
         "." +
-        (falsified ? " Ведущий даёт ложное число: выберите число." : ""),
+        (falsified ? " Ведущий может дать ложное число: выберите число." : ""),
     };
   }
   return { kind: "none" };
@@ -984,19 +1049,29 @@ export function svInfoForStep(state: GameState, step: NightStep, options: SvInfo
 // if they are evil, your team loses." The choice happens at the death, so the
 // host records it as soon as the player is told instead of waiting for a night
 // wake; a player who dies before the choice is replaced, never a strand.
+// States r1039: an ability that triggers while drunk or poisoned is wasted,
+// even if the player becomes healthy later. The death record stores the
+// trigger-time fact; the live effect graph is only a fallback.
+function failedAtDeath(state: GameState, playerId: string): boolean {
+  const death = [...state.deaths].reverse().find((entry) => entry.playerId === playerId);
+  return typeof death?.impaired === "boolean"
+    ? death.impaired
+    : isImpaired(state, playerId, currentAt(state));
+}
+
 function resolveKlutzChoice(
   state: GameState,
   klutz: Player,
   step: NightStep | null,
   target: Player,
+  ports: CommandExecutionContext,
 ) {
-  const at = currentAt(state);
   klutz.used = klutz.used || {};
   klutz.used.klutz = true;
   klutz.used.klutzTarget = target.id;
   let noteKey = "note.klutzNotEvil";
   let note = target.name + " не злой: команда Растяпы не проигрывает.";
-  if (isImpaired(state, klutz.id, at)) {
+  if (failedAtDeath(state, klutz.id)) {
     noteKey = "note.abilityFailed";
     note = "Способность не сработала: игрок отравлен или пьян.";
   } else if (realTeamOf(target) === "evil") {
@@ -1005,28 +1080,36 @@ function resolveKlutzChoice(
     const klutzTeam = realTeamOf(klutz) === "evil" ? "evil" : "good";
     noteKey = "note.klutzEvil";
     note = target.name + " злой: команда Растяпы проигрывает.";
-    setWinner(state, klutzTeam === "evil" ? "good" : "evil", "klutz");
+    setWinner(state, klutzTeam === "evil" ? "good" : "evil", "klutz", ports);
   }
   if (step) {
     step.targetIds = [target.id];
     setStepNote(step, noteKey, { name: target.name }, note);
     step.done = true;
-    step.completedAt = nowIso();
+    step.completedAt = nowIso(ports);
   }
-  addLog(state, {
-    secret: true,
-    kind: "ability",
-    title: "Растяпа выбирает " + target.name,
-    detail: note,
-    playerId: klutz.id,
-  });
+  addLog(
+    state,
+    {
+      secret: true,
+      kind: "ability",
+      title: "Растяпа выбирает " + target.name,
+      detail: note,
+      playerId: klutz.id,
+    },
+    ports,
+  );
 }
 
 /** Record the Klutz's public choice at the moment the player learns of the death. */
-export function recordKlutzChoice(state: GameState, targetId: string): SvStepResult {
+export function recordKlutzChoice(
+  state: GameState,
+  targetId: string,
+  ports: CommandExecutionContext = systemPorts,
+): SvStepResult {
   if (state.winner) return { ok: false, errorCode: "error.6", error: "Игра уже окончена." };
   const klutz = orderedPlayers(state).find(
-    (player) => player.roleId === "klutz" && !player.alive && !(player.used && player.used.klutz),
+    (player) => hasAbility(player, "klutz") && !player.alive && !(player.used && player.used.klutz),
   );
   if (!klutz) return { ok: false, errorCode: "error.29", error: "Растяпа не может выбрать." };
   const target = playerById(state, targetId);
@@ -1038,7 +1121,7 @@ export function recordKlutzChoice(state: GameState, targetId: string): SvStepRes
       (candidate) =>
         candidate.roleId === "klutz" && candidate.actorId === klutz.id && !candidate.done,
     ) || null;
-  resolveKlutzChoice(state, klutz, step, target);
+  resolveKlutzChoice(state, klutz, step, target, ports);
   return { ok: true };
 }
 
@@ -1046,6 +1129,7 @@ export function completeSvStep(
   state: GameState,
   step: NightStep,
   options: SvOptions = {},
+  ports: CommandExecutionContext = systemPorts,
 ): SvStepResult {
   const actor = step.actorId ? playerById(state, step.actorId) : null;
   if (!actor) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
@@ -1092,7 +1176,7 @@ export function completeSvStep(
         "Философ получает способность: " + roleLabel(roleId) + ".",
       );
     }
-    const borrowed = philosopherAbilityStep(state, actor);
+    const borrowed = philosopherAbilityStep(state, actor, true);
     if (borrowed && !state.night.queue.some((candidate) => candidate.key === borrowed.key)) {
       insertStepInto(state.night.queue, borrowed);
     }
@@ -1102,6 +1186,8 @@ export function completeSvStep(
   if (step.roleId === "pithag") {
     const target = targets[0] ? playerById(state, targets[0]) : null;
     if (!target) return { ok: false, errorCode: "error.31", error: "Цель не найдена." };
+    // The impaired Pit-Hag spends the step without choosing a character, as
+    // before the migration.
     if (impaired) {
       setStepNote(
         step,
@@ -1119,8 +1205,39 @@ export function completeSvStep(
     ) {
       return { ok: false, errorCode: "error.2", error: "Выберите роль из сценария." };
     }
-    if (holderOf(state, roleId)) {
-      // Pit-Hag r2988: the change happens only "if that character is not in
+    const module = roleModule("pithag");
+    const decision =
+      module &&
+      resolveTransformationCapability(module, {
+        actorId: actor.id,
+        targetId: target.id,
+        newRoleId: roleId,
+        cause: "pithag",
+        impaired,
+        at,
+        roleInPlay: (candidate) =>
+          Boolean(holderOf(state, candidate)) ||
+          orderedPlayers(state).some(
+            (player) => player.used != null && player.used.philosopherAbility === candidate,
+          ),
+        nameOf: (playerId) => playerById(state, playerId)?.name || "",
+        actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
+        hasPlayer: (playerId) => playerById(state, playerId) != null,
+      });
+    if (!decision) {
+      return { ok: false, errorCode: "error.5", error: "Способность Pit-Hag не объявлена." };
+    }
+    if (decision.kind === "no-effect" && decision.reason === "impaired") {
+      setStepNote(
+        step,
+        "note.abilityFailed",
+        null,
+        "Способность не сработала: игрок отравлен или пьян.",
+      );
+      return { ok: true };
+    }
+    if (decision.kind === "no-effect") {
+      // Pit-Hag r2998: the change happens only "if that character is not in
       // play". Choosing a character already in play is a legal outcome in
       // which nothing happens, not an error.
       setStepNote(
@@ -1133,20 +1250,31 @@ export function completeSvStep(
     }
     // "If a Demon is made, deaths tonight are arbitrary": the created Demon
     // does not wake in its own slot and the host records the deaths here.
-    const createsDemon = roleTeam(roleId) === "demon";
-    replaceCharacter(state, target.id, roleId, {
+    const createsDemon = roleTeam(decision.roleId) === "demon";
+    replaceCharacter(state, decision.playerId, decision.roleId, {
       order,
       currentKey: step.key,
       suppressWake: createsDemon,
     });
     if (createsDemon) step.canKill = true;
+    if (decision.roleId === "eviltwin") {
+      // The opposing twin is the Storyteller's choice; the pair stays unset
+      // until the host records it with the twin correction.
+      setStepNote(
+        step,
+        "note.sv.pithagEvilTwinPartner",
+        { name: target.name },
+        target.name + " становится Злым Близнецом. Выберите партнёра правкой «Партнёр Близнецов».",
+      );
+      return { ok: true };
+    }
     setStepNote(
       step,
       "note.characterBecame",
-      { name: target.name, role: roleId },
+      { name: target.name, role: decision.roleId },
       target.name +
         " становится: " +
-        roleLabel(roleId) +
+        roleLabel(decision.roleId) +
         (createsDemon ? ". Смерти этой ночью выбирает ведущий." : "."),
     );
     return { ok: true };
@@ -1221,7 +1349,7 @@ export function completeSvStep(
     if (!recordedId && !target.alive) {
       return { ok: false, errorCode: "error.55", error: "Нельзя выбрать мёртвого игрока." };
     }
-    resolveKlutzChoice(state, actor, step, target);
+    resolveKlutzChoice(state, actor, step, target, ports);
     return { ok: true };
   }
 
@@ -1269,24 +1397,30 @@ export function completeSvStep(
         sourceId: actor.id,
         targetId: target.id,
         start: at,
-        expires: { phase: "night", number: at.number + 1 },
+        // Cerenovus r3048: "During the next day or night ... you can decide to
+        // execute them." The token therefore covers the next day and the night
+        // that follows it, and expires at the next dawn.
+        expires: { phase: "day", number: at.number + 1 },
         active: true,
       });
       setStepNote(
         step,
         "note.madness",
         { name: target.name, role: roleId },
-        target.name + " должен быть «помешан» на роли " + roleLabel(roleId) + " до следующей ночи.",
+        target.name +
+          " должен быть «помешан» на роли " +
+          roleLabel(roleId) +
+          " до следующего рассвета.",
       );
     }
   }
-  if (step.roleId === "sweetheart" && targets[0] && !impaired) {
+  if (step.roleId === "sweetheart" && targets[0] && !failedAtDeath(state, actor.id)) {
     state.effects.push({
       id: "eff-sweetheart-" + targets[0],
       kind: "drunk",
       sourceId: actor.id,
       targetId: targets[0],
-      // Sweetheart r3016: "1 player is drunk from now on". The window starts
+      // Sweetheart r2704: "1 player is drunk from now on". The window starts
       // at the death, not at the Sweetheart's night slot.
       start: actor.deadAt || at,
       expires: null,
@@ -1297,7 +1431,12 @@ export function completeSvStep(
   return { ok: true };
 }
 
-export function recordSvOutcome(state: GameState, stepKey: string, options: SvOptions = {}) {
+export function recordSvOutcome(
+  state: GameState,
+  stepKey: string,
+  options: SvOptions = {},
+  ports: CommandExecutionContext = systemPorts,
+) {
   const step = state.night.queue.find((candidate) => candidate.key === stepKey);
   if (!step || !step.sv) return { ok: false, errorCode: "error.36", error: "Шаг не найден." };
   if (state.winner) return { ok: false, errorCode: "error.6", error: "Игра уже окончена." };
@@ -1326,6 +1465,16 @@ export function recordSvOutcome(state: GameState, stepKey: string, options: SvOp
     }
   }
   const demon = DEMON_ROLES.has(step.roleId || "");
+  // States r1039: a drunk or poisoned player has no ability, so a poisoned
+  // Demon cannot kill anyone. The BMR path already enforces this; the S&V
+  // outcome path is the only kill writer for its Demons.
+  if (demon && step.actorId && deathIds.length && isImpaired(state, step.actorId, at)) {
+    return {
+      ok: false,
+      errorCode: "error.52",
+      error: "Способность не сработала: игрок отравлен или пьян.",
+    };
+  }
   const deaths = [];
   let jumped = false;
   if (step.roleId === "fanggu") {
@@ -1334,6 +1483,7 @@ export function recordSvOutcome(state: GameState, stepKey: string, options: SvOp
     if (
       oldDemon &&
       target &&
+      target.alive &&
       roleTeam(target.roleId || "") === "outsider" &&
       !isImpaired(state, oldDemon.id, at) &&
       !fangguJumpUsed(state)
@@ -1347,21 +1497,32 @@ export function recordSvOutcome(state: GameState, stepKey: string, options: SvOp
       target.shownRoleId = "fanggu";
       target.team = "evil";
       target.used = target.used || {};
-      addLog(state, {
-        secret: true,
-        kind: "ability",
-        title: "Фань Гу переселяется",
-        detail: target.name + " становится злым Фань Гу; прежний Демон умирает.",
-      });
+      addLog(
+        state,
+        {
+          secret: true,
+          kind: "ability",
+          title: "Фань Гу переселяется",
+          detail: target.name + " становится злым Фань Гу; прежний Демон умирает.",
+        },
+        ports,
+      );
       if (oldDemon.alive) {
-        const death = kill(state, oldDemon.id, "ability", at, { demon: false, ability: "fanggu" });
+        const death = kill(
+          state,
+          oldDemon.id,
+          "ability",
+          at,
+          { demon: false, ability: "fanggu" },
+          ports,
+        );
         if (death) deaths.push(death);
       }
     }
   }
   if (!jumped) {
     for (const id of deathIds) {
-      const death = kill(state, id, "ability", at, { demon, ability: step.roleId || "" });
+      const death = kill(state, id, "ability", at, { demon, ability: step.roleId || "" }, ports);
       if (death) deaths.push(death);
     }
   }
@@ -1386,7 +1547,7 @@ export function recordSvOutcome(state: GameState, stepKey: string, options: SvOp
   reconcileNoDashiiPoison(state);
   reconcileVigormortisPoison(state);
   appendSvConditionalSteps(state);
-  checkWin(state);
+  checkWin(state, {}, ports);
   return { ok: true, deaths };
 }
 

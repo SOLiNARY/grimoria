@@ -24,17 +24,16 @@ export interface SupportVerdict {
   reason: string;
 }
 
-const VERIFIED: readonly RoleId[] = [
+/** The three level lists; exported so the partition invariant is testable. */
+export const SUPPORT_VERIFIED: readonly RoleId[] = [
   "assassin",
   "barber",
   "baron",
   "butler",
-  "chef",
   "clockmaker",
   "courtier",
   "devilsadvocate",
   "drunk",
-  "eviltwin",
   "exorcist",
   "fanggu",
   "flowergirl",
@@ -45,7 +44,6 @@ const VERIFIED: readonly RoleId[] = [
   "goon",
   "gossip",
   "grandmother",
-  "goon",
   "imp",
   "innkeeper",
   "investigator",
@@ -65,7 +63,6 @@ const VERIFIED: readonly RoleId[] = [
   "po",
   "poisoner",
   "professor",
-  "pukka",
   "ravenkeeper",
   "recluse",
   "sage",
@@ -89,26 +86,29 @@ const VERIFIED: readonly RoleId[] = [
   "zombuul",
 ];
 
-const STORYTELLER: readonly RoleId[] = [
+export const SUPPORT_STORYTELLER: readonly RoleId[] = [
   "artist",
   "cerenovus",
   "chambermaid",
+  "chef",
   "dreamer",
   "empath",
+  "eviltwin",
   "mathematician",
   "mutant",
   "pacifist",
+  "pukka",
   "savant",
   "tinker",
   "vortox",
 ];
 
-const UNSUPPORTED: readonly RoleId[] = [];
+export const SUPPORT_UNSUPPORTED: readonly RoleId[] = [];
 
 export const ROLE_SUPPORT: Readonly<Record<RoleId, SupportLevel>> = Object.fromEntries([
-  ...VERIFIED.map((id) => [id, "verified"] as const),
-  ...STORYTELLER.map((id) => [id, "requires-storyteller-choice"] as const),
-  ...UNSUPPORTED.map((id) => [id, "unsupported"] as const),
+  ...SUPPORT_VERIFIED.map((id) => [id, "verified"] as const),
+  ...SUPPORT_STORYTELLER.map((id) => [id, "requires-storyteller-choice"] as const),
+  ...SUPPORT_UNSUPPORTED.map((id) => [id, "unsupported"] as const),
 ]);
 
 const REASONS: Record<SupportLevel, string> = {

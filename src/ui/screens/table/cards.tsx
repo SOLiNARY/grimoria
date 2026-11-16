@@ -597,7 +597,9 @@ function GivenSelect({
         {options.map((value) => (
           <option key={String(value)} value={String(value)}>
             {kind === "role"
-              ? roleNameOf(String(value), ports.roles.byId)
+              ? String(value) === "zero"
+                ? t("none")
+                : roleNameOf(String(value), ports.roles.byId)
               : kind === "bool"
                 ? value
                   ? t("yes")
@@ -974,6 +976,7 @@ export function DayActionsPanel({ view }: { view: TableView }) {
   const [abnormalPlayer, setAbnormalPlayer] = useState("");
   const [abnormalReason, setAbnormalReason] = useState("");
   const madnessReviews = madnessReviewProjection(state);
+  const night = state.phase === "night";
   const abnormalMarks = state.abnormal || [];
   const canAbnormal = !state.winner && (state.phase === "day" || state.phase === "night");
   const day = state.day;
@@ -1082,11 +1085,13 @@ export function DayActionsPanel({ view }: { view: TableView }) {
               >
                 <b>{condition}</b>
                 <p className={`${MUTED} m-0`}>
-                  {pending
-                    ? t("ui.madnessPending")
-                    : executed
-                      ? t("ui.madnessReviewedExecute")
-                      : t("ui.madnessReviewedNone")}
+                  {night && !executed
+                    ? t("ui.madnessNightActive")
+                    : pending
+                      ? t("ui.madnessPending")
+                      : executed
+                        ? t("ui.madnessReviewedExecute")
+                        : t("ui.madnessReviewedNone")}
                 </p>
                 {!executed ? (
                   <label className="grid gap-1 text-[13px] text-muted">
@@ -1111,7 +1116,7 @@ export function DayActionsPanel({ view }: { view: TableView }) {
                       className="btn"
                       type="button"
                       data-madness-action="execute"
-                      disabled={!reason.trim() || Boolean(day.execution) || day.ended}
+                      disabled={!reason.trim() || (!night && (Boolean(day.execution) || day.ended))}
                       onClick={() =>
                         actions.run({
                           type: "madnessPenalty",
@@ -1128,6 +1133,7 @@ export function DayActionsPanel({ view }: { view: TableView }) {
                     </button>
                   ) : null}
                   {!executed &&
+                  !night &&
                   (effect.decidedPenalty !== "none" || effect.decidedDay !== day.number) ? (
                     <button
                       className="btn"

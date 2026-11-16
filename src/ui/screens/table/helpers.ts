@@ -485,7 +485,12 @@ export function infoText(
   // arrive as ids and are named from the catalog here.
   const hintVars = localizeVars(info.textVars, roles);
   const hint = info.textKey
-    ? t(info.textKey, hintVars) + (info.falsifiedSuffix ? " " + t("note.sv.falseSuffix") : "")
+    ? t(info.textKey, hintVars) +
+      (info.falsifiedSuffix
+        ? " " + t("note.sv.falseSuffix")
+        : info.mayBeFalseSuffix
+          ? " " + t("note.sv.mayBeFalseSuffix")
+          : "")
     : info.text;
   if (info.kind === "note") {
     // A computed note (the Lunatic report attached to the Demon's step) is the
@@ -545,7 +550,16 @@ export function applyGiven(
   if (!info) return info;
   if (kind === "number") return { ...info, value: Number(raw), needsChoice: false };
   if (kind === "bool") return { ...info, value: raw === "true", needsChoice: false };
-  if (kind === "role") return { ...info, roleId: raw, needsChoice: false };
+  if (kind === "role" && raw === "zero") {
+    return { ...info, zero: true, roleId: null, needsChoice: false };
+  }
+  if (kind === "role") {
+    // A role answer contradicts the truthful zero flag: remove it, or the
+    // projection and the journal would still read the zero answer.
+    const next: StepInfo = { ...info, roleId: raw, needsChoice: false };
+    delete next.zero;
+    return next;
+  }
   return info;
 }
 

@@ -22,6 +22,8 @@ import {
 } from "./rules.ts";
 import { troubleBrewingScript } from "./scripts.ts";
 import { effectGraph } from "./effect-graph.ts";
+import type { CommandExecutionContext } from "./ports.ts";
+import { systemPorts } from "./ports.ts";
 import { cloneValidated, legacyArray, legacyRecord, validatedFromUnknown } from "./validated.ts";
 
 // Saved data is an untyped external boundary; every read is validated here.
@@ -39,23 +41,8 @@ export const STORAGE_KEY = "pg.game.v4";
 export const LEGACY_KEY = "pg.game.v3";
 export const LEGACY_V2_KEY = "pg.game.v2";
 
-let clockOverride: (() => Date) | null = null;
-
-export function nowIso() {
-  return (clockOverride ? clockOverride() : new Date()).toISOString();
-}
-
-// Deterministic clock for command execution. The override is synchronous and
-// restored in `finally`; it never survives a command.
-export function withClock<T>(date: Date | string | number, fn: () => T): T {
-  const previous = clockOverride;
-  const fixed = date instanceof Date ? date : new Date(date);
-  clockOverride = () => fixed;
-  try {
-    return fn();
-  } finally {
-    clockOverride = previous;
-  }
+export function nowIso(ports: CommandExecutionContext = systemPorts) {
+  return ports.clock.now();
 }
 
 export function clone<T>(value: T): T {
@@ -109,7 +96,10 @@ export function placeJournal(state: GameState, journal: GameJournal): void {
   if (!placed) Reflect.set(state, "journal", journal);
 }
 
-export function createGame(count: number = 8): GameState {
+export function createGame(
+  count: number = 8,
+  ports: CommandExecutionContext = systemPorts,
+): GameState {
   const size = Math.max(5, Math.min(15, Number(count) || 8));
   const players: Record<string, Player> = {};
   const order = [];
@@ -122,8 +112,8 @@ export function createGame(count: number = 8): GameState {
     v: SCHEMA_VERSION,
     scriptId: "tb",
     script: troubleBrewingScript(),
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
+    createdAt: nowIso(ports),
+    updatedAt: nowIso(ports),
     phase: "setup",
     setup: {
       count: size,
@@ -841,10 +831,50 @@ export function validateState(value: unknown): string[] {
 // role. Resolve the ids once at import, before any character change can move
 // the roles, so the pair stays with these players.
 function resolveEvilTwinPlayers(state: GameState) {
-  if (state.setup.evilTwinGoodPlayerId != null || state.setup.evilTwinPlayerId != null) return;
+  const players = Object.values(state.players || {}) as Player[];
+  const storedGood =
+    typeof state.setup.evilTwinGoodPlayerId === "string"
+      ? players.find((player) => player.id === state.setup.evilTwinGoodPlayerId) || null
+      : null;
+  const storedEvil =
+    typeof state.setup.evilTwinPlayerId === "string"
+      ? players.find((player) => player.id === state.setup.evilTwinPlayerId) || null
+      : null;
+  // A save written before the alignment-aware pairing can hold two good
+  // players. Rebuild it once, before any character change moves the roles.
+  if (storedGood || storedEvil) {
+    if (
+      storedGood &&
+      storedEvil &&
+      realTeamOf(storedGood) === "good" &&
+      realTeamOf(storedEvil) === "evil"
+    ) {
+      return;
+    }
+    const good =
+      [storedGood, storedEvil].find((player) => player && realTeamOf(player) === "good") ||
+      players.find((player) => realTeamOf(player) === "good") ||
+      null;
+    const evil =
+      [storedGood, storedEvil].find((player) => player && realTeamOf(player) === "evil") ||
+      players.find((player) => realTeamOf(player) === "evil") ||
+      null;
+    state.setup.evilTwinGoodPlayerId = good ? good.id : null;
+    state.setup.evilTwinPlayerId = evil ? evil.id : null;
+    return;
+  }
+  // A save that carries both player-id fields has an explicit pair, chosen by
+  // the Storyteller or still unset; never infer it again. A half pair is not a
+  // valid choice: clear it and repair from the legacy roles below.
+  if (
+    Object.hasOwn(state.setup, "evilTwinGoodPlayerId") &&
+    Object.hasOwn(state.setup, "evilTwinPlayerId")
+  )
+    return;
+  state.setup.evilTwinGoodPlayerId = null;
+  state.setup.evilTwinPlayerId = null;
   const goodRole = state.setup.evilTwinGoodId;
   if (!goodRole) return;
-  const players = Object.values(state.players || {}) as Player[];
   const evil = players.find((player) => player && player.roleId === "eviltwin");
   const good = players.find((player) => player && player.roleId === goodRole);
   if (!evil || !good || evil.id === good.id) return;
@@ -921,12 +951,12 @@ export function importGame(
   return { ok: true, state };
 }
 
-export function exportGame(state: GameState): string {
+export function exportGame(state: GameState, ports: CommandExecutionContext = systemPorts): string {
   return JSON.stringify(
     {
       format: "pocket-grimoire",
       version: SCHEMA_VERSION,
-      exportedAt: nowIso(),
+      exportedAt: nowIso(ports),
       warning: "Файл содержит секретные роли, эффекты и заметки Рассказчика.",
       game: state,
     },

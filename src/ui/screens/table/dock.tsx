@@ -3,7 +3,12 @@
 // action rows; the table above it stays a reading surface.
 import { useMemo } from "react";
 import type { ReactNode } from "react";
-import { livingPlayers, orderedPlayers, playerById } from "../../../core/model/state.ts";
+import {
+  livingPlayers,
+  orderedPlayers,
+  playerById,
+  realTeamOf,
+} from "../../../core/model/state.ts";
 import { isManualScript } from "../../../core/model/rules.ts";
 import { tableProjection } from "../../../application/read-models/table.ts";
 import {
@@ -262,6 +267,21 @@ export function TableDock({ view }: { view: TableView }) {
           />
         ) : null}
 
+        {rejectionOf(outcome)?.code === "error.77" ? (
+          <button
+            className="btn btn--accent min-h-11"
+            type="button"
+            data-act="choose-twin-partner"
+            onClick={() => {
+              if (projection.twinHolderId) {
+                actions.openCorrection(projection.twinHolderId, "twin");
+              }
+            }}
+          >
+            {t("ui.chooseTwinPartner")}
+          </button>
+        ) : null}
+
         {executePreview ? (
           <ConsequenceList
             outcome={executePreview}
@@ -392,11 +412,9 @@ export function TableDock({ view }: { view: TableView }) {
                     : t("noExecution")}
                 </DockButton>
               </div>
-              {state.script &&
-              Array.isArray(state.script.roles) &&
-              state.script.roles.some((id) =>
-                ["pacifist", "sailor", "fool", "devilsadvocate", "zombuul"].includes(id),
-              ) ? (
+              {livingPlayers(state).some((player) => player.roleId === "pacifist") &&
+              target &&
+              realTeamOf(target) !== "evil" ? (
                 <label className="flex min-h-11 items-center gap-1.5 text-[10.5px] text-muted">
                   <input
                     type="checkbox"
@@ -404,11 +422,7 @@ export function TableDock({ view }: { view: TableView }) {
                     checked={drafts.executeSurvives}
                     onChange={(event) => drafts.setExecuteSurvives(event.target.checked)}
                   />
-                  <span>
-                    {state.script.roles.includes("pacifist")
-                      ? t("ui.pacifistSurvives")
-                      : t("survivesExecution")}
-                  </span>
+                  <span>{t("ui.pacifistSurvives")}</span>
                 </label>
               ) : null}
               <DockButton
