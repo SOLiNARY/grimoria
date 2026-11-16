@@ -4,6 +4,8 @@
 // Direct engine calls outside a command use `systemPorts`: it is an immutable
 // default, never a mutable module-level override.
 export interface CommandExecutionContext {
+  // Recorded commands carry their version; direct calls use current behavior.
+  readonly rulesetVersion?: string;
   readonly clock: { readonly now: () => string };
   readonly rng: { readonly next: () => number };
   readonly idFactory: { readonly suffix: (length: number) => string };

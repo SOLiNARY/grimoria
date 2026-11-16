@@ -892,7 +892,10 @@ function runDraft(
   const atIso = at.toISOString();
   const seedText =
     command.id + "|" + fingerprint + "|" + hashString(JSON.stringify(canonicalState(state)));
-  const ports = commandPorts(seedText, at, runtime);
+  const ports: CommandExecutionContext = {
+    ...commandPorts(seedText, at, runtime),
+    rulesetVersion: commandVersion(command),
+  };
   let outcome: DomainOutcome;
   try {
     outcome = finish(runCommand(command.type, draft, command.payload || {}, ports));

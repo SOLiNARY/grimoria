@@ -508,8 +508,8 @@ async function seedFortuneTellerNight() {
 
 // Night 1 of an 8-player Bad Moon Rising game, stopped on the Lunatic step.
 // The Lunatic is shown the Po, the same Demon as the real Demon.
-async function seedLunaticNight() {
-  const result = await page.evaluate(async () => {
+async function seedLunaticNight(independentBluffs = true) {
+  const result = await page.evaluate(async (independentBluffs) => {
     const { model, engine, store, rules } = await window.PG_MODULES();
     const assignment = {
       1: "lunatic",
@@ -543,7 +543,7 @@ async function seedLunaticNight() {
       )
       .slice(0, 3);
     game.setup.lunaticShownId = "po";
-    game.setup.lunaticBluffs = ["exorcist", "courtier", "gambler"];
+    if (independentBluffs) game.setup.lunaticBluffs = ["exorcist", "courtier", "gambler"];
     const dealt = engine.dealGame(game, { assignment });
     if (!dealt.ok) return dealt;
     game.phase = "seat";
@@ -560,7 +560,7 @@ async function seedLunaticNight() {
     store.replaceState(game);
     dispatchEvent(new PopStateEvent("popstate"));
     return { ok: true };
-  });
+  }, independentBluffs);
   assert.equal(result.ok, true, JSON.stringify(result));
   await page.waitForTimeout(100);
 }
@@ -989,6 +989,83 @@ async function lunaticSetupControls() {
   assert.equal(configured.status, "allowed", JSON.stringify(configured));
   await route("/bag");
   await page.locator('[data-tab="manual"]').click();
+  const lunaticBluffNames = () => page.locator("[data-lunatic-bluff-slot] b").allTextContents();
+  const demonBluffNames = () =>
+    page.evaluate(async () => {
+      const { setup } = (await window.PG_MODULES()).store.state;
+      return setup.bluffs.map((id) => window.PG?.roles?.find((role) => role.id === id)?.name ?? id);
+    });
+  assert.deepEqual(
+    await lunaticBluffNames(),
+    await demonBluffNames(),
+    "an unchosen Lunatic bluff list displays the real Demon's three bluffs",
+  );
+  assert.equal(
+    (await page.locator('[aria-labelledby="bag-lunatic-bluffs"] > div > b').textContent())?.trim(),
+    "3/3",
+    "the default Lunatic bluff count matches the real Demon's list",
+  );
+  await page.reload();
+  await page.waitForSelector(".setup");
+  await page.locator('[data-tab="manual"]').click();
+  assert.deepEqual(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.setup.lunaticBluffs),
+    [],
+    "reload preserves the unchosen Lunatic list without copying a default into state",
+  );
+  assert.deepEqual(
+    await lunaticBluffNames(),
+    await demonBluffNames(),
+    "the inherited Lunatic bluffs survive reload",
+  );
+  await page.locator('[data-act="library"]').click();
+  await page.locator("[data-library-name]").fill("Legacy Lunatic defaults");
+  await page.locator('[data-act="save-bag"]').click();
+  const legacyBagId = await page.evaluate(() => {
+    const library = JSON.parse(localStorage.getItem("pg.library.v1") || "{}") as {
+      bags: { id: string; name: string; lunaticBluffs?: string[] }[];
+    };
+    const bag = library.bags.find((entry) => entry.name === "Legacy Lunatic defaults")!;
+    delete bag.lunaticBluffs;
+    localStorage.setItem("pg.library.v1", JSON.stringify(library));
+    return bag.id;
+  });
+  await page.reload();
+  await page.waitForSelector(".setup");
+  await page.locator('[data-act="library"]').click();
+  await page.locator(`[data-load-bag="${legacyBagId}"]`).click();
+  assert.deepEqual(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.setup.lunaticBluffs),
+    [],
+    "loading a legacy saved bag keeps the Lunatic list following the Demon",
+  );
+  await page.locator('[data-shuffle-bluffs="demon"]').click();
+  assert.deepEqual(
+    await lunaticBluffNames(),
+    await demonBluffNames(),
+    "the Lunatic inherits a later Demon shuffle after a legacy saved bag loads",
+  );
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const legacy = structuredClone(store.state);
+    delete legacy.setup.lunaticBluffs;
+    store.replaceState(legacy);
+  });
+  await route("/bag");
+  await page.locator('[data-tab="manual"]').click();
+  await page.locator('[data-shuffle-bluffs="demon"]').click();
+  await page.locator('[data-act="undo"]').click();
+  assert.deepEqual(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.setup.lunaticBluffs),
+    [],
+    "setup undo keeps an absent legacy Lunatic list following the Demon",
+  );
+  await page.locator('[data-shuffle-bluffs="demon"]').click();
+  assert.deepEqual(
+    await lunaticBluffNames(),
+    await demonBluffNames(),
+    "the Lunatic bluffs still follow a Demon shuffle after legacy setup undo",
+  );
   assert.equal(
     await page.locator('[data-act="lunatic-follow-demon"]').count(),
     1,
@@ -1028,6 +1105,11 @@ async function lunaticSetupControls() {
   assert.equal(demonBluffs.ids.length, 3);
   assert.equal(new Set(demonBluffs.ids).size, 3);
   assert.equal(demonBluffs.legal, true);
+  assert.deepEqual(
+    await lunaticBluffNames(),
+    await demonBluffNames(),
+    "the unchosen Lunatic bluffs follow a real Demon bluff shuffle",
+  );
   await page.locator('[data-act="edit-bluffs"]').click();
   assert.equal(
     await page.locator('[data-bluff-role="exorcist"]').count(),
@@ -1040,10 +1122,26 @@ async function lunaticSetupControls() {
     demonBluffs.ids,
     "Lunatic shuffle leaves the real Demon's bluffs alone",
   );
-  for (let index = 0; index < 3; index++)
+  for (let index = 0; index < 2; index++)
     await page.locator('[data-lunatic-bluff-slot="0"]').click();
-  for (const id of ["exorcist", "courtier", "gambler"])
+  const remainingBluff = await page.evaluate(
+    async () => (await window.PG_MODULES()).store.state.setup.lunaticBluffs?.[0],
+  );
+  if (remainingBluff !== "exorcist") {
+    await page.locator('[data-lunatic-bluff-role="exorcist"]').click();
+    await page.locator('[data-lunatic-bluff-slot="0"]').click();
+  }
+  for (const id of ["courtier", "gambler"])
     await page.locator(`[data-lunatic-bluff-role="${id}"]`).click();
+  const independentNames = await lunaticBluffNames();
+  await page.locator('[data-lunatic-bluff-slot="2"]').click();
+  assert.deepEqual(
+    await lunaticBluffNames(),
+    independentNames.slice(0, 2),
+    "a partial explicit Lunatic list keeps its choices without adding Demon bluffs",
+  );
+  await page.locator('[data-lunatic-bluff-role="gambler"]').click();
+  assert.deepEqual(await lunaticBluffNames(), independentNames);
   assert.equal(
     await page.locator('[data-bluff-role="exorcist"]').count(),
     0,
@@ -1078,6 +1176,18 @@ async function lunaticSetupControls() {
   await page.setViewportSize({ width: 1280, height: 900 });
   await overflow();
   await page.screenshot({ path: join(screenshots, "lunatic-setup-1280.png") });
+  for (let index = 0; index < 3; index++)
+    await page.locator('[data-lunatic-bluff-slot="0"]').click();
+  assert.deepEqual(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.setup.lunaticBluffs),
+    [],
+    "removing the final explicit bluff clears the Lunatic override",
+  );
+  assert.deepEqual(
+    await lunaticBluffNames(),
+    await demonBluffNames(),
+    "clearing the Lunatic override resumes the real Demon's bluffs",
+  );
 
   await page.evaluate(async () => {
     const { store } = await window.PG_MODULES();
@@ -1113,6 +1223,29 @@ async function lunaticSetupControls() {
     { role: "po", explicit: true },
     "editing an old setup preserves a previously chosen mask",
   );
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedLunaticNight(false);
+  await route("/table");
+  await page.locator('[data-target][data-id="3"]').click();
+  await page.locator('[data-act="complete"]').click();
+  await page.locator('[data-act="show-info"]').click();
+  await page.waitForSelector("[data-lunatic-card]");
+  const defaultCardBluffs = await page
+    .locator("[data-lunatic-card] [data-info-bluffs] > *")
+    .allTextContents();
+  assert.deepEqual(
+    defaultCardBluffs.map((name) => name.trim()),
+    await demonBluffNames(),
+    "the Lunatic's first-night card shows all three inherited Demon bluffs",
+  );
+  const defaultCard = await page.locator("[data-lunatic-card]").innerText();
+  assert.ok(!defaultCard.includes("Player 7"), "inheriting bluffs keeps the real Minion private");
+  assert.ok(!defaultCard.includes("Player 8"), "inheriting bluffs keeps the real Demon private");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "lunatic-default-bluffs-390.png") });
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
 }
 
 async function currentScriptRoleCorrections() {

@@ -125,7 +125,11 @@ function PlayerInfoCard({ view }: { view: TableView }) {
     const actor = step.actorId ? playerById(state, step.actorId) : null;
     const mask = actor?.shownRoleId ? ports.roles.byId(actor.shownRoleId) : null;
     const bluffIds = (
-      state.setup.lunaticBluffs ?? (state.bluffs?.length ? state.bluffs : state.setup.bluffs)
+      state.setup.lunaticBluffs?.length
+        ? state.setup.lunaticBluffs
+        : state.bluffs?.length
+          ? state.bluffs
+          : state.setup.bluffs
     ).map(String);
     const bluffRoles = bluffIds
       .map((id) => ports.roles.byId(id))
