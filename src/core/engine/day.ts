@@ -1309,7 +1309,7 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
     open: false,
   };
   state.phase = "night";
-  state.night.queue = buildNightQueue(state);
+  state.night.queue = buildNightQueue(state, ports);
   if (demonChanged) {
     appendConditionalSteps(state, ports);
     state.night.demonChanged = false;

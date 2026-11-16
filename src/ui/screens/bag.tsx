@@ -293,7 +293,7 @@ export function BagScreen() {
       drunkShownId: parsed.drunkShownId,
       lunaticShownId: parsed.lunaticShownId,
       lunaticShownExplicit: parsed.lunaticShownExplicit ?? Boolean(parsed.lunaticShownId),
-      lunaticBluffs: parsed.lunaticBluffs ?? parsed.bluffs,
+      lunaticBluffs: parsed.lunaticBluffs ?? [],
       godfatherOutsider: parsed.godfatherOutsider === -1 ? -1 : 1,
       evilTwinGoodId: parsed.evilTwinGoodId,
     });
@@ -635,7 +635,7 @@ export function BagScreen() {
       drunkShownId: bag.drunkShownId,
       lunaticShownId: bag.lunaticShownId,
       lunaticShownExplicit: bag.lunaticShownExplicit ?? Boolean(bag.lunaticShownId),
-      lunaticBluffs: bag.lunaticBluffs ?? bag.bluffs,
+      lunaticBluffs: bag.lunaticBluffs ?? [],
       godfatherOutsider: bag.godfatherOutsider,
       evilTwinGoodId: bag.evilTwinGoodId,
     });
@@ -845,6 +845,9 @@ export function BagScreen() {
   const errors = setupProjection(state).errors;
   const legal = errors.length === 0;
   const count = state.setup.count;
+  const lunaticBluffs = state.setup.lunaticBluffs?.length
+    ? state.setup.lunaticBluffs
+    : state.setup.bluffs;
   const mixed = isMixedEdition(scriptRoles);
   const manualOnly = Boolean(state.script?.manualOnly);
 
@@ -1055,9 +1058,7 @@ export function BagScreen() {
     const lunatic = recipient === "lunatic";
     const needed = lunatic ? 3 : requiredBluffs(count);
     if (!needed) return <p className={NOTE}>{t("noBluffs")}</p>;
-    const selected = lunatic
-      ? (state.setup.lunaticBluffs ?? state.setup.bluffs)
-      : state.setup.bluffs;
+    const selected = lunatic ? lunaticBluffs : state.setup.bluffs;
     const editing = lunatic ? lunaticBluffEdit : bluffEdit;
     const setEditing = lunatic ? setLunaticBluffEdit : setBluffEdit;
     const label = t(lunatic ? "lunaticBluffs" : "bluffs");
@@ -2484,7 +2485,7 @@ export function BagScreen() {
                   t("lunaticBluffs"),
                   null,
                   <b className="text-[9px] font-semibold uppercase tracking-[.06em] text-text">
-                    {(state.setup.lunaticBluffs ?? state.setup.bluffs).length}/3
+                    {lunaticBluffs.length}/3
                   </b>,
                   "h2",
                   "bag-lunatic-bluffs",

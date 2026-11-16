@@ -234,11 +234,14 @@ export function demonChangePending(state: GameState): NightStep | null {
   );
 }
 
-export function buildNightQueue(state: GameState): NightStep[] {
+export function buildNightQueue(
+  state: GameState,
+  ports: CommandExecutionContext = systemPorts,
+): NightStep[] {
   // Manual-only games have no automatic night steps. The host resolves every
   // ability and records deaths and changes through corrections.
   if (isManualScript(state.script)) return [];
-  if (isBmrScript(state.script)) return buildBmrNightQueue(state);
+  if (isBmrScript(state.script)) return buildBmrNightQueue(state, ports);
   if (isSnvScript(state.script)) return buildSvNightQueue(state);
   const night = nightAt(state).number;
   const sequence = nightSequence(night);
@@ -392,7 +395,7 @@ export function startNight(state: GameState, ports: CommandExecutionContext = sy
   state.phase = "night";
   state.day.number = state.night.number;
   state.night.demonChanged = false;
-  state.night.queue = buildNightQueue(state);
+  state.night.queue = buildNightQueue(state, ports);
   state.night.currentIndex = 0;
   state.setup.ready = true;
   addLog(
@@ -577,7 +580,7 @@ export function completeStep(
     if (step.infoKind !== "none") {
       // A note-only Bad Moon Rising answer is free-form narration; a step that
       // computes options is held to them like every other information step.
-      const checked = validateGiven(step, infoForStep(state, step, options), options);
+      const checked = validateGiven(step, infoForStep(state, step, options, ports), options);
       if ("rejection" in checked) return checked.rejection;
       pending = checked.pending;
     }
