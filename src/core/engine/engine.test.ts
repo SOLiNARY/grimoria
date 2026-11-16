@@ -66,8 +66,13 @@ import {
   registersAsTownsfolk,
   registrationError,
   applyCommand,
+  canonicalState,
+  createRuntime,
+  previewCommand,
+  replay,
 } from "./index.ts";
 import type { InfoResult } from "./index.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
 import type { GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
 
 type StepOptions = {
@@ -501,6 +506,401 @@ test("the Monk cannot choose themself (TB-MONK-01)", () => {
   assert.equal(self.ok, false);
   assert.equal("errorCode" in self ? self.errorCode : null, "error.40");
 });
+
+// Ports that hand out predictable ids and times and record every draw. A step
+// completed with them pins its records and the order in which it consumes the
+// command stream, which is what replay depends on.
+function recordingPorts(): { ports: CommandExecutionContext; draws: string[] } {
+  const draws: string[] = [];
+  let ids = 0;
+  let ticks = 0;
+  return {
+    draws,
+    ports: {
+      clock: {
+        now: () => {
+          draws.push("clock");
+          ticks += 1;
+          return "2030-01-01T00:00:0" + ticks + ".000Z";
+        },
+      },
+      rng: {
+        next: () => {
+          draws.push("rng");
+          return 0.5;
+        },
+      },
+      idFactory: {
+        suffix: (length) => {
+          draws.push("id:" + length);
+          ids += 1;
+          return ("k" + ids).padEnd(length, "0");
+        },
+      },
+    },
+  };
+}
+
+function plain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+const NIGHT_ROLES = {
+  1: "monk",
+  2: "soldier",
+  3: "empath",
+  4: "chef",
+  5: "mayor",
+  6: "poisoner",
+  7: "imp",
+};
+
+function nextNight(state: GameState): void {
+  skipNight(state);
+  assert.equal(endDay(state).ok, true);
+}
+
+function testPoison(sourceId: string, targetId: string, night: number) {
+  return {
+    id: "test-poison-" + sourceId + "-" + targetId,
+    kind: "poison",
+    sourceId,
+    targetId,
+    start: { phase: "night" as const, number: night },
+    expires: null,
+    active: true,
+  };
+}
+
+test("a healthy Poisoner's choice records one dated poison, its note and one secret log line (TB-POISONER-01)", () => {
+  const state = make(NIGHT_ROLES);
+  startNight(state);
+  const step = roleStep(state, "poisoner");
+  const queued = state.night.queue.map((candidate) => candidate.key);
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["3"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(state.effects), [
+    {
+      id: "eff-1-k100",
+      kind: "poison",
+      sourceId: "6",
+      targetId: "3",
+      start: { phase: "night", number: 1 },
+      expires: { phase: "night", number: 2 },
+      active: true,
+    },
+  ]);
+  assert.deepEqual(plain(step), {
+    key: "n1-2-poisoner-6",
+    kind: "role",
+    roleId: "poisoner",
+    actorId: "6",
+    actorName: "P6",
+    actorAlive: true,
+    order: 2,
+    targetMode: "one-any",
+    infoKind: "none",
+    targetIds: ["3"],
+    redirectId: null,
+    registrations: {},
+    given: null,
+    result: null,
+    note: "Отравлен: P3.",
+    pending: null,
+    done: true,
+    skipped: false,
+    completedAt: "2030-01-01T00:00:01.000Z",
+    noteKey: "note.poisoned",
+    noteVars: { name: "P3" },
+    impaired: false,
+  });
+  assert.deepEqual(plain(state.log.slice(logged)), [
+    {
+      id: "log-" + (logged + 1) + "-k2000",
+      at: "2030-01-01T00:00:02.000Z",
+      phase: "Ночь 1",
+      kind: "night",
+      title: "Отравитель",
+      detail: "Отравлен: P3.",
+      playerId: null,
+      secret: true,
+      roleId: "poisoner",
+      phaseCode: "night",
+      phaseNumber: 1,
+      noteKey: "note.poisoned",
+      noteVars: { name: "P3" },
+    },
+  ]);
+  assert.deepEqual(
+    draws,
+    ["id:4", "clock", "id:5", "clock"],
+    "the effect id is drawn before the step time and the log line",
+  );
+  assert.deepEqual(
+    state.night.queue.map((candidate) => candidate.key),
+    queued,
+    "the choice adds no step",
+  );
+  assert.equal(state.winner, null);
+});
+
+test("a new Poisoner choice ends the poison it sourced before and leaves another source's poison (TB-POISONER-01)", () => {
+  const state = make(NIGHT_ROLES);
+  startNight(state);
+  completeRole(state, "poisoner", { targetIds: ["3"] });
+  nextNight(state);
+  const other = testPoison("7", "4", 2);
+  state.effects.push(other);
+  const { ports } = recordingPorts();
+
+  const result = completeStep(state, roleStep(state, "poisoner").key, { targetIds: ["5"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(state.effects.length, 3);
+  assert.equal(state.effects[0]!.active, false, "the first-night poison is over");
+  assert.deepEqual(plain(state.effects[1]), other, "another source keeps its poison");
+  assert.deepEqual(plain(state.effects[2]), {
+    id: "eff-3-k100",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "5",
+    start: { phase: "night", number: 2 },
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  assert.equal(isImpaired(state, "3"), false);
+  assert.equal(isImpaired(state, "5"), true);
+});
+
+test("an impaired Poisoner's choice poisons no one and records the shared failure note (TB-POISONER-01)", () => {
+  const state = make(NIGHT_ROLES);
+  startNight(state);
+  const ownPoison = testPoison("7", "6", 1);
+  state.effects.push(ownPoison);
+  const step = roleStep(state, "poisoner");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["3"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(state.effects), [ownPoison], "no effect is added");
+  assert.equal(step.noteKey, "note.abilityFailed");
+  assert.equal(step.noteVars, null);
+  assert.equal(step.note, "Способность не сработала: игрок отравлен или пьян.");
+  assert.equal(step.impaired, true);
+  assert.equal(step.result, null);
+  assert.deepEqual(step.targetIds, ["3"], "the choice itself is still recorded");
+  assert.equal(state.log.length, logged + 1);
+  assert.equal(state.log.at(-1)!.noteKey, "note.abilityFailed");
+  assert.deepEqual(draws, ["clock", "id:5", "clock"], "no effect id is drawn");
+  assert.equal(isImpaired(state, "3"), false);
+});
+
+test("a healthy Monk's choice records one protection until dawn, its note and one secret log line (TB-MONK-01)", () => {
+  const state = make(NIGHT_ROLES);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  const step = roleStep(state, "monk");
+  const queued = state.night.queue.map((candidate) => candidate.key);
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["4"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(state.effects), [
+    {
+      id: "eff-1-k100",
+      kind: "protected",
+      sourceId: "1",
+      targetId: "4",
+      start: { phase: "night", number: 2 },
+      expires: { phase: "day", number: 2 },
+      active: true,
+    },
+  ]);
+  assert.deepEqual(plain(step), {
+    key: step.key,
+    kind: "role",
+    roleId: "monk",
+    actorId: "1",
+    actorName: "P1",
+    actorAlive: true,
+    order: step.order,
+    targetMode: "one-other",
+    infoKind: "none",
+    targetIds: ["4"],
+    redirectId: null,
+    registrations: {},
+    given: null,
+    result: null,
+    note: "Защищён этой ночью: P4.",
+    pending: null,
+    done: true,
+    skipped: false,
+    completedAt: "2030-01-01T00:00:01.000Z",
+    noteKey: "note.protected",
+    noteVars: { name: "P4" },
+    impaired: false,
+  });
+  assert.deepEqual(plain(state.log.slice(logged)), [
+    {
+      id: "log-" + (logged + 1) + "-k2000",
+      at: "2030-01-01T00:00:02.000Z",
+      phase: "Ночь 2",
+      kind: "night",
+      title: "Монах",
+      detail: "Защищён этой ночью: P4.",
+      playerId: null,
+      secret: true,
+      roleId: "monk",
+      phaseCode: "night",
+      phaseNumber: 2,
+      noteKey: "note.protected",
+      noteVars: { name: "P4" },
+    },
+  ]);
+  assert.deepEqual(draws, ["id:4", "clock", "id:5", "clock"]);
+  assert.deepEqual(
+    state.night.queue.map((candidate) => candidate.key),
+    queued,
+    "the choice adds no step",
+  );
+  assert.equal(state.winner, null);
+});
+
+test("a new Monk choice ends the protection it gave before (TB-MONK-01)", () => {
+  const state = make(NIGHT_ROLES);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  completeRole(state, "monk", { targetIds: ["4"] });
+  nextNight(state);
+  const { ports } = recordingPorts();
+
+  const result = completeStep(state, roleStep(state, "monk").key, { targetIds: ["5"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(state.effects.length, 2);
+  assert.equal(state.effects[0]!.active, false, "the earlier protection is over");
+  assert.deepEqual(plain(state.effects[1]), {
+    id: "eff-2-k100",
+    kind: "protected",
+    sourceId: "1",
+    targetId: "5",
+    start: { phase: "night", number: 3 },
+    expires: { phase: "day", number: 3 },
+    active: true,
+  });
+});
+
+test("a poisoned Monk protects no one and the Imp's attack kills (TB-MONK-01)", () => {
+  const state = make(NIGHT_ROLES);
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const step = roleStep(state, "monk");
+  const { ports, draws } = recordingPorts();
+
+  const result = completeStep(state, step.key, { targetIds: ["4"] }, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(
+    state.effects.some((effect) => effect.kind === "protected"),
+    false,
+    "an impaired Monk adds no protection",
+  );
+  assert.equal(step.noteKey, "note.abilityFailed");
+  assert.equal(step.note, "Способность не сработала: игрок отравлен или пьян.");
+  assert.equal(step.impaired, true);
+  assert.deepEqual(draws, ["clock", "id:5", "clock"], "no effect id is drawn");
+  completeRole(state, "imp", { targetIds: ["4"] });
+  assert.equal(state.players["4"].alive, false);
+});
+
+test("a Drunk shown the Monk takes the Monk step and protects no one (TB-DRUNK-01)", () => {
+  const state = make(
+    { 1: "drunk", 2: "empath", 3: "chef", 4: "mayor", 5: "poisoner", 6: "imp" },
+    { drunkShownId: "monk" },
+  );
+  toDay(state);
+  assert.equal(endDay(state).ok, true);
+  const step = roleStep(state, "monk");
+  assert.equal(step.actorId, "1", "the Drunk wakes as the Monk they believe they are");
+
+  const result = completeStep(state, step.key, { targetIds: ["3"] });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(
+    state.effects.some((effect) => effect.kind === "protected"),
+    false,
+  );
+  assert.equal(step.noteKey, "note.abilityFailed");
+  assert.equal(step.impaired, true);
+  completeRole(state, "imp", { targetIds: ["3"] });
+  assert.equal(state.players["3"].alive, false);
+});
+
+for (const scenario of [
+  { name: "Poisoner", roleId: "poisoner", effect: "poison", rule: "TB-POISONER-01", targetId: "3" },
+  { name: "Monk", roleId: "monk", effect: "protected", rule: "TB-MONK-01", targetId: "4" },
+] as const) {
+  test(`the ${scenario.name} choice previews, applies and replays with the command clock and ids (${scenario.rule})`, () => {
+    const build = (): GameState => {
+      const state = make(NIGHT_ROLES);
+      toDay(state);
+      assert.equal(endDay(state).ok, true);
+      return state;
+    };
+    const state = build();
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const command = {
+      id: scenario.roleId + "-choice",
+      type: "completeNightStep",
+      payload: { key: roleStep(state, scenario.roleId).key, targetIds: [scenario.targetId] },
+      at: "2030-01-01T00:00:00.000Z",
+    };
+    const before = canonicalState(state);
+
+    const preview = previewCommand(state, command, runtime);
+    assert.equal(preview.status, "allowed", JSON.stringify(preview));
+    assert.deepEqual(canonicalState(state), before, "preview must not mutate");
+    const applied = applyCommand(state, command, runtime);
+    assert.equal(applied.status, "allowed", JSON.stringify(applied));
+    assert.deepEqual(
+      "events" in preview ? preview.events : null,
+      "events" in applied ? applied.events : undefined,
+      "preview and apply derive the same events",
+    );
+
+    const effect = state.effects.find((candidate) => candidate.kind === scenario.effect);
+    assert.ok(effect, "the effect is recorded");
+    assert.equal(effect.targetId, scenario.targetId);
+    const step = state.night.queue.find((candidate) => candidate.roleId === scenario.roleId)!;
+    assert.equal(step.completedAt, "2030-01-01T00:00:00.000Z", "the step uses the command clock");
+
+    // The same command on the same state draws the same ids from the seeded
+    // stream, so a second game and a replay both land on the same records.
+    const twin = build();
+    assert.equal(applyCommand(twin, command, runtime).status, "allowed");
+    assert.deepEqual(twin.effects, state.effects, "the effect id comes from the command stream");
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+
+    const saved = importGame(exportGame(state));
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    if (!saved.ok) return;
+    const reloaded = replay(saved.state.journal, runtime);
+    assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
+    assert.deepEqual(canonicalState(reloaded.state), canonicalState(state));
+  });
+}
 
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {
   const state = make({
