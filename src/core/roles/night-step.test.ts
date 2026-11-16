@@ -203,4 +203,11 @@ test("the migrated Trouble Brewing information roles answer from their modules",
   assert.equal(nightStepFor(fortuneteller, 1)?.infoKind, "yes-no");
   assert.equal(nightStepFor(fortuneteller, 2)?.infoKind, "yes-no");
   assert.equal(nightResolverFor(fortuneteller, 2), undefined, "the step applies nothing");
+
+  const chef = roleModule("chef");
+  assert.ok(informationOf(chef), "the Chef owns its answer");
+  assert.equal(nightStepFor(chef, 1)?.infoKind, "number");
+  assert.equal(nightStepFor(chef, 1)?.target, undefined, "the Chef chooses nobody");
+  assert.equal(nightStepFor(chef, 2), undefined, "the Chef learns on the first night only");
+  assert.equal(nightResolverFor(chef, 1), undefined, "the step applies nothing");
 });

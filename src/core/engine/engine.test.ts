@@ -2401,6 +2401,151 @@ test("an information role is told who registers as a Demon and who the red herri
   assert.equal(seen[3]!.redHerringId, null, "a game without a herring names none");
 });
 
+test("a working ability with more than one legal answer is the host's choice among them", () => {
+  const state = empathNight();
+  const step = roleStep(state, "empath");
+  const legal = ["once", "twice"];
+  const possible = ["never", "once", "twice"];
+
+  const info = moduleInfoForStep(
+    state,
+    answering({ kind: "answer", value: "once", possible, legal }),
+    step,
+  );
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: "once",
+    impaired: false,
+    needsChoice: true,
+    options: ["once", "twice"],
+  });
+  assert.notEqual(info?.options, legal, "the host's list is a copy of the module's");
+
+  assert.deepEqual(
+    moduleInfoForStep(
+      state,
+      answering({ kind: "answer", value: "once", possible, legal: ["once"] }),
+      step,
+    ),
+    { kind: "yes-no", value: "once", impaired: false, needsChoice: false, options: [] },
+    "one legal answer is no choice",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(
+      state,
+      answering({ kind: "answer", value: "once", possible, legal: [] }),
+      step,
+    ),
+    { kind: "yes-no", value: "once", impaired: false, needsChoice: false, options: [] },
+  );
+});
+
+test("an impaired owner is offered every possible answer, not the legal ones", () => {
+  const state = empathNight(true);
+
+  const info = moduleInfoForStep(
+    state,
+    answering({
+      kind: "answer",
+      value: "once",
+      possible: ["never", "once", "twice"],
+      legal: ["once", "twice"],
+    }),
+    roleStep(state, "empath"),
+  );
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: "once",
+    impaired: true,
+    needsChoice: true,
+    options: ["never", "once", "twice"],
+  });
+});
+
+test("an information role is told the seats and who may register as each team", () => {
+  const state = make(
+    {
+      1: "spy",
+      2: "empath",
+      3: "recluse",
+      4: "chef",
+      5: "monk",
+      6: "soldier",
+      7: "undertaker",
+      8: "saint",
+      9: "imp",
+    },
+    { count: 9 },
+  );
+  assert.equal(startNight(state).ok, true);
+  const step = roleStep(state, "empath");
+  const seen: InformationContext[] = [];
+  const module = answering({ kind: "answer", value: false, possible: [true, false] }, seen);
+
+  moduleInfoForStep(state, module, step, { registrations: { "1": "good", "3": "evil" } });
+
+  const context = seen[0]!;
+  assert.deepEqual(context.seatIds, ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+  assert.notEqual(context.seatIds, state.order, "the role is given a copy of the order");
+  const may = (id: string) => [
+    context.mayRegisterAs(id, "good"),
+    context.mayRegisterAs(id, "evil"),
+  ];
+  assert.deepEqual(may("1"), [true, true], "a Spy might register as good");
+  assert.deepEqual(may("3"), [true, true], "a Recluse might register as evil");
+  assert.deepEqual(may("9"), [false, true], "the Demon is evil");
+  assert.deepEqual(may("4"), [true, false], "a Townsfolk is good");
+  assert.deepEqual(may("8"), [true, false], "another Outsider is good");
+  assert.deepEqual(may("99"), [false, false], "a seat that does not exist");
+
+  // What the host has chosen for the step does not narrow what was possible.
+  moduleInfoForStep(state, module, step);
+  assert.deepEqual(
+    ["1", "3", "9", "4"].map((id) => seen[1]!.mayRegisterAs(id, "evil")),
+    ["1", "3", "9", "4"].map((id) => context.mayRegisterAs(id, "evil")),
+  );
+});
+
+test("a drunk or poisoned Spy or Recluse may register only as its own team", () => {
+  const seats = {
+    1: "spy",
+    2: "imp",
+    3: "recluse",
+    4: "chef",
+    5: "monk",
+    6: "soldier",
+    7: "mayor",
+    8: "poisoner",
+    9: "empath",
+    10: "undertaker",
+    11: "virgin",
+  };
+  const facts = (poisonedId: string) => {
+    const state = make(seats, { count: 11 });
+    assert.equal(startNight(state).ok, true);
+    completeRole(state, "poisoner", { targetIds: [poisonedId] });
+    const seen: InformationContext[] = [];
+    moduleInfoForStep(
+      state,
+      answering({ kind: "answer", value: false }, seen),
+      roleStep(state, "empath"),
+    );
+    return seen[0]!;
+  };
+
+  const recluse = facts("3");
+  assert.equal(recluse.mayRegisterAs("3", "evil"), false, "a poisoned Recluse is only good");
+  assert.equal(recluse.mayRegisterAs("3", "good"), true);
+  assert.equal(recluse.mayRegisterAs("1", "good"), true, "the Spy is not affected");
+
+  const spy = facts("1");
+  assert.equal(spy.mayRegisterAs("1", "good"), false, "a poisoned Spy is only evil");
+  assert.equal(spy.mayRegisterAs("1", "evil"), true);
+  assert.equal(spy.mayRegisterAs("3", "evil"), true, "the Recluse is not affected");
+});
+
 // The records of the Fortune Teller's step. Saved games and replays hold them,
 // so a move of the role must leave every one of them as it is.
 const FORTUNE_ROLES = {

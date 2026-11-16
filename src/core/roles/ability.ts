@@ -241,8 +241,16 @@ export interface InformationContext {
   readonly targetIds: readonly string[];
   readonly impaired: boolean;
   readonly at: DeadAt;
+  /** Every seat in order around the circle, living or dead. */
+  readonly seatIds: readonly string[];
   aliveNeighborIds(playerId: string): readonly string[];
   registeredTeamOf(playerId: string): "good" | "evil" | null;
+  /**
+   * Whether the player may register as this team to this ability: their own
+   * team, or the other one while the Storyteller may still register them so.
+   * The team the host has chosen for this step is `registeredTeamOf`.
+   */
+  mayRegisterAs(playerId: string, team: "good" | "evil"): boolean;
   /**
    * Whether the player registers as a Demon to this ability: a Demon, alive
    * or dead, or a player the host registered as one for this step.
@@ -265,11 +273,17 @@ export type InformationDecision =
    * does not work the engine asks the host and offers `possible`, every value
    * the answer can take, the true one included. The role cannot mark the
    * answer as false, require the host or name the options of one step.
+   *
+   * `legal` is every value a working ability may show when the answer depends
+   * on how a player registers. More than one means the Storyteller chooses
+   * among them, and the engine asks; the role still gives `value`, the answer
+   * under the registrations chosen so far.
    */
   | {
       readonly kind: "answer";
       readonly value: InformationValue;
       readonly possible?: readonly InformationValue[];
+      readonly legal?: readonly InformationValue[];
     }
   | { readonly kind: "no-effect" };
 

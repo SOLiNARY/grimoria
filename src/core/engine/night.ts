@@ -156,7 +156,6 @@ export function infoKindFor(roleId: RoleId | null): string {
       washerwoman: "one-of-two",
       librarian: "one-of-two",
       investigator: "one-of-two",
-      chef: "number",
       undertaker: "character",
       ravenkeeper: "character",
       spy: "grimoire",
@@ -670,7 +669,6 @@ export function completeStep(
   // the roles named here still get their answer from `infoForStep`.
   if (
     informationOf(module) ||
-    role === "chef" ||
     role === "washerwoman" ||
     role === "librarian" ||
     role === "investigator"

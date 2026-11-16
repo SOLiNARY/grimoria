@@ -91,6 +91,16 @@ test("a migrated information role keeps the references of its setup and its quer
   );
 });
 
+test("a migrated information role whose query stays keeps that one reference", () => {
+  const chef = roleModules().find((candidate) => candidate.id === "chef");
+  assert.ok(chef);
+  assert.deepEqual(chef.declares, ["capability:night-step", "capability:information"]);
+  // The count, the legal range and the step shape come from the module. The
+  // exported count query resolves the module; nothing else names the role.
+  assert.deepEqual(engineLocations("chef"), ["information.ts×1"]);
+  assert.equal(ownerOf(chef, engineLocations("chef")), "capability + engine reference");
+});
+
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
   const source = `
     export const role = {
