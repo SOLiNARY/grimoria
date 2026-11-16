@@ -58,7 +58,7 @@ slice, which keeps the migration reviewable role by role.
 
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
-Poisoner, the Monk, the Butler and the Imp have moved.
+Poisoner, the Monk, the Butler, the Imp and the Empath have moved.
 `src/core/roles/night-step.ts` is the one lookup the queue builders and the step completion use; it reads the
 capability or the legacy `nightStep`, `firstNightStep` and `ability` fields,
 and a module declares one form only. `docs/role-ownership.md` lists which
@@ -77,6 +77,16 @@ owed: the shared step record, the redirect question with nothing written, or
 the attack's own record, which `finishAttackStep` in `night.ts` writes. The
 attack path, not the role, stops a drunk or poisoned attacker, so the table's
 redirect prompt and the kill read one fact.
+
+An information role declares the shape of its answer with its night step and
+answers through the `information` capability: the value its ability learns and
+every value that answer can take. It returns the same answer whether or not
+its owner is drunk or poisoned. `moduleInfoForStep` in `information.ts` shows
+a working ability the role's value; for an impaired owner it asks the host and
+offers the possible values, the true one among them. Impairment, the question
+and the check of the host's answer stay in the engine. The Empath is the first
+role on this path; the other information roles keep their branches in
+`infoForStep` until their own slice.
 
 [ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
 capability for each step kind, one coordinator order (attack, protection and
