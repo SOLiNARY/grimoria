@@ -1131,7 +1131,7 @@ export function applyMadnessPenalty(
   }
   let death = null;
   if (penalty === "execute") {
-    const result = executeByDecision(state, playerId, { cause: "madness" });
+    const result = executeByDecision(state, playerId, { cause: "madness" }, ports);
     if (result.ok === false) return result;
     death = result.death || null;
   }

@@ -566,7 +566,19 @@ export function BagScreen() {
     if (!bag) return;
     if (hasGame && !window.confirm(t("ui.newBag"))) return;
     let script: Script | null = null;
-    if (bag.scriptId !== state.script?.id) {
+    if (
+      bag.scriptId === state.script?.id &&
+      !SCRIPT_IDS.includes(bag.scriptId) &&
+      bag.pool.length
+    ) {
+      // Editing a custom pool keeps its script ID. The saved bag still owns
+      // its original pool, even when it belongs to that same script.
+      script = {
+        ...state.script,
+        roles: bag.pool.slice(),
+        manualOnly: isMixedEdition(bag.pool),
+      };
+    } else if (bag.scriptId !== state.script?.id) {
       const factory = {
         tb: troubleBrewingScript,
         bmr: badMoonRisingScript,

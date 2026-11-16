@@ -740,7 +740,261 @@ async function completeStep() {
   if (await confirm.count()) await confirm.click();
 }
 
-try {
+async function savedCustomBagRestoresPool() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/table");
+  const configured = await page.evaluate(async () => {
+    const { store, rules } = await window.PG_MODULES();
+    return store.dispatch({
+      type: "bagUpdate",
+      payload: {
+        patch: {
+          script: {
+            id: "custom-draft",
+            name: "Saved custom pool",
+            edition: "custom",
+            source: "manual",
+            author: "Browser regression",
+            roles: rules.ALL_ROLES.slice(),
+            manualOnly: false,
+          },
+          count: 5,
+          resetRoster: true,
+          phase: "setup",
+          roles: ["chef", "empath", "soldier", "poisoner", "imp"],
+          bluffs: [],
+          drunkShownId: null,
+          lunaticShownId: null,
+          evilTwinGoodId: null,
+        },
+      },
+    });
+  });
+  assert.equal(configured.status, "allowed", JSON.stringify(configured));
+  await route("/bag");
+  await page.locator('[data-tab="manual"]').click();
+  const saved = await page.evaluate(async () => {
+    const { state } = (await window.PG_MODULES()).store;
+    return { script: structuredClone(state.script), roles: state.setup.roles.slice() };
+  });
+  await page.locator('[data-act="library"]').click();
+  await page.locator("[data-library-name]").fill("Same-ID custom bag regression");
+  await page.locator('[data-act="save-bag"]').click();
+  const savedBagId = await page.evaluate(() => {
+    const library = JSON.parse(localStorage.getItem("pg.library.v1") || "{}");
+    return library.bags.find(
+      (bag: { name: string }) => bag.name === "Same-ID custom bag regression",
+    ).id as string;
+  });
+  await page.locator('[data-act="close-library"]').last().click();
+  await page.locator('[data-act="edit-pool"]').click();
+  await page.locator('.bag-role[data-role="chef"]').click();
+  assert.equal(
+    await page.evaluate(async () =>
+      (await window.PG_MODULES()).store.state.script.roles.includes("chef"),
+    ),
+    false,
+    "editing the pool removes a role from the saved bag without changing the script ID",
+  );
+  await page.locator('[data-act="library"]').click();
+  await page.locator(`[data-load-bag="${savedBagId}"]`).click();
+  const restored = await page.evaluate(async () => {
+    const { state } = (await window.PG_MODULES()).store;
+    return { script: structuredClone(state.script), roles: state.setup.roles.slice() };
+  });
+  assert.deepEqual(
+    restored,
+    saved,
+    "loading a same-ID custom bag restores its pool and selected roles",
+  );
+  await page.waitForSelector("[data-library-name]", { state: "detached" });
+  await page.reload();
+  await page.waitForSelector(".setup");
+  assert.deepEqual(
+    await page.evaluate(async () => {
+      const { state } = (await window.PG_MODULES()).store;
+      return { script: structuredClone(state.script), roles: state.setup.roles.slice() };
+    }),
+    saved,
+    "the restored custom pool and bag survive a reload",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "restored-custom-bag-390.png") });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "restored-custom-bag-1280.png") });
+}
+
+async function currentScriptRoleCorrections() {
+  for (const { edition, width } of [
+    { edition: "bmr", width: 390 },
+    { edition: "snv", width: 390 },
+    { edition: "bmr", width: 1280 },
+    { edition: "snv", width: 1280 },
+  ] as const) {
+    await page.setViewportSize({ width, height: 844 });
+    await route("/bag");
+    const configured = await page.evaluate(async (edition) => {
+      const { store, rules } = await window.PG_MODULES();
+      const roles =
+        edition === "bmr"
+          ? ["gambler", "courtier", "fool", "pacifist", "professor", "assassin", "shabaloth"]
+          : ["artist", "savant", "seamstress", "dreamer", "oracle", "witch", "vortox"];
+      const pool = (edition === "bmr" ? rules.BMR_ALL : rules.SNV_ALL).slice();
+      const result = store.dispatch({
+        type: "bagUpdate",
+        payload: {
+          patch: {
+            script: { id: edition, name: edition, edition, source: "official", roles: pool },
+            count: 7,
+            resetRoster: true,
+            phase: "setup",
+            roles,
+            bluffs:
+              edition === "bmr"
+                ? ["chambermaid", "exorcist", "sailor"]
+                : ["clockmaker", "mathematician", "sage"],
+            drunkShownId: null,
+            lunaticShownId: null,
+            evilTwinGoodId: null,
+          },
+        },
+      });
+      if (result.status !== "allowed") return result;
+      return store.dispatch({
+        type: "dealGame",
+        payload: {
+          options: {
+            assignment: Object.fromEntries(roles.map((role, index) => [String(index + 1), role])),
+          },
+        },
+      });
+    }, edition);
+    assert.equal(configured.status, "allowed", JSON.stringify(configured));
+    await route("/table");
+    await page.locator('[data-act="roster"]').click();
+    await page.locator('[data-roster-player="1"] [data-act="role-card"]').click();
+    await page.locator('[data-act="player-correct"]').click();
+    await page.locator('[data-correct="kind"]').selectOption("role");
+    const expected = await page.evaluate(
+      async () => (await window.PG_MODULES()).store.state.script.roles,
+    );
+    const options = await page
+      .locator('[data-correct="role-value"] option')
+      .evaluateAll((elements) => elements.map((element) => (element as HTMLOptionElement).value));
+    assert.deepEqual(
+      options,
+      expected,
+      `${edition}: correction offers the active script's characters`,
+    );
+    const corrected = edition === "bmr" ? "chambermaid" : "clockmaker";
+    await page.locator('[data-correct="role-value"]').selectOption(corrected);
+    await page.locator('[data-correct="reason"]').fill("Correct the recorded character.");
+    await overflow();
+    await page.screenshot({ path: join(screenshots, `role-correction-${edition}-${width}.png`) });
+    await page.locator('[data-act="apply-correction"]').click();
+    await page.waitForSelector('[data-correct="kind"]', { state: "detached" });
+    await page.reload();
+    await page.waitForSelector(".host");
+    assert.deepEqual(
+      await page.evaluate(async () => {
+        const { state } = (await window.PG_MODULES()).store;
+        const player = state.players["1"];
+        return {
+          roleId: player.roleId,
+          shownRoleId: player.shownRoleId,
+          reason: state.corrections.at(-1)?.reason,
+        };
+      }),
+      { roleId: corrected, shownRoleId: corrected, reason: "Correct the recorded character." },
+      `${edition}: the selected correction persists across reload`,
+    );
+  }
+}
+
+async function madnessExecutionFromTable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/bag");
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const game = model.createGame(7);
+    game.script = {
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      source: "official",
+      roles: rules.SNV_ALL.slice(),
+    };
+    game.scriptId = "snv";
+    game.setup.roles = [
+      "artist",
+      "savant",
+      "seamstress",
+      "dreamer",
+      "oracle",
+      "cerenovus",
+      "vortox",
+    ];
+    game.setup.bluffs = ["clockmaker", "mathematician", "sage"];
+    const dealt = engine.dealGame(game, {
+      assignment: Object.fromEntries(
+        game.setup.roles.map((role, index) => [String(index + 1), role]),
+      ),
+    });
+    if (!dealt.ok) return dealt;
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    for (const step of game.night.queue) {
+      const completed =
+        step.roleId === "cerenovus"
+          ? engine.completeStep(game, step.key, { targetIds: ["2"], roleId: "clockmaker" })
+          : engine.skipStep(game, step.key, "Unrelated wake in the browser fixture");
+      if (!completed.ok) return completed;
+    }
+    const ended = engine.endNight(game);
+    if (!ended.ok) return ended;
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await route("/table");
+  await openTableMenu();
+  const review = page.locator('[data-madness-player="2"]');
+  await review
+    .locator('[data-madness-reason="2"]')
+    .fill("The player did not try to convince the group.");
+  await review.locator('[data-madness-action="execute"]').click();
+  await page.waitForFunction(
+    async () => !(await window.PG_MODULES()).store.state.players["2"].alive,
+  );
+  const execution = await page.evaluate(async () => {
+    const { state } = (await window.PG_MODULES()).store;
+    const command = state.journal.entries.findLast((entry) => entry.type === "madnessPenalty");
+    return {
+      commandAt: command?.at,
+      deathAt: state.deaths.findLast((death) => death.playerId === "2")?.at,
+      executionAt: state.day.execution?.at,
+      executedPlayer: state.day.execution?.playerId,
+    };
+  });
+  assert.equal(execution.executedPlayer, "2", "the host's madness decision executes its target");
+  assert.ok(execution.commandAt);
+  assert.equal(execution.deathAt, execution.commandAt, "madness death uses the command timestamp");
+  assert.equal(
+    execution.executionAt,
+    execution.commandAt,
+    "madness execution uses the command timestamp",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "madness-execution-390.png") });
+  await page.keyboard.press("Escape");
+}
+
+async function fullChecks() {
   await page.goto(url);
   await page.waitForSelector(".host");
   assert.equal(
@@ -4338,11 +4592,33 @@ try {
     await page.screenshot({ path: join(screenshots, `retained-twin-${width}.png`) });
   }
 
+  await savedCustomBagRestoresPool();
+  await currentScriptRoleCorrections();
+  await madnessExecutionFromTable();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
   );
   console.log("Screenshots: " + screenshots);
+}
+
+try {
+  const focused = process.env.PG_BROWSER_CHECK;
+  if (focused) {
+    const check = {
+      "saved-custom-bag": savedCustomBagRestoresPool,
+      "role-corrections": currentScriptRoleCorrections,
+      "madness-execution": madnessExecutionFromTable,
+    }[focused];
+    if (!check) throw new Error("Unknown browser check: " + focused);
+    await page.goto(url);
+    await page.waitForSelector(".host");
+    await check();
+    assert.deepEqual(errors, []);
+    console.log("Browser check passed: " + focused);
+  } else {
+    await fullChecks();
+  }
 } finally {
   await browser.close();
   await new Promise((done) => server.close(done));

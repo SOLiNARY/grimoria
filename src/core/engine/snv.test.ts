@@ -13,6 +13,7 @@ import {
   roleTeam,
 } from "../model/rules.ts";
 import {
+  clone,
   createGame,
   exportGame,
   importGame,
@@ -26,6 +27,7 @@ import {
   applyCommand,
   appendConditionalSteps,
   buildSvNightQueue,
+  canonicalState,
   checkWin,
   completeStep,
   currentStep,
@@ -44,6 +46,7 @@ import {
   kill,
   nominate,
   openNominations,
+  previewCommand,
   reconcileVigormortisPoison,
   recordKlutzChoice,
   recordSvOutcome,
@@ -1965,6 +1968,65 @@ test("the Storyteller executes a player who failed to be mad", () => {
   const logged = state.log.filter((entry) => entry.playerId === "2").at(-1)!;
   assert.equal(logged.secret, true);
   assert.match(logged.detail, /Claimed to be the Clockmaker all day\./);
+});
+
+test("madness executions preserve command time and events through preview and replay", () => {
+  // Cerenovus r3048 and Mutant r1755 leave this execution to the Storyteller,
+  // during the day or the following night. Its records must still be replayable.
+  for (const role of ["cerenovus", "mutant"] as const) {
+    for (const phase of ["day", "night"] as const) {
+      const state =
+        role === "cerenovus"
+          ? cerenovusMadness().state
+          : make({ 1: "clockmaker", 2: "mutant", 6: "witch", 7: "fanggu" }, { count: 8 });
+      if (role === "mutant") assert.equal(startNight(state).ok, true);
+      madnessDay(state);
+      if (phase === "night") {
+        state.phase = "night";
+        state.night.number = 2;
+      }
+      const before = clone(state);
+      const command = {
+        id: `madness-replay-${role}-${phase}`,
+        type: "madnessPenalty",
+        at: "2026-01-01T00:00:00.000Z",
+        payload: {
+          playerId: "2",
+          penalty: "execute",
+          reason: "The Storyteller judged that the player broke madness.",
+        },
+      };
+
+      const previewed = previewCommand(state, command);
+      assert.equal(previewed.status, "allowed", JSON.stringify(previewed));
+      assert.deepEqual(state, before, "preview leaves the entire state unchanged");
+      const applied = applyCommand(state, command);
+      assert.equal(applied.status, "allowed", JSON.stringify(applied));
+      if (previewed.status !== "allowed" || applied.status !== "allowed") return;
+
+      assert.equal(state.players["2"].alive, false);
+      assert.equal(state.deaths.length, before.deaths.length + 1);
+      assert.equal(state.deaths.at(-1)!.at, command.at, `${role} ${phase} death time`);
+      assert.equal(state.executions.at(-1)!.at, command.at, `${role} ${phase} execution time`);
+      assert.deepEqual(previewed.events, applied.events);
+      assert.deepEqual(previewed.changes, applied.changes);
+
+      const journal = clone(state.journal);
+      const replayed = replay(journal);
+      assert.equal(replayed.ok, true, JSON.stringify(replayed));
+      if (!replayed.ok) return;
+      assert.deepEqual(replayed.events, applied.events);
+      assert.deepEqual(replayed.state, state, "replay reproduces every stored record");
+
+      const undone = replay({ base: journal.base, entries: [] });
+      assert.equal(undone.ok, true, JSON.stringify(undone));
+      if (!undone.ok) return;
+      assert.deepEqual(canonicalState(undone.state), canonicalState(before));
+      const redone = applyCommand(undone.state, command);
+      assert.equal(redone.status, "allowed", JSON.stringify(redone));
+      assert.deepEqual(undone.state, state, "reapplying the undone command restores its records");
+    }
+  }
 });
 
 test("the madness penalty only accepts the legal Storyteller options", () => {

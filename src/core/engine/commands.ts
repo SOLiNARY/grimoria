@@ -1083,6 +1083,9 @@ export function applyCommand(
   let base: GameState | null = null;
   if (!state.journal || !state.journal.base) {
     base = clone(state);
+    // Legacy callers may omit the ledger; the replay base needs the same
+    // normalization as the accepted state below.
+    base.applied = base.applied || {};
     delete (base as Partial<GameState>).journal;
   }
   replaceContents(state, draft);

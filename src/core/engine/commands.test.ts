@@ -356,6 +356,11 @@ test("a legacy state without an action ledger accepts a command", () => {
   assert.equal(result.status, "allowed", JSON.stringify(result));
   assert.equal(state.applied["legacy-1"].type, "startNight");
   assert.deepEqual(validateState(state), []);
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(validateState(replayed.state), []);
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
 });
 
 test("setup commands validate order, herring and bag patches", () => {

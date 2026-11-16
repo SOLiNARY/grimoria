@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGame, migrateV3, validateState } from "./state.ts";
+import { createGame, importGame, migrateV3, validateState } from "./state.ts";
 import type { Effect } from "./types.ts";
 
 // The saved game is an external boundary. `validateState` is the only gate
@@ -89,4 +89,37 @@ test("migration does not invent an interval for an undated effect", () => {
   const migrated = migrateV3(saved);
   assert.equal(migrated.effects[0]?.start, undefined);
   assert.ok(validateState(migrated).includes("Invalid effect interval."));
+});
+
+test("imports reject malformed effect collections without throwing", () => {
+  for (const effects of [{}, "invalid", 1, null]) {
+    const result = importGame(JSON.stringify({ ...createGame(7), effects }));
+    assert.equal(result.ok, false);
+    if (result.ok) continue;
+    assert.match(result.error, /Invalid effects/);
+  }
+});
+
+test("journal bases must contain a valid game without a nested journal", () => {
+  const invalidEffectBase: Json = { ...createGame(7), effects: {} };
+  delete invalidEffectBase.journal;
+  for (const base of [{}, invalidEffectBase, createGame(7)]) {
+    const saved = { ...createGame(7), journal: { base, entries: [] } };
+    assert.ok(validateState(saved).includes("Invalid command journal base."));
+    assert.equal(importGame(JSON.stringify(saved)).ok, false);
+  }
+});
+
+test("schema v4 saves without journals and with valid journal bases remain importable", () => {
+  const base: Json = { ...createGame(7) };
+  delete base.journal;
+  const withoutJournal = importGame(JSON.stringify(base));
+  assert.equal(withoutJournal.ok, true);
+  if (withoutJournal.ok)
+    assert.deepEqual(withoutJournal.state.journal, { base: null, entries: [] });
+
+  const saved = { ...createGame(7), journal: { base, entries: [] } };
+  const withJournal = importGame(JSON.stringify(saved));
+  assert.equal(withJournal.ok, true);
+  if (withJournal.ok) assert.deepEqual(withJournal.state.journal, saved.journal);
 });

@@ -10,7 +10,7 @@ import {
   tableProjection,
 } from "../../../application/read-models/table.ts";
 import { orderedPlayers, playerById, realTeamOf } from "../../../core/model/state.ts";
-import { ALL_ROLES, roleTeam } from "../../../core/model/rules.ts";
+import { roleTeam } from "../../../core/model/rules.ts";
 import { Dialog, DialogClose } from "../../components/dialog.tsx";
 import {
   blockerText,
@@ -773,7 +773,7 @@ function CorrectionDialog({ view }: { view: TableView }) {
             value={current.value}
             onChange={(event) => update({ value: event.target.value })}
           >
-            {ALL_ROLES.map((id) => (
+            {(state.script?.roles ?? []).map((id) => (
               <option key={id} value={id}>
                 {roleNameOf(id, ports.roles.byId)}
               </option>

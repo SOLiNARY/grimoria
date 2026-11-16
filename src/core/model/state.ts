@@ -492,8 +492,8 @@ export function normalizeScriptState(value: unknown): unknown {
   return value;
 }
 
-// Save files are an untyped boundary; every field is checked here.
-export function validateState(value: unknown): string[] {
+// Check the external shape before running algorithms that require a game state.
+function validateStateStructure(value: unknown): string[] {
   const errors: string[] = [];
   const check = (ok: boolean, message: string) => {
     if (!ok) errors.push(message);
@@ -621,8 +621,14 @@ export function validateState(value: unknown): string[] {
         Array.isArray(value.journal.entries) && (value.journal.entries as unknown[]).every(object),
         "Invalid command journal entries.",
       );
+      const base = value.journal.base;
+      // Journal writers remove the base's journal. Reject nested journals
+      // before validating the base, so external data cannot recurse forever.
       check(
-        value.journal.base === null || object(value.journal.base),
+        base === null ||
+          (object(base) &&
+            base.journal === undefined &&
+            validatedFromUnknown(base, validateState).ok),
         "Invalid command journal base.",
       );
     }
@@ -819,8 +825,13 @@ export function validateState(value: unknown): string[] {
         ["good", "evil"].includes(value.winner.team)),
     "Invalid winner.",
   );
-  if (!errors.length) {
-    // Every field above was checked, so the object now has the game shape.
+  return errors;
+}
+
+// Save files are an untyped boundary; validate their shape and effect graph.
+export function validateState(value: unknown): string[] {
+  const errors = validateStateStructure(value);
+  if (!errors.length && object(value)) {
     const graph = effectGraph(legacyRecord(value));
     if (!graph.ok) errors.push("Cyclic effect dependency: " + graph.effectIds.join(", "));
   }
@@ -908,6 +919,8 @@ export function importGame(
   if (candidate.v === 2 || candidate.v === 3) {
     try {
       const migrated = candidate.v === 2 ? migrateV2(candidate) : migrateV3(candidate);
+      const errors = validateStateStructure(migrated);
+      if (errors.length) return { ok: false, error: errors.join(" ") };
       const graph = effectGraph(migrated);
       if (!graph.ok) {
         return {
@@ -917,8 +930,6 @@ export function importGame(
           errors: graph.effectIds,
         };
       }
-      const errors = validateState(migrated);
-      if (errors.length) return { ok: false, error: errors.join(" ") };
       resolveEvilTwinPlayers(migrated);
       return { ok: true, state: migrated };
     } catch (error) {
@@ -929,7 +940,11 @@ export function importGame(
     }
   }
   normalizeScriptState(candidate);
-  const graph = effectGraph(legacyRecord(candidate));
+  const outcome = validatedFromUnknown(candidate, validateStateStructure);
+  if (!outcome.ok) {
+    return { ok: false, error: outcome.errors.map((problem) => problem.message).join(" ") };
+  }
+  const graph = effectGraph(outcome.state);
   if (!graph.ok) {
     return {
       ok: false,
@@ -937,10 +952,6 @@ export function importGame(
       errorCode: graph.errorCode,
       errors: graph.effectIds,
     };
-  }
-  const outcome = validatedFromUnknown(candidate, validateState);
-  if (!outcome.ok) {
-    return { ok: false, error: outcome.errors.map((problem) => problem.message).join(" ") };
   }
   const state = cloneValidated(outcome.state);
   if (!state.journal) state.journal = emptyJournal();
