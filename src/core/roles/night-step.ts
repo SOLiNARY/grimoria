@@ -7,6 +7,7 @@ import type { NightStepSpec, RoleModule } from "./types.ts";
 // never both, so the engine reads every declaration through these functions.
 
 type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
+type InformationArm = Extract<RoleCapability, { kind: "information" }>;
 type Declared = RoleModule | null | undefined;
 
 /** The resolver of a completed night step. */
@@ -54,4 +55,15 @@ export function nightResolverFor(module: Declared, night: number): NightStepReso
   if (hasArms(module)) return armFor(module, night === 1 ? "first" : "other")?.resolve;
   const ability = module.ability;
   return ability ? (context) => ability.resolve(context) : undefined;
+}
+
+/**
+ * The information a module's night step yields. Undefined means the module
+ * owns no answer and the engine keeps its own path. A module declares one
+ * information capability; a role with two kinds of answer has not moved yet.
+ */
+export function informationOf(module: Declared): InformationArm | undefined {
+  return (module?.capabilities ?? []).find(
+    (capability): capability is InformationArm => capability.kind === "information",
+  );
 }

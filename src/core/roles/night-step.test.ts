@@ -5,6 +5,7 @@ import { nightSequence } from "../model/rules.ts";
 import type { AbilityContext, AbilityDecision } from "./ability.ts";
 import {
   firstNightStepOf,
+  informationOf,
   nightResolverFor,
   nightStepFor,
   otherNightStepOf,
@@ -166,4 +167,33 @@ test("the migrated Trouble Brewing roles resolve from their modules", () => {
   assert.ok(nightResolverFor(roleModule("butler"), 2));
   assert.ok(nightResolverFor(roleModule("imp"), 2));
   assert.equal(nightResolverFor(roleModule("imp"), 1), undefined, "the Imp sleeps on night 1");
+});
+
+test("the lookup finds the information a module's step yields", () => {
+  const module: RoleModule = {
+    id: "chef",
+    edition: "tb",
+    capabilities: [
+      { kind: "night-step", timing: "first", step: { infoKind: "number" } },
+      {
+        kind: "information",
+        infoKind: "chef",
+        resolve: () => ({ kind: "answer", value: 1, possible: [0, 1] }),
+      },
+    ],
+  };
+  assert.equal(informationOf(module)?.infoKind, "chef");
+  assert.equal(nightStepFor(module, 1)?.infoKind, "number");
+  const silent: RoleModule = { id: "poisoner", edition: "tb", nightStep: { target: "one-any" } };
+  assert.equal(informationOf(silent), undefined);
+  assert.equal(informationOf(null), undefined);
+  assert.equal(informationOf(undefined), undefined);
+});
+
+test("the migrated Trouble Brewing information roles answer from their modules", () => {
+  const empath = roleModule("empath");
+  assert.ok(informationOf(empath), "the Empath owns its answer");
+  assert.equal(nightStepFor(empath, 1)?.infoKind, "number", "and the shape of its step");
+  assert.equal(nightStepFor(empath, 2)?.infoKind, "number");
+  assert.equal(nightResolverFor(empath, 1), undefined, "the step applies nothing");
 });

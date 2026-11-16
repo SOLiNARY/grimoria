@@ -74,6 +74,8 @@ import {
 } from "./index.ts";
 import type { InfoResult } from "./index.ts";
 import { applyRoleAbility } from "./ability.ts";
+import { moduleInfoForStep } from "./information.ts";
+import type { InformationContext, InformationDecision } from "../roles/ability.ts";
 import type { RoleModule } from "../roles/types.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import type { GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
@@ -2206,6 +2208,153 @@ test("an impaired Empath is a host choice on the command path and the answer com
   const replayed = replay(state.journal, runtime);
   assert.equal(replayed.ok, true, JSON.stringify(replayed));
   assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
+
+// A module that owns a yes or no answer and records what it was shown. The
+// tests below use it, so they do not depend on the Empath's count.
+function answering(decision: InformationDecision, seen: InformationContext[] = []): RoleModule {
+  return {
+    id: "empath",
+    edition: "tb",
+    capabilities: [
+      { kind: "night-step", timing: "any", step: { target: "two", infoKind: "yes-no" } },
+      {
+        kind: "information",
+        infoKind: "probe",
+        resolve(context) {
+          seen.push(context);
+          return decision;
+        },
+      },
+    ],
+  };
+}
+
+test("a role module's answer reaches the host as is while its owner's ability works", () => {
+  const state = empathNight();
+  const before = canonicalState(state);
+  const module = answering({ kind: "answer", value: true, possible: [true, false] });
+
+  const info = moduleInfoForStep(state, module, roleStep(state, "empath"));
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: true,
+    impaired: false,
+    needsChoice: false,
+    options: [],
+  });
+  assert.deepEqual(canonicalState(state), before, "asking changes nothing");
+});
+
+test("an impaired owner of an information role is asked with the answers its module names", () => {
+  const state = empathNight(true);
+  const possible = ["never", "once", "twice"];
+  const module = answering({ kind: "answer", value: "once", possible });
+
+  const info = moduleInfoForStep(state, module, roleStep(state, "empath"));
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: "once",
+    impaired: true,
+    needsChoice: true,
+    options: ["never", "once", "twice"],
+  });
+  assert.notEqual(info?.options, possible, "the host's list is a copy of the module's");
+});
+
+test("an impaired owner of a module that names no possible answers gets an empty list, not an invented one", () => {
+  const state = empathNight(true);
+
+  const info = moduleInfoForStep(
+    state,
+    answering({ kind: "answer", value: 4 }),
+    roleStep(state, "empath"),
+  );
+
+  assert.deepEqual(info, {
+    kind: "yes-no",
+    value: 4,
+    impaired: true,
+    needsChoice: true,
+    options: [],
+  });
+});
+
+test("an information role that learns nothing yields no information", () => {
+  const state = empathNight();
+
+  const info = moduleInfoForStep(
+    state,
+    answering({ kind: "no-effect" }),
+    roleStep(state, "empath"),
+  );
+
+  assert.deepEqual(info, { kind: "none" });
+});
+
+test("a module without an information capability leaves the answer to the engine", () => {
+  const state = empathNight();
+  const step = roleStep(state, "empath");
+  const stepOnly: RoleModule = {
+    id: "empath",
+    edition: "tb",
+    capabilities: [{ kind: "night-step", timing: "any", step: { infoKind: "number" } }],
+  };
+
+  assert.equal(moduleInfoForStep(state, stepOnly, step), null);
+  assert.equal(moduleInfoForStep(state, { id: "empath", edition: "tb" }, step), null);
+  assert.equal(moduleInfoForStep(state, null, step), null);
+});
+
+test("an information role reads its seat, the night, the targets and the registrations through its context", () => {
+  const state = make(
+    {
+      1: "spy",
+      2: "empath",
+      3: "recluse",
+      4: "chef",
+      5: "monk",
+      6: "soldier",
+      7: "undertaker",
+      8: "saint",
+      9: "imp",
+    },
+    { count: 9 },
+  );
+  assert.equal(startNight(state).ok, true);
+  const step = roleStep(state, "empath");
+  const seen: InformationContext[] = [];
+  const module = answering({ kind: "answer", value: false, possible: [true, false] }, seen);
+
+  moduleInfoForStep(state, module, step, {
+    targetIds: ["4", "9"],
+    registrations: { "1": "good", "3": "evil" },
+  });
+
+  const context = seen[0]!;
+  assert.equal(context.actorId, "2");
+  assert.equal(context.infoKind, "probe");
+  assert.deepEqual(context.targetIds, ["4", "9"]);
+  assert.equal(context.impaired, false);
+  assert.deepEqual(context.at, { phase: "night", number: 1 });
+  assert.deepEqual(context.aliveNeighborIds("2"), ["1", "3"]);
+  assert.equal(context.registeredTeamOf("1"), "good", "a Spy registered as good");
+  assert.equal(context.registeredTeamOf("3"), "evil", "a Recluse registered as evil");
+  assert.equal(context.registeredTeamOf("9"), "evil");
+  assert.equal(context.registeredTeamOf("4"), "good");
+  assert.equal(context.actualRoleOf("3"), "recluse");
+  assert.equal(context.hasPlayer("9"), true);
+  assert.equal(context.hasPlayer("10"), false);
+
+  // Without an answer from the host the registrants count as their real teams,
+  // and the targets are the ones recorded on the step.
+  step.targetIds = ["5"];
+  moduleInfoForStep(state, module, step);
+  assert.deepEqual(seen[1]!.targetIds, ["5"]);
+  assert.equal(seen[1]!.registeredTeamOf("1"), "evil");
+  assert.equal(seen[1]!.registeredTeamOf("3"), "good");
 });
 
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {

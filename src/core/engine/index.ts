@@ -30,7 +30,6 @@ export {
   registersAsMinion,
   registersAsOutsider,
   chefCount,
-  empathCount,
   fortuneTellerYes,
   characterChoices,
   infoForStep,

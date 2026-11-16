@@ -67,6 +67,16 @@ test("a migrated attack keeps the references of the shared succession, not of th
   assert.equal(ownerOf(imp, engineLocations("imp")), "capability + engine reference");
 });
 
+test("a migrated information role is owned by its module once no coordinator names it", () => {
+  const empath = roleModules().find((candidate) => candidate.id === "empath");
+  assert.ok(empath);
+  assert.deepEqual(empath.declares, ["capability:night-step", "capability:information"]);
+  // The count, the number shape and the possible answers come from the module;
+  // the night completion and the information path read them through the lookup.
+  assert.deepEqual(engineLocations("empath"), [], "empath is still named by a coordinator");
+  assert.equal(ownerOf(empath, engineLocations("empath")), "capability");
+});
+
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
   const source = `
     export const role = {

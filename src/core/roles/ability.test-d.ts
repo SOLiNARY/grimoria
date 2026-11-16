@@ -1,5 +1,12 @@
 // Compile-time contract checks. `tsc -p tsconfig.test.json` consumes them.
-import type { AbilityContext, AbilityDecision, RoleCapability, RoleEffect } from "./ability.ts";
+import type {
+  AbilityContext,
+  AbilityDecision,
+  InformationContext,
+  InformationDecision,
+  RoleCapability,
+  RoleEffect,
+} from "./ability.ts";
 
 // A resolver reads facts. The game state and the players map are not reachable,
 // so a role cannot mutate unrelated state from its ability.
@@ -85,4 +92,30 @@ export const renamedDeath: AttackDecision = {
   title: "attack",
   // @ts-expect-error -- a role cannot choose the cause of the death
   cause: "execution",
+};
+
+// An information capability reads facts and returns the answer and the values
+// it can take. The engine decides whether the ability works, whether the host
+// answers and which options one step offers.
+// @ts-expect-error -- the information context exposes no game state
+export type InformationStateAccess = InformationContext["state"];
+type InformationAnswer = Extract<InformationDecision, { kind: "answer" }>;
+export const selfFalsifiedAnswer: InformationAnswer = {
+  kind: "answer",
+  value: 1,
+  possible: [0, 1, 2],
+  // @ts-expect-error -- a role cannot mark its own answer as false
+  impaired: true,
+};
+export const selfRequiredChoice: InformationAnswer = {
+  kind: "answer",
+  value: 1,
+  // @ts-expect-error -- a role cannot require the host's answer
+  needsChoice: true,
+};
+export const selfOfferedOptions: InformationAnswer = {
+  kind: "answer",
+  value: 1,
+  // @ts-expect-error -- a role cannot name the options of one step
+  options: [0, 1, 2],
 };

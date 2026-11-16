@@ -36,7 +36,9 @@ import { orderedPlayers, playerById, realTeamOf, executionDeathForDay } from "..
 
 import { nightAt, aliveNeighbors } from "./context.ts";
 import { isImpaired } from "./effects.ts";
+import { informationOf, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
+import type { RoleModule } from "../roles/types.ts";
 import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
@@ -153,16 +155,6 @@ function chefRegistrationRange(state: GameState): { min: number; max: number } {
   return { min, max };
 }
 
-export function empathCount(
-  state: GameState,
-  playerId: string,
-  registrations: Registrations = {},
-): number {
-  return aliveNeighbors(state, playerId)
-    .map((id) => playerById(state, id))
-    .filter((player) => alignmentOf(state, player, registrations) === "evil").length;
-}
-
 export function fortuneTellerYes(
   state: GameState,
   targetIds: string[] | undefined,
@@ -203,6 +195,48 @@ export function characterChoices(
 // ---------------------------------------------------------------------------
 // Night queue
 
+/**
+ * The answer of a role module that owns its information. Null means the module
+ * declares none and the engine keeps its own path.
+ *
+ * The role says what its ability learns and which answers exist. Whether the
+ * ability works is the engine's fact: an impaired owner gets the host's answer
+ * from the values the role says are possible, and the true one stays among
+ * them (Drunk r3165: the information may be false).
+ */
+export function moduleInfoForStep(
+  state: GameState,
+  module: RoleModule | null | undefined,
+  step: NightStep,
+  options: InfoOptions = {},
+): InfoResult | null {
+  const information = informationOf(module);
+  if (!module || !information) return null;
+  const actor = step.actorId ? playerById(state, step.actorId) : null;
+  const at = nightAt(state);
+  const impaired = actor ? isImpaired(state, actor.id, at) : false;
+  const registrations = options.registrations || step.registrations || {};
+  const decision = resolveInformationCapability(module, {
+    actorId: actor ? actor.id : "",
+    infoKind: information.infoKind,
+    targetIds: options.targetIds || step.targetIds || [],
+    impaired,
+    at,
+    aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
+    registeredTeamOf: (playerId) => alignmentOf(state, playerById(state, playerId), registrations),
+    actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
+    hasPlayer: (playerId) => playerById(state, playerId) != null,
+  });
+  if (decision?.kind !== "answer") return { kind: "none" };
+  return {
+    kind: nightStepFor(module, at.number)?.infoKind ?? "none",
+    value: decision.value,
+    impaired,
+    needsChoice: impaired,
+    options: impaired ? [...(decision.possible ?? [])] : [],
+  };
+}
+
 export function infoForStep(
   state: GameState,
   step: NightStep,
@@ -230,6 +264,10 @@ export function infoForStep(
     }
     return { kind: "note", text: step.note || "" };
   }
+
+  // A role that owns its answer never falls through to the branches below.
+  const owned = moduleInfoForStep(state, role ? roleModule(role) : null, step, options);
+  if (owned) return owned;
 
   if (role === "washerwoman" || role === "librarian" || role === "investigator") {
     const setup = state.setup.info[role];
@@ -312,35 +350,6 @@ export function infoForStep(
         : registrationChoice
           ? uniqueNumbers(range.min, range.max)
           : [],
-    };
-  }
-
-  if (role === "empath") {
-    const module = roleModule("empath");
-    const decision =
-      module &&
-      resolveInformationCapability(module, {
-        actorId: actor ? actor.id : "",
-        infoKind: "empath",
-        targetIds: options.targetIds || step.targetIds || [],
-        impaired,
-        at,
-        aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
-        registeredTeamOf: (playerId) =>
-          alignmentOf(state, playerById(state, playerId), registrations),
-        actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
-        hasPlayer: (playerId) => playerById(state, playerId) != null,
-      });
-    const value =
-      decision?.kind === "answer" && typeof decision.value === "number"
-        ? decision.value
-        : empathCount(state, actor ? actor.id : "", registrations);
-    return {
-      kind: "number",
-      value,
-      impaired,
-      needsChoice: impaired,
-      options: impaired ? uniqueNumbers(0, 2) : [],
     };
   }
 
