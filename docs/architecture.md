@@ -56,6 +56,14 @@ edition-specific branch. The Gambler and Pukka are migrated; the remaining role
 branches stay in `bmr.ts`, `sv.ts` and `night.ts` until their own reviewed
 slice, which keeps the migration reviewable role by role.
 
+A night step migrates to the `night-step` capability: the nights it covers
+(`first`, `other` or `any`), the step the queue builds and the resolver. The
+Poisoner and the Monk are the first two. `src/core/roles/night-step.ts` is the
+one lookup the queue builders and the step completion use; it reads the
+capability or the legacy `nightStep`, `firstNightStep` and `ability` fields,
+and a module declares one form only. `docs/role-ownership.md` lists which
+roles have moved.
+
 [ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
 capability for each step kind, one coordinator order (attack, protection and
 redirect, death or execution, on-death and character change, win), the command
