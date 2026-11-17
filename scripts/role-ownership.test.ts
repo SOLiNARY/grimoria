@@ -135,6 +135,27 @@ test("the Tinker, the Po and the Shabaloth resolve on the night-step capability,
   assert.equal(ownerOf(shabaloth, engineLocations("shabaloth")), "capability + engine reference");
 });
 
+test("the four Sects & Violets Demons resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  // The Demon set, the outcome of the step where the host marks the death,
+  // and the shared mechanics each Demon keeps: the Fang Gu's once-per-game
+  // jump, the No Dashii's and the Vigormortis's poison, and the Vortox's
+  // false information and win at dusk.
+  const expected = {
+    fanggu: ["sv.ts×5"],
+    nodashii: ["sv.ts×3"],
+    vigormortis: ["sv.ts×2"],
+    vortox: ["death.ts×2", "sv.ts×2"],
+  };
+  for (const [id, locations] of Object.entries(expected)) {
+    const module = facts.find((candidate) => candidate.id === id);
+    assert.ok(module, id);
+    assert.deepEqual(module.declares, ["capability:night-step"], id);
+    assert.deepEqual(engineLocations(id), locations, id);
+    assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
+  }
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);
