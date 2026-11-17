@@ -190,6 +190,21 @@ test("the Sects & Violets information roles declare their step on the night-step
   }
 });
 
+test("the Snake Charmer and the Pit-Hag declare their step and resolve their change on capabilities", () => {
+  const facts = roleModules();
+  // sv.ts routes each change to its module by role and cause and applies it
+  // through the shared swap or replacement; it builds the Pit-Hag's
+  // character list and both console notes.
+  const expected = { snakecharmer: ["sv.ts×4"], pithag: ["sv.ts×5"] };
+  for (const [id, locations] of Object.entries(expected)) {
+    const module = facts.find((candidate) => candidate.id === id);
+    assert.ok(module, id);
+    assert.deepEqual(module.declares, ["capability:night-step", "capability:transformation"], id);
+    assert.deepEqual(engineLocations(id), locations, id);
+    assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
+  }
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);
