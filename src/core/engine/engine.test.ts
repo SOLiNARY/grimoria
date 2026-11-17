@@ -6008,11 +6008,11 @@ test("a Drunk with no prepared record is offered the first character the module 
   const state = preparedNight(DRUNK_ROLES, {}, { drunkShownId: "washerwoman" });
   const step = roleStep(state, "washerwoman");
   state.setup.info.washerwoman = null;
+  const possible = ["mayor", "saint"];
 
-  assert.deepEqual(
-    moduleInfoForStep(state, preparing("washerwoman", ["mayor", "saint"]), step, {}),
-    drunkDefault(["mayor", "saint"], ["2", "3"]),
-  );
+  const info = moduleInfoForStep(state, preparing("washerwoman", possible), step, {});
+  assert.deepEqual(info, drunkDefault(["mayor", "saint"], ["2", "3"]));
+  assert.notEqual(info!.options, possible, "the record holds its own list");
   assert.deepEqual(moduleInfoForStep(state, preparing("washerwoman", []), step, {}), {
     ...drunkDefault([], ["2", "3"]),
     roleId: null,
