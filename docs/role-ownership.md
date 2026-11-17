@@ -19,8 +19,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | Owner | Roles |
 | --- | --- |
 | Typed capability only | 5 |
-| Typed capability with an engine reference | 12 |
-| Engine branch | 54 |
+| Typed capability with an engine reference | 15 |
+| Engine branch | 51 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -56,10 +56,10 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `grandmother` | bmr | nightStep, firstNightStep | night.ts×1, bmr.ts×11 | BMR-GRANDMOTHER-01 (verified, r2978)<br>BMR-GRANDMOTHER-02 (verified, r2978) | engine branch |
 | `imp` | tb | capability:night-step, capability:death-trigger | death.ts×2, night.ts×1, becoming.ts×3 | TB-IMP-01 (verified, r3116) | capability + engine reference |
 | `innkeeper` | bmr | nightStep | effects.ts×2, night.ts×1, bmr.ts×2 | BMR-INNKEEPER-01 (verified, r3160) | engine branch |
-| `investigator` | tb | nightStep | night.ts×1, setup.ts×2, information.ts×1 | TB-INVESTIGATOR-01 (verified, r2983) | engine branch |
+| `investigator` | tb | capability:night-step, capability:information | setup.ts×2 | TB-INVESTIGATOR-01 (verified, r2983) | capability + engine reference |
 | `juggler` | snv | nightStep | day.ts×2, sv.ts×2 | SNV-JUGGLER-01 (verified, r2401)<br>SNV-JUGGLER-02 (verified, r2401) | engine branch |
 | `klutz` | snv | deathStep | sv.ts×6 | SNV-KLUTZ-01 (verified, r1758)<br>SNV-KLUTZ-02 (verified, r1758) | engine branch |
-| `librarian` | tb | nightStep | night.ts×1, setup.ts×4, information.ts×3 | TB-LIBRARIAN-01 (verified, r1721) | engine branch |
+| `librarian` | tb | capability:night-step, capability:information | setup.ts×4 | TB-LIBRARIAN-01 (verified, r1721) | capability + engine reference |
 | `lunatic` | bmr | nightStep, firstNightStep | model/state.ts×1, night.ts×1, setup.ts×1, bmr.ts×7 | BMR-LUNATIC-01 (verified, r3112) | engine branch |
 | `mastermind` | bmr | — | death.ts×1, day.ts×2 | BMR-MASTERMIND-01 (verified, r2993) | engine branch |
 | `mathematician` | snv | nightStep | night.ts×2, sv.ts×3 | SNV-MATHEMATICIAN-01 (verified, r3153)<br>SNV-MATHEMATICIAN-02 (host-choice, r3153)<br>SNV-MATHEMATICIAN-03 (host-choice, r3153)<br>SNV-MATHEMATICIAN-04 (verified, r3153) | engine branch |
@@ -98,7 +98,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `vigormortis` | snv | nightStep | sv.ts×2 | SNV-VIGORMORTIS-01 (verified, r3015)<br>SNV-VIGORMORTIS-02 (verified, r3015)<br>SNV-VIGORMORTIS-03 (verified, r3015)<br>SNV-VIGORMORTIS-04 (verified, r3015) | engine branch |
 | `virgin` | tb | — | day.ts×5 | TB-VIRGIN-01 (verified, r1729) | engine branch |
 | `vortox` | snv | nightStep | death.ts×2, sv.ts×2 | SNV-VORTOX-01 (verified, r3017)<br>SNV-VORTOX-02 (host-choice, r3017) | engine branch |
-| `washerwoman` | tb | nightStep | night.ts×1, setup.ts×3, information.ts×3 | TB-WASHERWOMAN-01 (verified, r2630) | engine branch |
+| `washerwoman` | tb | capability:night-step, capability:information | setup.ts×3 | TB-WASHERWOMAN-01 (verified, r2630) | capability + engine reference |
 | `witch` | snv | nightStep | effects.ts×1, day.ts×2, sv.ts×3 | SNV-WITCH-01 (verified, r2682) | engine branch |
 | `zombuul` | bmr | nightStep | effects.ts×2, death.ts×1, bmr.ts×2 | BMR-ZOMBUUL-01 (verified, r3022) | engine branch |
 

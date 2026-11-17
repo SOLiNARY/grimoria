@@ -304,6 +304,16 @@ export type InformationDecision =
       readonly subjectId?: string;
     }
   /**
+   * The answer is the one the Storyteller prepared for this ability before the
+   * first night: that one of two players is a particular character. The engine
+   * reads it from setup and writes the record of the step: the character and
+   * the two players, the zero setup may hold in their place, or a request for
+   * setup while nothing is prepared. The role sees none of it. It names
+   * `possible`, every character the answer can show, and the engine offers
+   * them when the owner is drunk or poisoned.
+   */
+  | { readonly kind: "prepared"; readonly possible: readonly InformationValue[] }
+  /**
    * The ability has nothing to learn this time, and the text says why. The
    * engine stores it as the answer of the step; nobody is asked.
    */

@@ -153,9 +153,6 @@ export function targetBounds(step: NightStep): TargetBounds {
 export function infoKindFor(roleId: RoleId | null): string {
   return (
     {
-      washerwoman: "one-of-two",
-      librarian: "one-of-two",
-      investigator: "one-of-two",
       spy: "grimoire",
     }[roleId || ""] || "none"
   );
@@ -647,14 +644,8 @@ export function completeStep(
     return finishStep(state, step, options, targets, at, ports);
   }
 
-  // A role that owns its answer is an information step by its declaration;
-  // the roles named here still get their answer from `infoForStep`.
-  if (
-    informationOf(module) ||
-    role === "washerwoman" ||
-    role === "librarian" ||
-    role === "investigator"
-  ) {
+  // A role that owns its answer is an information step by its declaration.
+  if (informationOf(module)) {
     const info = infoForStep(state, step, options);
     if (info.missing) {
       return {

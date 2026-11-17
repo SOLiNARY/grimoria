@@ -233,7 +233,7 @@ interface WinContext extends CapabilityFacts {
 | Day action | `action`, `targetIds`, action facts (`text`, `truth`, `guesses`, `marks`) | `effects`, `record`, `host-choice`, `no-effect` | `day.ts`, `sv.ts` |
 | Death trigger | `deadId`, `deadRoleId`, `cause`, `livingBefore`, `livingMinionIds`, `retainsAbility` | `effects`, `suppressed`, `no-effect` for the wake; `inherit`, `choose-heir` for succession | `deathStep`, `onDeath`, `appendSvConditionalSteps` |
 | Execution contribution | `executedId`, `executedRoleId`, `cause`, `death`, `executionToday`, `livingCount` | `survives`, `dies`, `win`, `effects`, `no-effect` | `executePlayer`, `checkWin` |
-| Information | `step`, `targetIds`, `registrations`, `roleChoices`, `aliveNeighbors`, `executionsToday`, `votesToday`, `activeEffects` | `answer`, `options`, `host-choice`, `note` | `information.ts`, `bmr.ts`, `sv.ts` |
+| Information | `step`, `targetIds`, `registrations`, `roleChoices`, `aliveNeighbors`, `executionsToday`, `votesToday`, `activeEffects` | `answer`, `prepared`, `options`, `host-choice`, `note` | `information.ts`, `bmr.ts`, `sv.ts` |
 | Registration and host adjudication | `case`, `legalOptions`, `answer` | `legal`, `answer`, `reject` | `host-choice.ts`, `options.registrations` |
 | Transformation | `targetId`, `newRoleId`, `cause` | `replace`, `swap`, `no-effect` | `sv.ts`, `becoming.ts` |
 | Win contribution | `livingCount`, `demons`, `execution`, `death`, `endOfDay`, `twins` | `win`, `suppress`, `no-effect` | `death.ts` (`checkWin`) |
@@ -286,6 +286,7 @@ export type InformationDecision =
       readonly legal?: readonly (boolean | number | string)[];
       readonly subjectId?: string;
     }
+  | { readonly kind: "prepared"; readonly possible: readonly (boolean | number | string)[] }
   | { readonly kind: "options"; readonly options: readonly string[] }
   | { readonly kind: "host-choice"; readonly case: HostChoiceCase; readonly options: readonly string[]; readonly text?: string }
   | { readonly kind: "note"; readonly key: string; readonly text: string };
@@ -595,6 +596,22 @@ the legacy `nightStep` field, because who wakes is read from the game by the
 Eighteen modules have such hooks; a wake caused by a death belongs to slice 6,
 and the step appended on the night the Ravenkeeper dies still names the role
 in `appendConditionalSteps`.
+
+`openspec/changes/tb-setup-information` continues with the Washerwoman, the
+Librarian and the Investigator, whose answer the Storyteller prepares before
+the first night. The `information` arm gains the `prepared` decision: the role
+says that its answer is the prepared one and names every character it can
+show, and the engine reads the record of setup under the role's id and writes
+the step. It is a decision and not a fact of the context, so the context
+still exposes no setup secret and a role cannot return the two players as its
+own answer. The three steps move to the `night-step` arm, the first night
+only. The zero stays in the engine, written for any prepared answer as
+before: "zero are in play" is the Librarian's rule, but the removed branch
+answered a prepared zero for all three roles, and giving it to the Librarian
+alone is a change of behavior with its own rule check. `setup.ts` still names
+the three roles where the prepared answer is validated and chosen; that is
+setup and not a night step. The Spy is the last Trouble Brewing role with a
+branch in `infoForStep`.
 
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.

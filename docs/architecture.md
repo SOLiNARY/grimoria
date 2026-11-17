@@ -103,13 +103,23 @@ role with nothing to learn returns a note, which the engine stores as the
 answer of the step, or no answer; a character step without an answer stays a
 question with every character until a player is chosen.
 
-The Empath, the Fortune Teller, the Chef, the Undertaker and the Ravenkeeper
-are on this path; the other information roles keep their branches in
-`infoForStep` until their own slice. The Undertaker and the Ravenkeeper still
-declare their step in the legacy `nightStep` field: who wakes after an
-execution or after a death at night is read from the game by the step's
-hooks, and a capability never receives the game state. The step appended on
-the night the Ravenkeeper dies still names the role in `night.ts`.
+An answer the Storyteller prepares before the first night is not computed by
+the role. The Washerwoman, the Librarian and the Investigator return the
+`prepared` decision and name the characters of their type. The engine reads
+the record kept in setup under the role's id and writes the step: the
+character and the two players, a request for setup while nothing is prepared,
+or the zero setup may hold in their place. An impaired owner is offered the
+characters the role names. The role is told nothing of what was prepared.
+
+The Empath, the Fortune Teller, the Chef, the Undertaker, the Ravenkeeper, the
+Washerwoman, the Librarian and the Investigator are on this path. The Spy
+keeps its branch in `infoForStep`, and the information roles of Bad Moon
+Rising and Sects and Violets keep theirs in `bmr.ts` and `sv.ts`, until their
+own slices. The Undertaker and the Ravenkeeper still declare their step in
+the legacy `nightStep` field: who wakes after an execution or after a death at
+night is read from the game by the step's hooks, and a capability never
+receives the game state. The step appended on the night the Ravenkeeper dies
+still names the role in `night.ts`.
 
 [ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
 capability for each step kind, one coordinator order (attack, protection and

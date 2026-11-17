@@ -167,3 +167,35 @@ export const questioningNote: InformationNote = {
   // @ts-expect-error -- a note cannot require the host's answer
   needsChoice: true,
 };
+
+// A prepared answer is the Storyteller's, kept in setup and read by the
+// engine. The role names the characters it can show and nothing of the answer.
+// @ts-expect-error -- the information context exposes no prepared answer
+export type InformationPreparedAccess = InformationContext["prepared"];
+type PreparedAnswer = Extract<InformationDecision, { kind: "prepared" }>;
+export const selfPreparedCharacter: PreparedAnswer = {
+  kind: "prepared",
+  possible: ["chef"],
+  // @ts-expect-error -- a role cannot name the prepared character
+  value: "chef",
+};
+export const selfPreparedPlayers: PreparedAnswer = {
+  kind: "prepared",
+  possible: ["chef"],
+  // @ts-expect-error -- a role cannot name the two players
+  pair: ["1", "2"],
+};
+export const selfPreparedZero: PreparedAnswer = {
+  kind: "prepared",
+  possible: ["saint"],
+  // @ts-expect-error -- a role cannot declare that zero are in play
+  zero: true,
+};
+export const selfMissingAnswer: PreparedAnswer = {
+  kind: "prepared",
+  possible: ["chef"],
+  // @ts-expect-error -- a role cannot say whether setup is complete
+  missing: true,
+};
+// @ts-expect-error -- a prepared answer always names what it can show
+export const silentPreparedAnswer: PreparedAnswer = { kind: "prepared" };
