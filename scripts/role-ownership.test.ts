@@ -124,6 +124,23 @@ test("a role woken by its own death keeps the references of that wake, not of th
   );
 });
 
+test("a role whose answer is prepared in setup keeps the references of setup, not of the night step", () => {
+  const facts = roleModules();
+  for (const [id, locations] of [
+    ["washerwoman", ["setup.ts×3"]],
+    ["librarian", ["setup.ts×4"]],
+    ["investigator", ["setup.ts×2"]],
+  ] as const) {
+    const module = facts.find((candidate) => candidate.id === id);
+    assert.ok(module, id);
+    assert.deepEqual(module.declares, ["capability:night-step", "capability:information"], id);
+    // The check and the choice of the prepared answer are setup and still name
+    // the role; the night completion and the information path do not.
+    assert.deepEqual(engineLocations(id), locations, id);
+    assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
+  }
+});
+
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
   const source = `
     export const role = {

@@ -39,7 +39,7 @@ import { isImpaired } from "./effects.ts";
 import { informationOf, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 import type { RoleModule } from "../roles/types.ts";
-import type { InformationContext } from "../roles/ability.ts";
+import type { InformationContext, InformationValue } from "../roles/ability.ts";
 import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
@@ -248,13 +248,96 @@ function informationFacts(
 }
 
 /**
+ * The record of an answer the Storyteller prepared in setup: one of two
+ * players is a particular character. The role names the characters such an
+ * answer can show. What was prepared, whether anything was, and the zero are
+ * read here from the record kept under the role's id.
+ */
+function preparedInfo(
+  state: GameState,
+  roleId: string,
+  actor: Player | null,
+  impaired: boolean,
+  possible: readonly InformationValue[],
+): InfoResult {
+  const setup = state.setup.info[roleId];
+  // The players a false answer points at until the host chooses: the first
+  // two seats that are not the acting one.
+  const firstOthers = () =>
+    orderedPlayers(state)
+      .filter((player) => !actor || player.id !== actor.id)
+      .map((player) => player.id)
+      .slice(0, 2);
+  if (!setup) {
+    // The night start refuses a Drunk without a prepared false answer, so only
+    // a game saved before that check has none: the host is offered a default.
+    if (actor && actor.roleId === "drunk") {
+      const options = [...possible];
+      return {
+        kind: "one-of-two",
+        missing: false,
+        roleId: (options[0] as RoleId | undefined) || null,
+        pair: firstOthers(),
+        matchIndex: 0,
+        impaired: true,
+        needsChoice: true,
+        options,
+        text: "Пьяница: предложена ложная информация.",
+      };
+    }
+    return { kind: "one-of-two", missing: true, needsChoice: true };
+  }
+  if ("zero" in setup && setup.zero) {
+    // The zero did not move to a role. It is the Librarian's answer (r1721),
+    // but this path writes it for whichever role finds a zero prepared, with
+    // the Outsider options and sentences, as it did before the move. Giving it
+    // to the Librarian alone would change what the other two steps do with a
+    // zero written after the night began, which is a change of its own.
+    if (impaired) {
+      const options = ALL_ROLES.filter((id) => roleTeam(id) === "outsider");
+      return {
+        kind: "one-of-two",
+        zero: true,
+        roleId: options[0] || null,
+        pair: firstOthers(),
+        matchIndex: 0,
+        impaired,
+        needsChoice: true,
+        // The true zero answer stays legal: a drunk or poisoned player may
+        // still receive true information (Drunk r3165 "may give false").
+        options: [...options, "zero"],
+        text: "Игрок отравлен или пьян: можно показать ложную пару или верный ответ «нет Изгоев».",
+      };
+    }
+    return { kind: "one-of-two", zero: true, text: "В игре нет Изгоев." };
+  }
+  const pairInfo = setup as InfoPair;
+  if (!pairInfo.roleId || !Array.isArray(pairInfo.pair) || pairInfo.pair.length !== 2) {
+    return { kind: "one-of-two", missing: true, needsChoice: true };
+  }
+  return {
+    kind: "one-of-two",
+    roleId: pairInfo.roleId,
+    pair: pairInfo.pair.slice(),
+    // The Storyteller's mark of the real player: a note of setup, not a part
+    // of what the ability learns.
+    matchIndex: pairInfo.matchIndex || 0,
+    impaired,
+    needsChoice: impaired,
+    options: impaired ? [...possible] : [],
+  };
+}
+
+/**
  * The answer of a role module that owns its information. Null means the module
  * declares none and the engine keeps its own path.
  *
  * The role says what its ability learns and which answers exist. Whether the
  * ability works is the engine's fact: an impaired owner gets the host's answer
  * from the values the role says are possible, and the true one stays among
- * them (Drunk r3165: the information may be false).
+ * them (Drunk r3165: the information may be false). An answer the Storyteller
+ * prepared in setup is not the role's to compute: the role says so, and the
+ * record is read from setup.
  */
 export function moduleInfoForStep(
   state: GameState,
@@ -280,6 +363,9 @@ export function moduleInfoForStep(
   );
   const shape = nightStepFor(module, at.number)?.infoKind ?? "none";
   if (decision?.kind === "note") return { kind: "none", text: decision.text };
+  if (decision?.kind === "prepared") {
+    return preparedInfo(state, module.id, actor, impaired, decision.possible);
+  }
   if (decision?.kind !== "answer") {
     // A step that learns a character and has no player to read yet keeps its
     // record: a question with every character. The table shows it only once a
@@ -322,9 +408,6 @@ export function infoForStep(
 ): InfoResult {
   if (step.bmr) return bmrInfoForStep(state, step, options, ports);
   if (step.sv) return svInfoForStep(state, step, options);
-  const actor = step.actorId ? playerById(state, step.actorId) : null;
-  const at = nightAt(state);
-  const impaired = actor ? isImpaired(state, actor.id, at) : false;
   const role = step.roleId;
 
   if (step.kind === "system") {
@@ -344,73 +427,6 @@ export function infoForStep(
   // A role that owns its answer never falls through to the branches below.
   const owned = moduleInfoForStep(state, role ? roleModule(role) : null, step, options);
   if (owned) return owned;
-
-  if (role === "washerwoman" || role === "librarian" || role === "investigator") {
-    const setup = state.setup.info[role];
-    if (!setup) {
-      if (actor && actor.roleId === "drunk") {
-        const team =
-          role === "washerwoman" ? "townsfolk" : role === "librarian" ? "outsider" : "minion";
-        const options = ALL_ROLES.filter((id) => roleTeam(id) === team);
-        const others = orderedPlayers(state)
-          .filter((player) => player.id !== actor.id)
-          .map((player) => player.id);
-        return {
-          kind: "one-of-two",
-          missing: false,
-          roleId: options[0] || null,
-          pair: others.slice(0, 2),
-          matchIndex: 0,
-          impaired: true,
-          needsChoice: true,
-          options,
-          text: "Пьяница: предложена ложная информация.",
-        };
-      }
-      return { kind: "one-of-two", missing: true, needsChoice: true };
-    }
-    if ("zero" in setup && setup.zero) {
-      if (impaired) {
-        const options = ALL_ROLES.filter((id) => roleTeam(id) === "outsider");
-        const others = orderedPlayers(state)
-          .filter((player) => !actor || player.id !== actor.id)
-          .map((player) => player.id);
-        return {
-          kind: "one-of-two",
-          zero: true,
-          roleId: options[0] || null,
-          pair: others.slice(0, 2),
-          matchIndex: 0,
-          impaired,
-          needsChoice: true,
-          // The true zero answer stays legal: a drunk or poisoned player may
-          // still receive true information (Drunk r3165 "may give false").
-          options: [...options, "zero"],
-          text: "Игрок отравлен или пьян: можно показать ложную пару или верный ответ «нет Изгоев».",
-        };
-      }
-      return { kind: "one-of-two", zero: true, text: "В игре нет Изгоев." };
-    }
-    const pairInfo = setup as InfoPair;
-    if (!pairInfo.roleId || !Array.isArray(pairInfo.pair) || pairInfo.pair.length !== 2) {
-      return { kind: "one-of-two", missing: true, needsChoice: true };
-    }
-    return {
-      kind: "one-of-two",
-      roleId: pairInfo.roleId,
-      pair: pairInfo.pair.slice(),
-      matchIndex: pairInfo.matchIndex || 0,
-      impaired,
-      needsChoice: impaired,
-      options: impaired
-        ? ALL_ROLES.filter(
-            (id) =>
-              roleTeam(id) ===
-              (role === "washerwoman" ? "townsfolk" : role === "librarian" ? "outsider" : "minion"),
-          )
-        : [],
-    };
-  }
 
   if (role === "spy") {
     return { kind: "grimoire" };

@@ -5938,6 +5938,112 @@ for (const scenario of [
   });
 }
 
+// A module whose answer is the prepared one and that names its own characters
+// as possible. The tests below use it, so they show what the engine takes
+// from a module and what it reads from setup.
+function preparing(
+  id: RoleModule["id"],
+  possible: readonly string[],
+  seen: InformationContext[] = [],
+  shape: string = "one-of-two",
+): RoleModule {
+  return {
+    id,
+    edition: "tb",
+    capabilities: [
+      { kind: "night-step", timing: "first", step: { infoKind: shape } },
+      {
+        kind: "information",
+        infoKind: "probe",
+        resolve(context) {
+          seen.push(context);
+          return { kind: "prepared", possible };
+        },
+      },
+    ],
+  };
+}
+
+test("a prepared answer is written from the setup record kept under the module's id", () => {
+  const state = preparedNight();
+  const step = roleStep(state, "washerwoman");
+
+  const info = moduleInfoForStep(state, preparing("washerwoman", ["mayor"]), step, {});
+  assert.deepEqual(info, pairAnswer("chef", ["6", "5"], 1));
+  assert.deepEqual(Object.keys(info!), PAIR_KEYS);
+  assert.deepEqual(
+    moduleInfoForStep(state, preparing("investigator", ["mayor"]), step, {}),
+    pairAnswer("poisoner", ["7", "2"]),
+    "the record of another role under that role's id",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(state, preparing("chef", ["mayor"]), step, {}),
+    NOT_PREPARED,
+    "a role nothing is prepared for",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(state, preparing("washerwoman", ["mayor"], [], "number"), step, {}),
+    pairAnswer("chef", ["6", "5"], 1),
+    "a prepared answer is one of two players, whatever shape the step declares",
+  );
+});
+
+test("an impaired owner of a prepared answer is offered the characters its module names", () => {
+  const state = preparedNight();
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const step = roleStep(state, "washerwoman");
+  const possible = ["mayor", "saint"];
+
+  const info = moduleInfoForStep(state, preparing("washerwoman", possible), step, {});
+  assert.deepEqual(info, falsePair("chef", ["6", "5"], ["mayor", "saint"], 1));
+  assert.notEqual(info!.options, possible, "the record holds its own list");
+  assert.deepEqual(
+    moduleInfoForStep(state, preparing("washerwoman", []), step, {}),
+    falsePair("chef", ["6", "5"], [], 1),
+    "a module that names nothing leaves nothing to offer",
+  );
+});
+
+test("a Drunk with no prepared record is offered the first character the module names", () => {
+  const state = preparedNight(DRUNK_ROLES, {}, { drunkShownId: "washerwoman" });
+  const step = roleStep(state, "washerwoman");
+  state.setup.info.washerwoman = null;
+
+  assert.deepEqual(
+    moduleInfoForStep(state, preparing("washerwoman", ["mayor", "saint"]), step, {}),
+    drunkDefault(["mayor", "saint"], ["2", "3"]),
+  );
+  assert.deepEqual(moduleInfoForStep(state, preparing("washerwoman", []), step, {}), {
+    ...drunkDefault([], ["2", "3"]),
+    roleId: null,
+  });
+});
+
+test("the zero is read from setup for any prepared answer and its options are not the module's", () => {
+  const state = preparedNight(NO_OUTSIDER_ROLES, {});
+  const step = roleStep(state, "librarian");
+  const module = preparing("librarian", ["mayor"]);
+
+  assert.deepEqual(moduleInfoForStep(state, module, step, {}), ZERO);
+  completeRole(state, "poisoner", { targetIds: ["3"] });
+  assert.deepEqual(
+    moduleInfoForStep(state, module, step, {}),
+    falseZero(["1", "2"]),
+    "every Outsider and the zero, as before the move",
+  );
+});
+
+test("a module with a prepared answer is told nothing of what was prepared", () => {
+  const state = preparedNight();
+  const seen: InformationContext[] = [];
+  moduleInfoForStep(state, preparing("washerwoman", [], seen), roleStep(state, "washerwoman"), {});
+
+  assert.equal(seen.length, 1, "the module is asked once");
+  for (const secret of ["setup", "info", "prepared", "pair", "zero"]) {
+    assert.equal(secret in seen[0]!, false, "the context has no " + secret);
+  }
+});
+
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {
   const state = make({
     1: "monk",
