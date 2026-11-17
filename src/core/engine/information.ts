@@ -193,6 +193,11 @@ export function characterChoices(
 // ---------------------------------------------------------------------------
 // Night queue
 
+function executedOn(state: GameState, dayNumber: number): InformationContext["executedToday"] {
+  const death = executionDeathForDay(state, dayNumber);
+  return death ? { playerId: death.playerId, roleId: death.roleId } : null;
+}
+
 /** The read-only facts an information capability resolves from. */
 function informationFacts(
   state: GameState,
@@ -232,6 +237,11 @@ function informationFacts(
     // The setup secret first, then the top-level field, as before the move.
     redHerringId:
       (state.setup && state.setup.herringId ? state.setup.herringId : state.herringId) ?? null,
+    // Undertaker r3115: the death by execution of the day that just ended.
+    executedToday: executedOn(state, query.at.number - 1),
+    // The seat's own character and, for a sober and healthy Spy or Recluse,
+    // the characters it might register as, whatever the acting player's state.
+    mayRegisterAsCharacters: (playerId) => characterChoices(state, playerId),
     actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
     hasPlayer: (playerId) => playerById(state, playerId) != null,
   };
@@ -268,13 +278,35 @@ export function moduleInfoForStep(
       at,
     }),
   );
-  if (decision?.kind !== "answer") return { kind: "none" };
+  const shape = nightStepFor(module, at.number)?.infoKind ?? "none";
+  if (decision?.kind === "note") return { kind: "none", text: decision.text };
+  if (decision?.kind !== "answer") {
+    // A step that learns a character and has no player to read yet keeps its
+    // record: a question with every character. The table shows it only once a
+    // player is chosen, and the completion refuses the step before that.
+    return shape === "character"
+      ? { kind: "character", roleId: null, needsChoice: true, options: ALL_ROLES.slice() }
+      : { kind: "none" };
+  }
   // A working ability whose answer depends on a registration is the host's
   // choice among the legal values; an impaired one among every possible value.
   const legal = decision.legal ?? [];
+  if (shape === "character") {
+    // The record of a character names the player and lists what the player
+    // may be shown as, also when that is one character.
+    const choices = impaired ? [...(decision.possible ?? [])] : [...legal];
+    return {
+      kind: "character",
+      roleId: decision.value as RoleId,
+      playerId: decision.subjectId ?? null,
+      impaired,
+      needsChoice: impaired || choices.length > 1,
+      options: choices,
+    };
+  }
   const registrationChoice = !impaired && legal.length > 1;
   return {
-    kind: nightStepFor(module, at.number)?.infoKind ?? "none",
+    kind: shape,
     value: decision.value,
     impaired,
     needsChoice: impaired || registrationChoice,
@@ -380,38 +412,8 @@ export function infoForStep(
     };
   }
 
-  if (role === "undertaker") {
-    const death = executionDeathForDay(state, nightAt(state).number - 1);
-    if (!death) return { kind: "none", text: "Сегодня казни со смертью не было." };
-    const choices = characterChoices(state, death.playerId, impaired);
-    return {
-      kind: "character",
-      roleId: death.roleId,
-      playerId: death.playerId,
-      impaired,
-      needsChoice: impaired || choices.length > 1,
-      options: choices,
-    };
-  }
-
   if (role === "spy") {
     return { kind: "grimoire" };
-  }
-
-  if (role === "ravenkeeper") {
-    const targetId = (options.targetIds || step.targetIds || [])[0];
-    const target = targetId ? playerById(state, targetId) : null;
-    if (!target)
-      return { kind: "character", roleId: null, needsChoice: true, options: ALL_ROLES.slice() };
-    const choices = characterChoices(state, target.id, impaired);
-    return {
-      kind: "character",
-      roleId: target.roleId,
-      playerId: target.id,
-      impaired,
-      needsChoice: impaired || choices.length > 1,
-      options: choices,
-    };
   }
 
   return { kind: "none" };

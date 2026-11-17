@@ -284,6 +284,7 @@ export type InformationDecision =
       readonly value: boolean | number | string;
       readonly possible?: readonly (boolean | number | string)[];
       readonly legal?: readonly (boolean | number | string)[];
+      readonly subjectId?: string;
     }
   | { readonly kind: "options"; readonly options: readonly string[] }
   | { readonly kind: "host-choice"; readonly case: HostChoiceCase; readonly options: readonly string[]; readonly text?: string }
@@ -580,6 +581,20 @@ role returns one decision and never reads `impaired` to choose. The context
 gains the seat ring and whether a player may register as a team, which the
 engine answers from the registrant's own state. `chefCount` stays exported as
 a query that resolves the module's capability.
+
+`openspec/changes/tb-character-information` continues with the Undertaker and
+the Ravenkeeper, which learn the character of one player and write the same
+record. The `answer` decision gains `subjectId`, the player the answer is
+about, and the engine writes the character record of the step from it. The
+`note` decision is implemented with its text only: the stored record has no
+key, and a key can be added with the first translated note without changing a
+stored byte. The context gains who died by execution today and the characters
+a player may register as. Only the answers move. Both steps stay declared in
+the legacy `nightStep` field, because who wakes is read from the game by the
+`actor` and `extra` hooks and a capability never receives the game state.
+Eighteen modules have such hooks; a wake caused by a death belongs to slice 6,
+and the step appended on the night the Ravenkeeper dies still names the role
+in `appendConditionalSteps`.
 
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.

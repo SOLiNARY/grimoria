@@ -25,6 +25,8 @@ function context(
     hasPlayer: (playerId) => !(facts.missing ?? []).includes(playerId),
     registersAsDemon: (playerId) => (facts.demons ?? []).includes(playerId),
     redHerringId: facts.herring ?? null,
+    executedToday: null,
+    mayRegisterAsCharacters: () => [],
     ...overrides,
   };
 }

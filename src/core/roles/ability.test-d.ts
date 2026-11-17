@@ -130,3 +130,40 @@ export const selfOfferedOptions: InformationAnswer = {
   // @ts-expect-error -- a role cannot name the options of one step
   options: [0, 1, 2],
 };
+
+// A role is told who died by execution today: the player and the character on
+// record. The list of deaths, with its causes and times, stays the engine's.
+// @ts-expect-error -- the information context exposes no death records
+export type InformationDeathsAccess = InformationContext["deaths"];
+type ExecutedToday = NonNullable<InformationContext["executedToday"]>;
+// @ts-expect-error -- the fact names no cause of death
+export type ExecutedCauseAccess = ExecutedToday["cause"];
+export const rewrittenExecution = (context: InformationContext): void => {
+  if (!context.executedToday) return;
+  // @ts-expect-error -- a role cannot rewrite who was executed
+  context.executedToday.playerId = "1";
+};
+// A role names the player its answer is about. The record of the step, with
+// its own field for the player, is the engine's.
+export const selfRecordedPlayer: InformationAnswer = {
+  kind: "answer",
+  value: "chef",
+  subjectId: "2",
+  // @ts-expect-error -- a role cannot write the field of the step's record
+  playerId: "2",
+};
+// A note says why there is nothing to learn. It carries no answer and asks
+// nobody.
+type InformationNote = Extract<InformationDecision, { kind: "note" }>;
+export const answeringNote: InformationNote = {
+  kind: "note",
+  text: "nothing to learn",
+  // @ts-expect-error -- a note carries no answer
+  value: "chef",
+};
+export const questioningNote: InformationNote = {
+  kind: "note",
+  text: "nothing to learn",
+  // @ts-expect-error -- a note cannot require the host's answer
+  needsChoice: true,
+};

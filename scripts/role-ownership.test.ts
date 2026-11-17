@@ -101,6 +101,29 @@ test("a migrated information role whose query stays keeps that one reference", (
   assert.equal(ownerOf(chef, engineLocations("chef")), "capability + engine reference");
 });
 
+test("a role that moved only its answer still reports the legacy step that wakes it", () => {
+  const undertaker = roleModules().find((candidate) => candidate.id === "undertaker");
+  assert.ok(undertaker);
+  // The character on record and the legal registrations come from the module.
+  // Who wakes is still the legacy step, whose hooks read the game.
+  assert.deepEqual(undertaker.declares, ["nightStep", "capability:information"]);
+  assert.deepEqual(engineLocations("undertaker"), [], "undertaker is still named by a coordinator");
+  assert.equal(ownerOf(undertaker, engineLocations("undertaker")), "capability");
+});
+
+test("a role woken by its own death keeps the references of that wake, not of the answer", () => {
+  const ravenkeeper = roleModules().find((candidate) => candidate.id === "ravenkeeper");
+  assert.ok(ravenkeeper);
+  assert.deepEqual(ravenkeeper.declares, ["nightStep", "capability:information"]);
+  // The step inserted on the night of the death still names the role; the
+  // information path and the completion of the step do not.
+  assert.deepEqual(engineLocations("ravenkeeper"), ["night.ts×4"]);
+  assert.equal(
+    ownerOf(ravenkeeper, engineLocations("ravenkeeper")),
+    "capability + engine reference",
+  );
+});
+
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
   const source = `
     export const role = {
