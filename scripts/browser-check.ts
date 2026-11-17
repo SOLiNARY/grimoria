@@ -1357,6 +1357,117 @@ async function setupZeroIsTheLibrariansAlone() {
   );
 }
 
+// Issue #200, Imp r3116: after a night self-kill the host names the new Imp,
+// who is woken once that night ("Wake the new Imp, show them the YOU ARE info
+// token") and not again the next night, when it wakes only for its own step.
+async function newDemonWakesOnce() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const result = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    // Two Minions, so the host names the heir; only the Empath wakes after the Imp.
+    const assignment: Record<string, string> = {
+      1: "soldier",
+      2: "mayor",
+      3: "empath",
+      4: "chef",
+      5: "virgin",
+      6: "slayer",
+      7: "washerwoman",
+      8: "poisoner",
+      9: "scarletwoman",
+      10: "imp",
+    };
+    const game = model.createGame(10);
+    Object.keys(assignment).forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 10;
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["monk", "ravenkeeper", "undertaker"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game))
+      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const day = engine.endDay(game);
+    if (!day.ok) return day;
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await page.waitForTimeout(100);
+  await route("/table");
+  const current = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const step = engine.currentStep(store.state);
+      if (!step) return null;
+      return step.system ? step.system : step.roleId + ":" + step.actorId;
+    });
+  const wakes = () =>
+    page.evaluate(async () => {
+      const { store } = await window.PG_MODULES();
+      return store.state.night.queue.filter((step) => step.system === "demonchange").length;
+    });
+  const confirmWith = async (targetId: string) => {
+    await page.locator(`[data-target][data-id="${targetId}"]`).click();
+    await completeStep();
+    await page.waitForTimeout(100);
+  };
+
+  // The Poisoner poisons the Scarlet Woman, so she does not take the role, and
+  // the Imp kills itself.
+  assert.equal(await current(), "poisoner:8", "night 2 opens on the Poisoner");
+  await confirmWith("9");
+  assert.equal(await current(), "imp:10");
+  await confirmWith("10");
+
+  // The host names the Poisoner as the new Imp, from the step sheet.
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector("[data-heir]");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "demon-wake-heir-390.png") });
+  await page.locator('[data-heir][data-id="8"]').click();
+  await page.waitForTimeout(100);
+  assert.equal(await current(), "demonchange", "the new Imp is woken next, before the Empath");
+  assert.equal(await wakes(), 1);
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "demon-wake-step-390.png") });
+  const confirm = page.locator('[data-act="step-confirm"]');
+  if (!(await confirm.count())) await page.locator('[data-act="complete"]').click();
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(100);
+  assert.equal(await current(), "empath:3");
+  await finishNight();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.phase === "day",
+    null,
+    { timeout: 3000 },
+  );
+
+  // Day 2 ends with no execution. On night 3 the new Imp wakes for its own
+  // step only.
+  await page.locator('[data-act="end-day"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.phase === "night",
+    null,
+    { timeout: 3000 },
+  );
+  assert.equal(await wakes(), 0, "the new Imp is not shown the YOU ARE token again");
+  assert.equal(await current(), "imp:8", "night 3 opens on the new Imp's own step");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "demon-wake-night-3-390.png") });
+}
+
 async function currentScriptRoleCorrections() {
   for (const { edition, width } of [
     { edition: "bmr", width: 390 },
@@ -5312,6 +5423,7 @@ async function fullChecks() {
   await playerBubbleVoting();
   await lunaticSetupControls();
   await setupZeroIsTheLibrariansAlone();
+  await newDemonWakesOnce();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
@@ -5329,6 +5441,7 @@ try {
       "player-voting": playerBubbleVoting,
       "lunatic-setup": lunaticSetupControls,
       "setup-zero": setupZeroIsTheLibrariansAlone,
+      "demon-wake": newDemonWakesOnce,
     }[focused];
     if (!check) throw new Error("Unknown browser check: " + focused);
     await page.goto(url);
