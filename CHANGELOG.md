@@ -9,6 +9,7 @@ All notable changes to Grimoria are recorded here. The format follows
 ### Fixed
 
 - Wake a new Demon once, the night it takes the role: a named heir is woken right after the host's choice, and the next night no longer repeats the YOU ARE wake; saved games keep the wakes they recorded
+- Let a Pukka poisoned by its own poison choose a sober Goon: the Pukka is drunk until dusk and the Goon turns evil, where the choice was refused as an effect cycle
 
 ## [0.1.0] - 2026-11-16
 

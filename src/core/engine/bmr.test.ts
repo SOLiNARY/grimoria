@@ -3199,6 +3199,93 @@ test("a Pukka choosing the Goon completes without an effect cycle (BMR-PUKKA-01,
   assert.equal(isImpaired(state, "2"), false, "the Pukka's poison did not land");
 });
 
+// Goon r2977: "The Goon still changes alignment, and makes the player drunk, if
+// the player choosing the Goon was already drunk or poisoned." Pukka r3074: "If
+// the Pukka was sober when they chose a player the previous night, but is drunk
+// at night, that player does not die. But when the Pukka sobers up, the poison
+// resumes." Night 1 the Pukka poisons the Chambermaid (3), night 2 itself, and
+// night 3 it chooses the sober, healthy Goon (2).
+function selfPoisonedPukkaMeetsGoon(): { state: GameState; step: NightStep } {
+  const state = make(
+    {
+      1: "pukka",
+      2: "goon",
+      3: "chambermaid",
+      4: "pacifist",
+      5: "professor",
+      6: "gossip",
+      7: "sailor",
+      8: "mastermind",
+    },
+    { count: 8 },
+  );
+  startNight(state);
+  for (const targetId of ["3", "1"]) {
+    const pukka = skipUntil(state, (step) => step.roleId === "pukka")!;
+    assert.equal(completeStep(state, pukka.key, { targetIds: [targetId] }).ok, true);
+    skipRemaining(state);
+    endNightToNext(state);
+  }
+  assert.equal(state.night.number, 3);
+  assert.equal(isImpaired(state, "1"), true, "the Pukka is poisoned by its own poison");
+  assert.equal(isImpaired(state, "2"), false, "the Goon is sober and healthy");
+  const step = skipUntil(state, (candidate) => candidate.roleId === "pukka")!;
+  return { state, step };
+}
+
+test("a Pukka poisoned by its own poison can choose a sober Goon: it is drunk until dusk and the Goon turns evil (BMR-GOON-01, BMR-PUKKA-07)", () => {
+  const { state, step } = selfPoisonedPukkaMeetsGoon();
+  const deaths = state.deaths.length;
+  const command = {
+    id: "pukka-goon-self-poisoned",
+    type: "completeNightStep",
+    payload: { key: step.key, targetIds: ["2"] },
+  };
+  const before = canonicalState(state);
+  const preview = previewCommand(state, command) as CommandView;
+  assert.equal(preview.status, "allowed", JSON.stringify(preview));
+  assert.deepEqual(canonicalState(state), before, "preview must not mutate");
+
+  const applied = applyCommand(state, command) as CommandView;
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+
+  assert.equal(state.players["2"].team, "evil", "the Goon takes the Pukka's alignment");
+  const granted = state.effects.filter((effect) => effect.bmr === "goon");
+  assert.deepEqual(
+    granted.map((effect) => [effect.kind, effect.sourceId, effect.targetId, effect.expires]),
+    [["drunk", "1", "1", { phase: "night", number: 4 }]],
+    "the Pukka is drunk until dusk",
+  );
+  const done = state.night.queue.find((candidate) => candidate.key === step.key)!;
+  assert.equal(done.done, true);
+  assert.equal(done.goonImpaired, true);
+  assert.equal(done.goonImpairedOnly, false, "the Pukka was already poisoned");
+  assert.equal(isImpaired(state, "1"), true);
+  assert.equal(isImpaired(state, "2"), false, "a drunk Pukka poisons nobody");
+  assert.equal(state.deaths.length, deaths, "nobody dies");
+  assert.equal(state.players["3"].alive, true);
+
+  // While the Pukka is drunk its own poison is suspended; at dusk it resumes.
+  const selfPoison = state.effects.find(
+    (effect) =>
+      effect.kind === "poison" &&
+      effect.pukka === true &&
+      effect.sourceId === "1" &&
+      effect.targetId === "1",
+  )!;
+  assert.equal(effectActive(state, selfPoison), false);
+  assert.equal(effectActive(state, granted[0]!), true);
+  const dusk = { phase: "night", number: 4 } as const;
+  assert.equal(effectActive(state, selfPoison, dusk), true);
+  assert.equal(effectActive(state, granted[0]!, dusk), false);
+  assert.equal(isImpaired(state, "1", dusk), true);
+
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
+
 test("a Sailor choosing the Goon completes without an effect cycle (BMR-SAILOR-02)", () => {
   const state = make(
     {

@@ -318,9 +318,9 @@ deaths and resurrections in the night card's outcome panel.
   ability does not work that night or the next day, and the Goon takes their
   alignment until the next dusk. A later chooser changes nothing; a drunk or
   poisoned Goon grants nothing; a chooser who was already drunk or poisoned
-  still triggers. The Lunatic's simulated choice and the Grandmother's
-  Storyteller-chosen grandchild are not ability choices, so neither triggers the
-  Goon. Two printed exceptions remain: the Assassin kills the Goon, which still
+  still triggers, even a Pukka poisoned by its own poison. The Lunatic's
+  simulated choice and the Grandmother's Storyteller-chosen grandchild are not
+  ability choices, so neither triggers the Goon. Two printed exceptions remain: the Assassin kills the Goon, which still
   turns evil, and the Moonchild's already-made choice still resolves at its
   bookkeeping wake even though the Goon makes the Moonchild drunk.
 - The Lunatic is good and sees the stored Demon. The night-one Demon
@@ -349,7 +349,10 @@ deaths and resurrections in the night card's outcome panel.
   poison or drunk effect targets it and resumes only after the last impairment
   ends. A genuinely unresolvable cycle returns `CYCLIC_EFFECT_DEPENDENCY` from
   command validation, preview, apply and import instead of guessing a rule or
-  overflowing the stack.
+  overflowing the stack. A permanent effect (the Goon's drunk, the Snake
+  Charmer's poison) holds whatever its source is, so it waits for no effect on
+  that source and closes no cycle; the Vigormortis poison still waits for its
+  dead Minion, because it ends while that Minion is drunk or poisoned.
 - At six players the Demon information step is not built (no bluffs). A Demon
   without a first-night role step, such as the Po, has no automatic place to
   learn the Lunatic on night one; the host tells the Demon. Every Demon role
