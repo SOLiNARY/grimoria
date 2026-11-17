@@ -88,6 +88,8 @@
   opened the sheet and confirmed. Both builds printed the same record
   (equal hashes of the queue, the effects and the log), and the next step
   was the Mathematician's. The confirm was enabled on both sheets.
-- GREEN: `node scripts/openspec-check.ts` passed. The `openspec` CLI is not
-  installed on this machine, so `openspec validate --changes --strict` runs
-  in CI.
+- GREEN: `node scripts/openspec-check.ts` passed. `openspec validate
+  --changes --strict` and `--specs --strict` with the CLI version CI pins
+  (`@fission-ai/openspec@1.16.1`) passed after the requirements longer than
+  500 characters were split; upstream CI had reported them on
+  hose1021/grimoria#280.

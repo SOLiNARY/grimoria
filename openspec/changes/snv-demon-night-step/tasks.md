@@ -94,9 +94,10 @@
 - GREEN: `npm run verify` exited 0 on Node 26.13.0, the only Node on this
   machine (1,152 tests passed); Node 24 runs in CI. `node --test
   scripts/*.test.ts` passed (129 tests).
-- GREEN: `node scripts/openspec-check.ts` passed. The `openspec` CLI is not
-  installed on this machine, so `openspec validate --changes --strict` runs
-  in CI.
+- GREEN: `node scripts/openspec-check.ts` passed. `openspec validate
+  --changes --strict` and `--specs --strict` with the CLI version CI pins
+  (`@fission-ai/openspec@1.16.1`) passed; this change also passed the
+  OpenSpec job of hose1021/grimoria#280.
 - GREEN: at 390 px, an eight-player Sects & Violets game with the No Dashii
   was seeded on the second night and driven through the table on the
   development server of main and of this change. The host skipped the
