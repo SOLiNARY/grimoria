@@ -63,7 +63,10 @@ Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller, the
 Chef, in Bad Moon Rising, the Gambler, the Pukka, the Sailor, the
 Innkeeper, the Devil's Advocate, the Exorcist, the Tinker, the Po and the
 Shabaloth, and in Sects & Violets the Fang Gu, the No Dashii, the
-Vigormortis, the Vortox and the Cerenovus have moved. The Sects & Violets step completion
+Vigormortis, the Vortox and the Cerenovus have moved. The Sects & Violets
+Clockmaker, Dreamer, Evil Twin, Flowergirl, Mathematician, Oracle and Town
+Crier declare their step on the capability but keep their answers in
+`svInfoForStep` until their own slice. The Sects & Violets step completion
 hands a role that owns a resolver to the coordinator, as the Bad Moon Rising
 one does; the four Demons' resolvers change nothing, because the host marks
 their deaths on the step's outcome.
