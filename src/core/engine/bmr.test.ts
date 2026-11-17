@@ -6458,3 +6458,888 @@ test("a Demon kept asleep gets the note the role wrote, and a Demon whose step i
   assert.equal(state.log.at(-1)!.detail, "Вторая заметка");
   assert.deepEqual(draws, ["id:5", "clock", "id:5", "clock"]);
 });
+
+function tinkerAndDemon(demon: RoleId): GameState {
+  return make(
+    {
+      1: "tinker",
+      2: "exorcist",
+      3: "goon",
+      4: "chambermaid",
+      5: "gossip",
+      6: "sailor",
+      7: demon,
+    },
+    { count: 9 },
+  );
+}
+
+test("the Tinker, the Po and the Shabaloth have a step from the second night, and the Po's takes three players after a night it chose no one (BMR-TINKER-01, BMR-PO-01, BMR-SHABALOTH-01)", () => {
+  const state = tinkerAndDemon("po");
+  startNight(state);
+  assert.deepEqual(queueRoles(state), [
+    "minioninfo",
+    "demoninfo",
+    "sailor",
+    "courtier",
+    "chambermaid",
+  ]);
+  skipRemaining(state);
+  endNightToNext(state);
+  assert.deepEqual(queueRoles(state), [
+    "sailor",
+    "courtier",
+    "exorcist",
+    "po",
+    "assassin",
+    "tinker",
+    "chambermaid",
+  ]);
+  assert.deepEqual(recordOf(roleStepOf(state, "tinker")), {
+    ...OPEN_STEP,
+    key: "n2-15-tinker-1",
+    roleId: "tinker",
+    actorId: "1",
+    actorName: "P1",
+    order: 15,
+    targetMode: "none",
+    minTargets: 0,
+    maxTargets: 0,
+    canKill: true,
+    noteKey: "note.bmr.tinker",
+  });
+  assert.deepEqual(recordOf(roleStepOf(state, "po")), {
+    ...OPEN_STEP,
+    key: "n2-10-po-7",
+    roleId: "po",
+    actorId: "7",
+    actorName: "P7",
+    order: 10,
+    targetMode: "po",
+    minTargets: 0,
+    canKill: true,
+    noteKey: "note.bmr.po",
+  });
+  assert.equal(runChoiceStep(state, "po", []).ok, true);
+  skipRemaining(state);
+  endNightToNext(state);
+  assert.deepEqual(recordOf(roleStepOf(state, "po")), {
+    ...OPEN_STEP,
+    key: "n3-10-po-7",
+    roleId: "po",
+    actorId: "7",
+    actorName: "P7",
+    order: 10,
+    targetMode: "po",
+    minTargets: 3,
+    maxTargets: 3,
+    canKill: true,
+    noteKey: "note.bmr.po",
+  });
+  assert.equal(runChoiceStep(state, "po", ["4", "5", "6"]).ok, true);
+  skipRemaining(state);
+  endNightToNext(state);
+  assert.deepEqual(recordOf(roleStepOf(state, "po")), {
+    ...OPEN_STEP,
+    key: "n4-10-po-7",
+    roleId: "po",
+    actorId: "7",
+    actorName: "P7",
+    order: 10,
+    targetMode: "po",
+    minTargets: 0,
+    canKill: true,
+    noteKey: "note.bmr.po",
+  });
+
+  const shabaloth = tinkerAndDemon("shabaloth");
+  startNight(shabaloth);
+  skipRemaining(shabaloth);
+  endNightToNext(shabaloth);
+  assert.deepEqual(queueRoles(shabaloth), [
+    "sailor",
+    "courtier",
+    "exorcist",
+    "shabaloth",
+    "assassin",
+    "tinker",
+    "chambermaid",
+  ]);
+  assert.deepEqual(recordOf(roleStepOf(shabaloth, "shabaloth")), {
+    ...OPEN_STEP,
+    key: "n2-9-shabaloth-7",
+    roleId: "shabaloth",
+    actorId: "7",
+    actorName: "P7",
+    order: 9,
+    targetMode: "two",
+    minTargets: 2,
+    maxTargets: 2,
+    canKill: true,
+    canResurrect: true,
+    noteKey: "note.bmr.shabaloth",
+  });
+});
+
+test("the Tinker's step changes nothing, and the host's death on it is an ability death (BMR-TINKER-01)", () => {
+  const state = tinkerAndDemon("po");
+  startNight(state);
+  skipRemaining(state);
+  endNightToNext(state);
+  const key = roleStepOf(state, "tinker").key;
+  assert.deepEqual(runChoiceStep(state, "tinker", []), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n2-15-tinker-1",
+      roleId: "tinker",
+      actorId: "1",
+      actorName: "P1",
+      order: 15,
+      targetMode: "none",
+      minTargets: 0,
+      maxTargets: 0,
+      canKill: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      done: true,
+      impaired: false,
+      noteVars: null,
+    },
+    effects: [],
+    log: [
+      {
+        id: "log-10-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "Механик",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "tinker",
+        phaseCode: "night",
+        phaseNumber: 2,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: {},
+    demon: null,
+  });
+  const { ports, draws } = recordingPorts();
+  assert.deepEqual(recordBmrOutcome(state, key, { deathIds: ["1"] }, ports), {
+    ok: true,
+    deaths: [
+      {
+        id: "death-1-k100",
+        playerId: "1",
+        roleId: "tinker",
+        cause: "ability",
+        phase: "night",
+        number: 2,
+        at: "2030-01-01T00:00:01.000Z",
+        impaired: false,
+        livingBefore: 9,
+        demon: false,
+        ability: "tinker",
+        bmr: true,
+        bypassProtection: false,
+      },
+    ],
+    resurrected: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.deaths)), [
+    {
+      id: "death-1-k100",
+      playerId: "1",
+      roleId: "tinker",
+      cause: "ability",
+      phase: "night",
+      number: 2,
+      at: "2030-01-01T00:00:01.000Z",
+      impaired: false,
+      livingBefore: 9,
+      demon: false,
+      ability: "tinker",
+      bmr: true,
+      bypassProtection: false,
+    },
+  ]);
+  assert.deepEqual(draws, ["id:4", "clock", "id:5", "clock", "id:5", "clock"]);
+});
+
+test("the Po's choice of no one is recorded, also when it is poisoned, and a Po kept asleep keeps its last choice (BMR-PO-01, BMR-EXORCIST-01)", () => {
+  const state = tinkerAndDemon("po");
+  startNight(state);
+  skipRemaining(state);
+  endNightToNext(state);
+  assert.deepEqual(runChoiceStep(state, "po", []), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n2-10-po-7",
+      roleId: "po",
+      actorId: "7",
+      actorName: "P7",
+      order: 10,
+      targetMode: "po",
+      minTargets: 0,
+      canKill: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      done: true,
+      impaired: false,
+      noteVars: null,
+    },
+    effects: [],
+    log: [
+      {
+        id: "log-10-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "По",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "po",
+        phaseCode: "night",
+        phaseNumber: 2,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: { poNoOne: true },
+    demon: null,
+  });
+  skipRemaining(state);
+  endNightToNext(state);
+  assert.deepEqual(runChoiceStep(state, "po", ["4", "5", "6"]), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n3-10-po-7",
+      roleId: "po",
+      actorId: "7",
+      actorName: "P7",
+      order: 10,
+      targetMode: "po",
+      minTargets: 3,
+      maxTargets: 3,
+      canKill: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["4", "5", "6"],
+      done: true,
+      impaired: false,
+      noteVars: null,
+    },
+    effects: [],
+    log: [
+      {
+        id: "log-19-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 3",
+        kind: "night",
+        title: "По",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "po",
+        phaseCode: "night",
+        phaseNumber: 3,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: { poNoOne: false },
+    demon: null,
+  });
+
+  const poisoned = tinkerAndDemon("po");
+  startNight(poisoned);
+  skipRemaining(poisoned);
+  endNightToNext(poisoned);
+  poisonFor(poisoned, "7", "9", 2);
+  assert.deepEqual(runChoiceStep(poisoned, "po", []), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n2-10-po-7",
+      roleId: "po",
+      actorId: "7",
+      actorName: "P7",
+      order: 10,
+      targetMode: "po",
+      minTargets: 0,
+      canKill: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      done: true,
+      impaired: true,
+      noteVars: null,
+    },
+    effects: [
+      {
+        id: "fixture-poison-7-2",
+        kind: "poison",
+        sourceId: "9",
+        targetId: "7",
+        start: { phase: "night", number: 2 },
+        expires: { phase: "night", number: 3 },
+        active: true,
+      },
+    ],
+    log: [
+      {
+        id: "log-10-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "По",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "po",
+        phaseCode: "night",
+        phaseNumber: 2,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: { poNoOne: true },
+    demon: null,
+  });
+  skipRemaining(poisoned);
+  endNightToNext(poisoned);
+  assert.deepEqual(runChoiceStep(poisoned, "exorcist", ["7"], "po"), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n3-6-exorcist-2",
+      roleId: "exorcist",
+      actorId: "2",
+      actorName: "P2",
+      order: 6,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["7"],
+      done: true,
+      impaired: false,
+      noteVars: null,
+    },
+    effects: [
+      {
+        id: "fixture-poison-7-2",
+        kind: "poison",
+        sourceId: "9",
+        targetId: "7",
+        start: { phase: "night", number: 2 },
+        expires: { phase: "night", number: 3 },
+        active: true,
+      },
+    ],
+    log: [
+      {
+        id: "log-19-k1000",
+        at: "2030-01-01T00:00:01.000Z",
+        phase: "Ночь 3",
+        kind: "night",
+        title: "Экзорцист выбрал Демона",
+        detail: "P7 узнаёт Экзорциста и не действует этой ночью.",
+        playerId: null,
+        secret: true,
+      },
+      {
+        id: "log-20-k2000",
+        at: "2030-01-01T00:00:03.000Z",
+        phase: "Ночь 3",
+        kind: "night",
+        title: "Экзорцист",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "exorcist",
+        phaseCode: "night",
+        phaseNumber: 3,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["id:5", "clock", "clock", "id:5", "clock"],
+    used: { exorcistTarget: "7", exorcistTargetNight: 3 },
+    demon: {
+      ...OPEN_STEP,
+      key: "n3-10-po-7",
+      roleId: "po",
+      actorId: "7",
+      actorName: "P7",
+      order: 10,
+      targetMode: "po",
+      minTargets: 3,
+      maxTargets: 3,
+      canKill: true,
+      note: "Экзорцист (P2) выбрал Демона. Демон узнаёт Экзорциста и не просыпается.",
+      noteKey: "note.exorcistBlocked",
+      done: true,
+      skipped: true,
+      noteVars: { name: "P2" },
+    },
+  });
+  skipRemaining(poisoned);
+  endNightToNext(poisoned);
+  assert.deepEqual(recordOf(roleStepOf(poisoned, "po")), {
+    ...OPEN_STEP,
+    key: "n4-10-po-7",
+    roleId: "po",
+    actorId: "7",
+    actorName: "P7",
+    order: 10,
+    targetMode: "po",
+    minTargets: 3,
+    maxTargets: 3,
+    canKill: true,
+    noteKey: "note.bmr.po",
+  });
+});
+
+test("the Po's choice of a player is recorded with its death, and a Po who chooses the Goon is drunk (BMR-PO-01, BMR-GOON-01)", () => {
+  const state = tinkerAndDemon("po");
+  startNight(state);
+  skipRemaining(state);
+  endNightToNext(state);
+  const key = roleStepOf(state, "po").key;
+  assert.deepEqual(runChoiceStep(state, "po", ["4"]), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n2-10-po-7",
+      roleId: "po",
+      actorId: "7",
+      actorName: "P7",
+      order: 10,
+      targetMode: "po",
+      minTargets: 0,
+      canKill: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["4"],
+      done: true,
+      impaired: false,
+      noteVars: null,
+    },
+    effects: [],
+    log: [
+      {
+        id: "log-10-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "По",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "po",
+        phaseCode: "night",
+        phaseNumber: 2,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: { poNoOne: false },
+    demon: null,
+  });
+  const { ports, draws } = recordingPorts();
+  assert.deepEqual(recordBmrOutcome(state, key, { deathIds: ["4"] }, ports), {
+    ok: true,
+    deaths: [
+      {
+        id: "death-1-k100",
+        playerId: "4",
+        roleId: "chambermaid",
+        cause: "ability",
+        phase: "night",
+        number: 2,
+        at: "2030-01-01T00:00:01.000Z",
+        impaired: false,
+        livingBefore: 9,
+        demon: true,
+        ability: "po",
+        bmr: true,
+        bypassProtection: false,
+      },
+    ],
+    resurrected: null,
+  });
+  assert.deepEqual(draws, ["id:4", "clock", "id:5", "clock", "id:5", "clock"]);
+  skipRemaining(state);
+  endNightToNext(state);
+  assert.deepEqual(recordOf(roleStepOf(state, "po")), {
+    ...OPEN_STEP,
+    key: "n3-10-po-7",
+    roleId: "po",
+    actorId: "7",
+    actorName: "P7",
+    order: 10,
+    targetMode: "po",
+    minTargets: 0,
+    canKill: true,
+    noteKey: "note.bmr.po",
+  });
+
+  const goon = tinkerAndDemon("po");
+  startNight(goon);
+  skipRemaining(goon);
+  endNightToNext(goon);
+  assert.deepEqual(runChoiceStep(goon, "po", ["3"]), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n2-10-po-7",
+      roleId: "po",
+      actorId: "7",
+      actorName: "P7",
+      order: 10,
+      targetMode: "po",
+      minTargets: 0,
+      canKill: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["3"],
+      done: true,
+      goonImpaired: true,
+      goonId: "3",
+      goonImpairedOnly: true,
+      impaired: true,
+      noteVars: null,
+    },
+    effects: [
+      {
+        id: "eff-goon-2-3",
+        kind: "drunk",
+        bmr: "goon",
+        sourceId: "7",
+        targetId: "7",
+        start: { phase: "night", number: 2 },
+        expires: { phase: "night", number: 3 },
+        active: true,
+        permanent: true,
+      },
+    ],
+    log: [
+      {
+        id: "log-10-k1000",
+        at: "2030-01-01T00:00:01.000Z",
+        phase: "Ночь 2",
+        kind: "effect",
+        title: "Наёмник выбран: P7",
+        detail: "P7 пьян до заката. Наёмник теперь злой.",
+        playerId: "3",
+        secret: true,
+      },
+      {
+        id: "log-11-k2000",
+        at: "2030-01-01T00:00:03.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "По",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "po",
+        phaseCode: "night",
+        phaseNumber: 2,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["id:5", "clock", "clock", "id:5", "clock"],
+    used: { poNoOne: false },
+    demon: null,
+  });
+});
+
+test("the Shabaloth records its two players with last night's, and a poisoned or Goon-drunk Shabaloth records nothing (BMR-SHABALOTH-01, BMR-GOON-01)", () => {
+  const state = tinkerAndDemon("shabaloth");
+  startNight(state);
+  skipRemaining(state);
+  endNightToNext(state);
+  const second = roleStepOf(state, "shabaloth").key;
+  assert.deepEqual(runChoiceStep(state, "shabaloth", ["4", "5"]), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n2-9-shabaloth-7",
+      roleId: "shabaloth",
+      actorId: "7",
+      actorName: "P7",
+      order: 9,
+      targetMode: "two",
+      minTargets: 2,
+      maxTargets: 2,
+      canKill: true,
+      canResurrect: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["4", "5"],
+      done: true,
+      impaired: false,
+      noteVars: null,
+    },
+    effects: [],
+    log: [
+      {
+        id: "log-10-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "Шабалот",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "shabaloth",
+        phaseCode: "night",
+        phaseNumber: 2,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: { shabalothPreviousTargets: [], shabalothTargets: ["4", "5"], shabalothTargetsNight: 2 },
+    demon: null,
+  });
+  assert.deepEqual(Object.entries(state.players["7"]!.used!), [
+    ["shabalothPreviousTargets", []],
+    ["shabalothPreviousNight", undefined],
+    ["shabalothTargets", ["4", "5"]],
+    ["shabalothTargetsNight", 2],
+  ]);
+  const { ports, draws } = recordingPorts();
+  assert.deepEqual(recordBmrOutcome(state, second, { deathIds: ["4"] }, ports), {
+    ok: true,
+    deaths: [
+      {
+        id: "death-1-k100",
+        playerId: "4",
+        roleId: "chambermaid",
+        cause: "ability",
+        phase: "night",
+        number: 2,
+        at: "2030-01-01T00:00:01.000Z",
+        impaired: false,
+        livingBefore: 9,
+        demon: true,
+        ability: "shabaloth",
+        bmr: true,
+        bypassProtection: false,
+      },
+    ],
+    resurrected: null,
+  });
+  assert.deepEqual(draws, ["id:4", "clock", "id:5", "clock", "id:5", "clock"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.players["7"]!.used)), {
+    shabalothPreviousTargets: [],
+    shabalothTargets: ["4", "5"],
+    shabalothTargetsNight: 2,
+  });
+  skipRemaining(state);
+  endNightToNext(state);
+  const third = roleStepOf(state, "shabaloth").key;
+  assert.deepEqual(runChoiceStep(state, "shabaloth", ["4", "6"]), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n3-9-shabaloth-7",
+      roleId: "shabaloth",
+      actorId: "7",
+      actorName: "P7",
+      order: 9,
+      targetMode: "two",
+      minTargets: 2,
+      maxTargets: 2,
+      canKill: true,
+      canResurrect: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["4", "6"],
+      done: true,
+      impaired: false,
+      noteVars: null,
+    },
+    effects: [],
+    log: [
+      {
+        id: "log-21-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 3",
+        kind: "night",
+        title: "Шабалот",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "shabaloth",
+        phaseCode: "night",
+        phaseNumber: 3,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: {
+      shabalothPreviousTargets: ["4", "5"],
+      shabalothPreviousNight: 2,
+      shabalothTargets: ["4", "6"],
+      shabalothTargetsNight: 3,
+    },
+    demon: null,
+  });
+  assert.deepEqual(recordBmrOutcome(state, third, { deathIds: [], resurrectId: "4" }).ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.players["7"]!.used)), {
+    shabalothPreviousTargets: ["4", "5"],
+    shabalothPreviousNight: 2,
+    shabalothTargets: ["4", "6"],
+    shabalothTargetsNight: 3,
+  });
+  assert.deepEqual(state.players["4"]!.alive, true);
+
+  const poisoned = tinkerAndDemon("shabaloth");
+  startNight(poisoned);
+  skipRemaining(poisoned);
+  endNightToNext(poisoned);
+  assert.equal(runChoiceStep(poisoned, "shabaloth", ["4", "5"]).ok, true);
+  skipRemaining(poisoned);
+  endNightToNext(poisoned);
+  poisonFor(poisoned, "7", "9", 3);
+  assert.deepEqual(runChoiceStep(poisoned, "shabaloth", ["5", "6"]), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n3-9-shabaloth-7",
+      roleId: "shabaloth",
+      actorId: "7",
+      actorName: "P7",
+      order: 9,
+      targetMode: "two",
+      minTargets: 2,
+      maxTargets: 2,
+      canKill: true,
+      canResurrect: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["5", "6"],
+      done: true,
+      impaired: true,
+      noteVars: null,
+    },
+    effects: [
+      {
+        id: "fixture-poison-7-3",
+        kind: "poison",
+        sourceId: "9",
+        targetId: "7",
+        start: { phase: "night", number: 3 },
+        expires: { phase: "night", number: 4 },
+        active: true,
+      },
+    ],
+    log: [
+      {
+        id: "log-19-k1000",
+        at: "2030-01-01T00:00:02.000Z",
+        phase: "Ночь 3",
+        kind: "night",
+        title: "Шабалот",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "shabaloth",
+        phaseCode: "night",
+        phaseNumber: 3,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["clock", "id:5", "clock"],
+    used: { shabalothPreviousTargets: [], shabalothTargets: ["4", "5"], shabalothTargetsNight: 2 },
+    demon: null,
+  });
+
+  const goon = tinkerAndDemon("shabaloth");
+  startNight(goon);
+  skipRemaining(goon);
+  endNightToNext(goon);
+  assert.deepEqual(runChoiceStep(goon, "shabaloth", ["5", "3"]), {
+    ok: true,
+    step: {
+      ...OPEN_STEP,
+      key: "n2-9-shabaloth-7",
+      roleId: "shabaloth",
+      actorId: "7",
+      actorName: "P7",
+      order: 9,
+      targetMode: "two",
+      minTargets: 2,
+      maxTargets: 2,
+      canKill: true,
+      canResurrect: true,
+      note: "Шаг выполнен.",
+      noteKey: "note.finished",
+      targetIds: ["5", "3"],
+      done: true,
+      goonImpaired: true,
+      goonId: "3",
+      goonImpairedOnly: true,
+      impaired: true,
+      noteVars: null,
+    },
+    effects: [
+      {
+        id: "eff-goon-2-3",
+        kind: "drunk",
+        bmr: "goon",
+        sourceId: "7",
+        targetId: "7",
+        start: { phase: "night", number: 2 },
+        expires: { phase: "night", number: 3 },
+        active: true,
+        permanent: true,
+      },
+    ],
+    log: [
+      {
+        id: "log-10-k1000",
+        at: "2030-01-01T00:00:01.000Z",
+        phase: "Ночь 2",
+        kind: "effect",
+        title: "Наёмник выбран: P7",
+        detail: "P7 пьян до заката. Наёмник теперь злой.",
+        playerId: "3",
+        secret: true,
+      },
+      {
+        id: "log-11-k2000",
+        at: "2030-01-01T00:00:03.000Z",
+        phase: "Ночь 2",
+        kind: "night",
+        title: "Шабалот",
+        detail: "Шаг выполнен.",
+        playerId: null,
+        secret: true,
+        roleId: "shabaloth",
+        phaseCode: "night",
+        phaseNumber: 2,
+        noteKey: "note.finished",
+        noteVars: null,
+      },
+    ],
+    draws: ["id:5", "clock", "clock", "id:5", "clock"],
+    used: {},
+    demon: null,
+  });
+});
