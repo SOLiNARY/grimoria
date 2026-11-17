@@ -118,42 +118,27 @@ export function registersAsOutsider(
   );
 }
 
+/**
+ * The number of evil pairs a Chef would be shown under these registrations.
+ * The rule is the role module's; this query hands it the engine's facts
+ * outside a night step.
+ */
 export function chefCount(state: GameState, registrations: Registrations = {}): number {
-  const ids = state.order;
-  let pairs = 0;
-  for (let i = 0; i < ids.length; i += 1) {
-    const a = playerById(state, ids[i]!);
-    const b = playerById(state, ids[(i + 1) % ids.length]!);
-    if (
-      alignmentOf(state, a, registrations) === "evil" &&
-      alignmentOf(state, b, registrations) === "evil"
-    )
-      pairs += 1;
-  }
-  return pairs;
-}
-
-// Chef r2510 Example 4 and Recluse r3007: a Spy or Recluse may register
-// differently for each pair of one Chef query. Each pair is then independently
-// evil or not, so every count between the unavoidable minimum and the possible
-// maximum is legal. The host chooses the count; the engine picks no registration.
-function chefRegistrationRange(state: GameState): { min: number; max: number } {
-  const ids = state.order;
-  let min = 0;
-  let max = 0;
-  const canBeEvil = (player: Player | null): boolean =>
-    alignmentOf(state, player) === "evil" ||
-    Boolean(player && player.roleId === "recluse" && registrationApplies(state, player));
-  const canBeGood = (player: Player | null): boolean =>
-    alignmentOf(state, player) === "good" ||
-    Boolean(player && player.roleId === "spy" && registrationApplies(state, player));
-  for (let i = 0; i < ids.length; i += 1) {
-    const a = playerById(state, ids[i]!);
-    const b = playerById(state, ids[(i + 1) % ids.length]!);
-    if (canBeEvil(a) && canBeEvil(b)) max += 1;
-    if (!canBeGood(a) && !canBeGood(b)) min += 1;
-  }
-  return { min, max };
+  const module = roleModule("chef");
+  const information = informationOf(module);
+  if (!module || !information) return 0;
+  const decision = resolveInformationCapability(
+    module,
+    informationFacts(state, {
+      actorId: "",
+      infoKind: information.infoKind,
+      targetIds: [],
+      registrations,
+      impaired: false,
+      at: nightAt(state),
+    }),
+  );
+  return decision?.kind === "answer" && typeof decision.value === "number" ? decision.value : 0;
 }
 
 /**
@@ -227,8 +212,21 @@ function informationFacts(
     targetIds: query.targetIds,
     impaired: query.impaired,
     at: query.at,
+    seatIds: state.order.slice(),
     aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
     registeredTeamOf: (playerId) => alignmentOf(state, playerById(state, playerId), registrations),
+    // Recluse r3007 and Spy r3118: a sober and healthy Recluse might register
+    // as evil and a sober and healthy Spy as good, whatever the host has
+    // chosen for this step so far.
+    mayRegisterAs: (playerId, team) => {
+      const player = playerById(state, playerId);
+      if (alignmentOf(state, player) === team) return true;
+      return Boolean(
+        player &&
+        player.roleId === (team === "evil" ? "recluse" : "spy") &&
+        registrationApplies(state, player),
+      );
+    },
     registersAsDemon: (playerId) =>
       registersAsDemon(state, playerById(state, playerId), registrations),
     // The setup secret first, then the top-level field, as before the move.
@@ -271,12 +269,16 @@ export function moduleInfoForStep(
     }),
   );
   if (decision?.kind !== "answer") return { kind: "none" };
+  // A working ability whose answer depends on a registration is the host's
+  // choice among the legal values; an impaired one among every possible value.
+  const legal = decision.legal ?? [];
+  const registrationChoice = !impaired && legal.length > 1;
   return {
     kind: nightStepFor(module, at.number)?.infoKind ?? "none",
     value: decision.value,
     impaired,
-    needsChoice: impaired,
-    options: impaired ? [...(decision.possible ?? [])] : [],
+    needsChoice: impaired || registrationChoice,
+    options: impaired ? [...(decision.possible ?? [])] : registrationChoice ? [...legal] : [],
   };
 }
 
@@ -291,7 +293,6 @@ export function infoForStep(
   const actor = step.actorId ? playerById(state, step.actorId) : null;
   const at = nightAt(state);
   const impaired = actor ? isImpaired(state, actor.id, at) : false;
-  const registrations = options.registrations || step.registrations || {};
   const role = step.roleId;
 
   if (step.kind === "system") {
@@ -379,23 +380,6 @@ export function infoForStep(
     };
   }
 
-  if (role === "chef") {
-    const value = chefCount(state, registrations);
-    const range = chefRegistrationRange(state);
-    const registrationChoice = !impaired && range.min < range.max;
-    return {
-      kind: "number",
-      value,
-      impaired,
-      needsChoice: impaired || registrationChoice,
-      options: impaired
-        ? uniqueNumbers(0, orderedPlayers(state).length)
-        : registrationChoice
-          ? uniqueNumbers(range.min, range.max)
-          : [],
-    };
-  }
-
   if (role === "undertaker") {
     const death = executionDeathForDay(state, nightAt(state).number - 1);
     if (!death) return { kind: "none", text: "Сегодня казни со смертью не было." };
@@ -431,12 +415,6 @@ export function infoForStep(
   }
 
   return { kind: "none" };
-}
-
-export function uniqueNumbers(from: number, to: number): number[] {
-  const out: number[] = [];
-  for (let i = from; i <= to; i += 1) out.push(i);
-  return out;
 }
 
 // ---------------------------------------------------------------------------

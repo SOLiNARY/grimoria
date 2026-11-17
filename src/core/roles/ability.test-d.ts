@@ -105,6 +105,11 @@ export type InformationStateAccess = InformationContext["state"];
 export type InformationRegistrationAccess = InformationContext["registrations"];
 // @ts-expect-error -- the information context exposes no setup secrets
 export type InformationSetupAccess = InformationContext["setup"];
+// A role asks whether a player may register as a team. Which characters may,
+// and whether they are sober and healthy, is the engine's.
+export const characterRegistration = (context: InformationContext): boolean =>
+  // @ts-expect-error -- a role asks about a team, not a character type
+  context.mayRegisterAs("1", "demon");
 type InformationAnswer = Extract<InformationDecision, { kind: "answer" }>;
 export const selfFalsifiedAnswer: InformationAnswer = {
   kind: "answer",

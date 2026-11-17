@@ -19,8 +19,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | Owner | Roles |
 | --- | --- |
 | Typed capability only | 4 |
-| Typed capability with an engine reference | 10 |
-| Engine branch | 57 |
+| Typed capability with an engine reference | 11 |
+| Engine branch | 56 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -36,7 +36,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `butler` | tb | capability:night-step | effects.ts×2, day.ts×1 | TB-BUTLER-01 (verified, r3120) | capability + engine reference |
 | `cerenovus` | snv | nightStep | effects.ts×1, day.ts×1, sv.ts×4 | SNV-CERENOVUS-01 (host-choice, r3048) | engine branch |
 | `chambermaid` | bmr | nightStep | night.ts×1, bmr.ts×2 | BMR-CHAMBERMAID-01 (verified, r2966)<br>BMR-CHAMBERMAID-02 (verified, r2966)<br>BMR-CHAMBERMAID-03 (verified, r2966)<br>BMR-CHAMBERMAID-04 (host-choice, r2966)<br>BMR-CHAMBERMAID-05 (verified, r2966) | engine branch |
-| `chef` | tb | nightStep | night.ts×1, information.ts×1 | TB-CHEF-01 (verified, r2510)<br>TB-CHEF-02 (host-choice, r2510) | engine branch |
+| `chef` | tb | capability:night-step, capability:information | information.ts×1 | TB-CHEF-01 (verified, r2510)<br>TB-CHEF-02 (host-choice, r2510) | capability + engine reference |
 | `clockmaker` | snv | firstNightStep | sv.ts×1 | SNV-CLOCKMAKER-01 (verified, r2967)<br>SNV-CLOCKMAKER-02 (verified, r2967)<br>SNV-CLOCKMAKER-03 (verified, r2967) | engine branch |
 | `courtier` | bmr | nightStep | bmr.ts×3 | BMR-COURTIER-01 (verified, r2968) | engine branch |
 | `devilsadvocate` | bmr | nightStep, firstNightStep | effects.ts×2, night.ts×1, bmr.ts×4 | BMR-DEVILSADVOCATE-01 (verified, r2594)<br>BMR-DEVILSADVOCATE-03 (verified, r2594)<br>BMR-DEVILSADVOCATE-02 (verified, r2594) | engine branch |
