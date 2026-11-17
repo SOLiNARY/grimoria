@@ -75,6 +75,7 @@ import {
 } from "./index.ts";
 import type { InfoResult } from "./index.ts";
 import { applyRoleAbility } from "./ability.ts";
+import { bmrCannotDie } from "./effects.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
   LEGACY_RULESET_VERSION,
@@ -1308,6 +1309,116 @@ test("the safe and drunk dated effects are stored as the Innkeeper's protection 
     ],
   );
   assert.deepEqual(draws, ["id:4", "id:4"]);
+});
+
+test("the survives-execution dated effect is stored as the Devil's Advocate's protection for the next day (BMR-DEVILSADVOCATE-01)", () => {
+  const { state, step, at } = monkNightTwo();
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: () => ({
+          kind: "effects",
+          effects: [
+            {
+              kind: "timed-effect",
+              effect: "survives-execution",
+              playerId: "3",
+              expires: { phase: "night", number: 3 },
+            },
+          ],
+        }),
+      },
+    ],
+  };
+  const { ports, draws } = recordingPorts();
+  const before = state.effects.length;
+
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  // The stored text, so the key order of the record is pinned too: the day
+  // follows the start.
+  assert.deepEqual(
+    state.effects.slice(before).map((effect) => JSON.stringify(effect)),
+    [
+      JSON.stringify({
+        id: "eff-" + (before + 1) + "-k100",
+        kind: "devilsadvocate",
+        sourceId: "1",
+        targetId: "3",
+        start: at,
+        day: 2,
+        expires: { phase: "night", number: 3 },
+        active: true,
+      }),
+    ],
+  );
+  assert.deepEqual(draws, ["id:4"]);
+  // The execution check reads that record: the player survives tomorrow's
+  // execution only.
+  const execution = { cause: "execution" };
+  assert.equal(bmrCannotDie(state, "3", { phase: "day", number: 2 }, execution), "devilsadvocate");
+  assert.equal(bmrCannotDie(state, "3", { phase: "day", number: 2 }, { cause: "demon" }), null);
+  assert.equal(bmrCannotDie(state, "4", { phase: "day", number: 2 }, execution), null);
+  assert.equal(bmrCannotDie(state, "3", { phase: "day", number: 3 }, execution), null);
+});
+
+test("the record of tonight's choice names the module's role and is written also when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const choices: Array<string | null> = ["3", null];
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ impaired }) => {
+          const choice = { kind: "record-choice" as const, playerId: choices.shift() ?? null };
+          return impaired
+            ? { kind: "suppressed", effects: [choice] }
+            : { kind: "effects", effects: [choice] };
+        },
+      },
+    ],
+  };
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const actor = state.players["1"]!;
+  const others = JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1"));
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(JSON.stringify(actor.used), JSON.stringify({ monkTarget: "3", monkTargetNight: 2 }));
+
+  state.effects.pop();
+  applyRoleAbility(state, module, step, [], at, {}, ports);
+
+  // Nobody chosen clears the night as well, so tomorrow has no restriction.
+  assert.equal(
+    JSON.stringify(actor.used),
+    JSON.stringify({ monkTarget: null, monkTargetNight: null }),
+  );
+  assert.equal(
+    JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1")),
+    others,
+    "no other seat is written",
+  );
+  assert.deepEqual(draws, []);
 });
 
 // A module whose night step is an attack under its own title. The coordinator

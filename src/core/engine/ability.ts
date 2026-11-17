@@ -21,7 +21,8 @@ import { setStepNote } from "./context.ts";
 import { idSuffix, systemPorts } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, kill, resolveAttack, resolveDemonDeath } from "./death.ts";
-import { givenBy, isImpaired, SAFE_EFFECT } from "./effects.ts";
+import { givenBy, isImpaired, SAFE_EFFECT, SURVIVES_EXECUTION_EFFECT } from "./effects.ts";
+import { keepDemonAsleep } from "./bmr.ts";
 import { delayPukkaDeath, poisonPukkaPlayer, pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
 
 /** The host's answers for one step. The command path has validated them. */
@@ -126,7 +127,7 @@ function applyDecision(
   }
   if (decision.kind === "suppressed") {
     for (const effect of decision.effects || []) {
-      applyEffect(state, module, effect, at, actorId, ports, true);
+      applyEffect(state, module, step, effect, at, actorId, ports, true);
     }
     setStepNote(
       step,
@@ -139,7 +140,7 @@ function applyDecision(
   }
   const resolved = [];
   for (const effect of decision.effects) {
-    const outcome = applyEffect(state, module, effect, at, actorId, ports);
+    const outcome = applyEffect(state, module, step, effect, at, actorId, ports);
     if (outcome) resolved.push(outcome);
   }
   if (decision.note) {
@@ -159,9 +160,19 @@ function applyDecision(
   return APPLIED;
 }
 
-/** How a dated effect is stored: under its own kind, except the Innkeeper's safety. */
-function storedShape(kind: TimedEffectKind): { readonly kind: string; readonly bmr?: string } {
-  return kind === "safe" ? SAFE_EFFECT : { kind };
+/** How a dated effect is stored, where an engine reader expects its own shape. */
+interface StoredShape {
+  readonly kind: string;
+  readonly bmr?: string;
+  /** The effect names the day it covers: the day after the night it starts. */
+  readonly withDay?: boolean;
+}
+
+/** How a dated effect is stored: under its own kind, except where a reader expects another. */
+function storedShape(kind: TimedEffectKind): StoredShape {
+  if (kind === "safe") return SAFE_EFFECT;
+  if (kind === "survives-execution") return SURVIVES_EXECUTION_EFFECT;
+  return { kind };
 }
 
 /** Ends the dated effects of one kind that the acting seat's ability gave. */
@@ -179,6 +190,7 @@ function endOwnEffects(state: GameState, actorId: string, kind: TimedEffectKind)
 function applyEffect(
   state: GameState,
   module: RoleModule,
+  step: NightStep,
   effect: RoleEffect,
   at: DeadAt,
   actorId: string,
@@ -233,6 +245,7 @@ function applyEffect(
         sourceId: actorId,
         targetId: effect.playerId,
         start: at,
+        ...(stored.withDay ? { day: at.number } : {}),
         expires: { phase: effect.expires.phase, number: effect.expires.number },
         // A wasted use has no effect later (States r1039): the record stays
         // inactive even after its owner recovers.
@@ -243,6 +256,21 @@ function applyEffect(
     case "record-master": {
       const actor = playerById(state, actorId);
       if (actor) actor.butlerMasterId = effect.playerId;
+      return null;
+    }
+    case "record-choice": {
+      // The record is the step builder's: it names the role by its module, so
+      // a role cannot write another role's restriction.
+      const actor = playerById(state, actorId);
+      if (!actor) return null;
+      actor.used = actor.used || {};
+      actor.used[module.id + "Target"] = effect.playerId;
+      actor.used[module.id + "TargetNight"] = effect.playerId ? at.number : null;
+      return null;
+    }
+    case "block-demon": {
+      const demon = playerById(state, effect.playerId);
+      if (demon) keepDemonAsleep(state, step, demon, effect.note, effect.log, at, ports);
       return null;
     }
   }
