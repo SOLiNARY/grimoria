@@ -56,7 +56,7 @@ import {
   otherNightStepOf,
 } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
-import { LEGACY_RULESET_VERSION } from "./command-versions.ts";
+import { LEGACY_RULESET_VERSION, marksAnyDeathOnTinkerStep } from "./command-versions.ts";
 
 const DEMON_ROLES = new Set(["po", "pukka", "shabaloth", "zombuul"]);
 
@@ -1000,7 +1000,7 @@ export function recordBmrOutcome(
   }
   // A drunk or poisoned ability that records deaths does nothing, so no marked
   // death may land. The Assassin, the Moonchild and the Professor check their
-  // own impairment, and the Tinker is a Storyteller decision, not an ability.
+  // own impairment, and the Tinker's step is checked below.
   if (
     actor &&
     IMPAIRABLE_DEATH[String(step.roleId)] &&
@@ -1014,9 +1014,11 @@ export function recordBmrOutcome(
       error: "Способность не сработала: игрок отравлен или пьян.",
     };
   }
+  // The Tinker chooses no one: the host decides whether the Tinker dies.
+  const tinkerStep = step.roleId === "tinker";
   // A death must be one of the step's chosen targets and must not exceed the
   // ability's maximum (Shabaloth 2, Po 1 or 3, the others 1).
-  if (deathIds.length && step.roleId !== "tinker") {
+  if (deathIds.length && !tinkerStep) {
     if (!step.canKill) {
       return {
         ok: false,
@@ -1037,6 +1039,27 @@ export function recordBmrOutcome(
         ok: false,
         errorCode: "error.51",
         error: "Смертей больше, чем позволяет способность.",
+      };
+    }
+  }
+  // Tinker r1782: "At any time, you may decide that the Tinker dies." The step
+  // is the Tinker's own ability, so only the Tinker dies on it, and only while
+  // the ability works, as by day (States r1039: "A drunk or poisoned player has
+  // no ability"). A command recorded before this rule keeps the deaths it
+  // marked.
+  if (deathIds.length && tinkerStep && !marksAnyDeathOnTinkerStep(ports.rulesetVersion)) {
+    if (deathIds.some((id) => id !== String(step.actorId))) {
+      return {
+        ok: false,
+        errorCode: "error.51",
+        error: "На шаге Механика может погибнуть только сам Механик.",
+      };
+    }
+    if (actor && isImpaired(state, actor.id, at)) {
+      return {
+        ok: false,
+        errorCode: "error.59",
+        error: "Механик отравлен или пьян: способность не работает.",
       };
     }
   }

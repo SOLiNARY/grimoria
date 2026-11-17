@@ -716,6 +716,15 @@ After this change the Bad Moon Rising roles with a legacy step are those
 whose wake is read from the game: nine through `actor` hooks, and the
 Grandmother, whose later step a death adds.
 
+`openspec/changes/bmr-tinker-night-death` fixes the difference between the
+Tinker's two death paths that the move kept: the outcome of the night step
+took any death the host marked, also while the Tinker was drunk or poisoned.
+`recordBmrOutcome` now lets only the Tinker die on the step, and only while
+the ability works, with the outcome's code for a death the ability does not
+cause (`error.51`) and the code of `tinkerDeath` (`error.59`). The Tinker's
+module and the contract do not change. Commands recorded under the ruleset
+versions before `tb-bmr-snv-2026-11-17.2` keep the deaths they marked.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 
