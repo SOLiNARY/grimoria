@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   ALL_ROLES,
   BMR,
@@ -74,6 +75,11 @@ import {
 } from "./index.ts";
 import type { InfoResult } from "./index.ts";
 import { applyRoleAbility } from "./ability.ts";
+import {
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  LEGACY_RULESET_VERSION,
+  RULESET_VERSION,
+} from "./command-versions.ts";
 import { moduleInfoForStep } from "./information.ts";
 import type { InformationContext, InformationDecision } from "../roles/ability.ts";
 import type { RoleModule } from "../roles/types.ts";
@@ -5732,11 +5738,13 @@ test("a Drunk shown the Librarian may have the zero prepared and is offered ever
   assert.equal(state.log.at(-1)!.detail, "0");
 });
 
-// Kept as found, not a rule: the night start refuses a zero for a Washerwoman
-// or an Investigator, but a zero written after the night began is answered
-// like the Librarian's, with the Outsider sentence and the Outsider options.
+// "Or that zero are in play" is the Librarian's answer alone (r1721): a
+// Washerwoman (r2630) and an Investigator (r2983) always learn a character.
+// The night start refuses a zero for either, and a zero written after the
+// night began is no prepared answer: the step asks for setup, as it does for
+// any other incomplete record.
 for (const scenario of [ONE_OF_TWO[0], ONE_OF_TWO[2]]) {
-  test(`a zero written for the ${scenario.roleId} after the night began is still answered as zero Outsiders`, () => {
+  test(`a zero written for the ${scenario.roleId} after the night began is no prepared answer and the step asks for setup (${scenario.rule})`, () => {
     const state = preparedNight();
     const step = roleStep(state, scenario.roleId);
     state.setup.info[scenario.roleId] = { zero: true, pair: [] };
@@ -5745,22 +5753,102 @@ for (const scenario of [ONE_OF_TWO[0], ONE_OF_TWO[2]]) {
       ["info-" + scenario.roleId],
       "setup itself calls the record incomplete",
     );
+    const before = JSON.stringify(canonicalState(state));
+    const { ports, draws } = recordingPorts();
 
-    assert.deepEqual(infoForStep(state, step, {}), ZERO);
-    const result = completeStep(state, step.key, {});
-    assert.equal(result.ok, true, JSON.stringify(result));
-    assert.deepEqual(plain(step.given), ZERO);
+    assert.deepEqual(infoForStep(state, step, {}), NOT_PREPARED);
+    assert.deepEqual(completeStep(state, step.key, {}, ports), NEEDS_SETUP);
+    assert.deepEqual(
+      completeStep(state, step.key, { given: ZERO }, ports),
+      NEEDS_SETUP,
+      "the zero sent as the answer does not stand in for setup",
+    );
+    assert.deepEqual(
+      completeStep(state, step.key, { given: pairAnswer("chef", ["5", "6"]) }, ports),
+      NEEDS_SETUP,
+      "a pair sent as the answer does not stand in for setup",
+    );
+    assert.equal(step.done, false);
+    assert.equal(step.given, null, "no sentence about Outsiders is stored");
+    assert.equal(JSON.stringify(canonicalState(state)), before);
+    assert.deepEqual(draws, []);
 
+    // A poisoned owner is asked for setup as well: the Outsiders and the zero
+    // are not offered to a role whose ability has no zero.
     const poisoned = preparedNight();
     completeRole(poisoned, "poisoner", { targetIds: [scenario.actorId] });
     poisoned.setup.info[scenario.roleId] = { zero: true, pair: [] };
-    const others = ["1", "2", "3"].filter((id) => id !== scenario.actorId).slice(0, 2);
+    const poisonedStep = roleStep(poisoned, scenario.roleId);
+    assert.deepEqual(infoForStep(poisoned, poisonedStep, {}), NOT_PREPARED);
+    assert.deepEqual(completeStep(poisoned, poisonedStep.key, {}), NEEDS_SETUP);
+  });
+
+  test(`a zero held for a Drunk shown the ${scenario.roleId} is no false answer and the step asks for setup (TB-DRUNK-01)`, () => {
+    const state = preparedNight(DRUNK_ROLES, {}, { drunkShownId: scenario.roleId });
+    const step = roleStep(state, scenario.roleId);
+    state.setup.info[scenario.roleId] = { zero: true, pair: [] };
     assert.deepEqual(
-      infoForStep(poisoned, roleStep(poisoned, scenario.roleId), {}),
-      falseZero(others),
+      secretsErrors(state).map((error) => error.code),
+      ["drunk-info"],
+      "setup itself asks for the Drunk's false answer",
     );
+    const before = JSON.stringify(canonicalState(state));
+
+    assert.deepEqual(infoForStep(state, step, {}), NOT_PREPARED);
+    assert.deepEqual(completeStep(state, step.key, {}), NEEDS_SETUP);
+    assert.equal(JSON.stringify(canonicalState(state)), before);
   });
 }
+
+test("a zero sent for the Washerwoman during the night is stored as sent, and the step asks for setup until a pair is prepared (TB-WASHERWOMAN-01)", () => {
+  const state = preparedNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const at = "2030-01-01T00:00:00.000Z";
+  const key = roleStep(state, "washerwoman").key;
+
+  const zero = applyCommand(
+    state,
+    { id: "zero", type: "setSetupInfoZero", payload: { roleId: "washerwoman" }, at },
+    runtime,
+  );
+  assert.equal(zero.status, "allowed", JSON.stringify(zero));
+  assert.deepEqual(plain(state.setup.info.washerwoman), { zero: true, pair: [] });
+  const held = canonicalState(state);
+
+  const command = { id: "washerwoman-step", type: "completeNightStep", payload: { key }, at };
+  const preview = previewCommand(state, command, runtime);
+  const refused = applyCommand(state, command, runtime);
+  for (const result of [preview, refused]) {
+    assert.equal(result.status, "requires-storyteller-choice", JSON.stringify(result));
+    assert.deepEqual("choice" in result ? result.choice : null, {
+      kind: "setup",
+      options: [],
+      context: NOT_PREPARED,
+    });
+    assert.equal("errorCode" in result ? result.errorCode : null, "error.44");
+  }
+  assert.deepEqual(canonicalState(state), held, "the refusal leaves the game as it was");
+
+  const prepared = applyCommand(
+    state,
+    {
+      id: "prepare",
+      type: "setSetupInfo",
+      payload: { roleId: "washerwoman", info: { roleId: "chef", pair: ["6", "5"] } },
+      at,
+    },
+    runtime,
+  );
+  assert.equal(prepared.status, "allowed", JSON.stringify(prepared));
+  const applied = applyCommand(state, { ...command, id: "washerwoman-step-2" }, runtime);
+  assert.equal(applied.status, "allowed", JSON.stringify(applied));
+  const step = state.night.queue.find((candidate) => candidate.roleId === "washerwoman")!;
+  assert.deepEqual(plain(step.given), pairAnswer("chef", ["6", "5"]));
+
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
 
 test("a one-of-two step previews, applies and replays with the command clock and ids, and follows a setup change made during the night (TB-WASHERWOMAN-01)", () => {
   const state = preparedNight();
@@ -5844,6 +5932,115 @@ test("a one-of-two step previews, applies and replays with the command clock and
   const reloaded = replay(saved.state.journal, runtime);
   assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
   assert.deepEqual(canonicalState(reloaded.state), canonicalState(state));
+});
+
+// Recorded commands keep their behavior. Until the ruleset of 2026-11-16 a
+// zero held for any role was answered like the Librarian's, so a journal
+// recorded then replays as written. A command sent now is held to the rule.
+for (const version of [LEGACY_RULESET_VERSION, ANY_ROLE_ZERO_RULESET_VERSION]) {
+  test(`a Washerwoman step recorded under the ruleset ${version} keeps the zero it answered, and the journal replays`, () => {
+    assert.notEqual(RULESET_VERSION, version, "commands sent now carry a later ruleset");
+    const state = preparedNight();
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const at = "2030-01-01T00:00:00.000Z";
+    const key = roleStep(state, "washerwoman").key;
+
+    const zero = applyCommand(
+      state,
+      {
+        id: "zero",
+        type: "setSetupInfoZero",
+        payload: { roleId: "washerwoman" },
+        at,
+        rulesetVersion: version,
+      },
+      runtime,
+    );
+    assert.equal(zero.status, "allowed", JSON.stringify(zero));
+
+    const now = previewCommand(
+      state,
+      { id: "now", type: "completeNightStep", payload: { key }, at },
+      runtime,
+    );
+    assert.equal(now.status, "requires-storyteller-choice", "a command sent now asks for setup");
+    assert.equal("errorCode" in now ? now.errorCode : null, "error.44");
+
+    const recorded = applyCommand(
+      state,
+      { id: "then", type: "completeNightStep", payload: { key }, at, rulesetVersion: version },
+      runtime,
+    );
+    assert.equal(recorded.status, "allowed", JSON.stringify(recorded));
+    const step = state.night.queue.find((candidate) => candidate.roleId === "washerwoman")!;
+    assert.deepEqual(plain(step.given), ZERO, "the answer the Storyteller was shown then");
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  });
+}
+
+test("a journal recorded before the zero became the Librarian's alone replays and undoes as written (TB-WASHERWOMAN-01, TB-INVESTIGATOR-01)", () => {
+  // Generated with createGame/applyCommand at dad24dc: seven players, the
+  // first night begun, a zero written for the Washerwoman and the
+  // Investigator, the Poisoner choosing the Investigator, and both steps
+  // completed: the Washerwoman's with the Outsider sentence, the
+  // Investigator's with the zero the host chose from the offered answers.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-setup-zero-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  const stepOf = (state: GameState, roleId: string) =>
+    state.night.queue.find((candidate) => candidate.roleId === roleId)!;
+  assert.deepEqual(plain(saved.setup.info.washerwoman), { zero: true, pair: [] });
+  assert.deepEqual(plain(saved.setup.info.investigator), { zero: true, pair: [] });
+  assert.equal(stepOf(saved, "washerwoman").done, true);
+  assert.deepEqual(plain(stepOf(saved, "washerwoman").given), ZERO);
+  assert.equal(stepOf(saved, "investigator").done, true);
+  assert.deepEqual(plain(stepOf(saved, "investigator").given), {
+    ...falseZero(["1", "3"]),
+    roleId: null,
+    needsChoice: false,
+  });
+  assert.deepEqual(
+    [...new Set(saved.journal.entries.map((entry) => entry.rulesetVersion))],
+    [ANY_ROLE_ZERO_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  // Undo of the Investigator's step, then the recorded command again.
+  const undoJournal = structuredClone(saved.journal);
+  const completeEntry = undoJournal.entries.pop();
+  assert.equal(completeEntry?.type, "completeNightStep");
+  const undone = replay(undoJournal);
+  assert.equal(undone.ok, true, JSON.stringify(undone));
+  if (!undone.ok || !completeEntry) return;
+  const open = stepOf(undone.state, "investigator");
+  assert.equal(open.done, false);
+  assert.deepEqual(
+    infoForStep(undone.state, open, {}),
+    NOT_PREPARED,
+    "what the table reads now follows the rule",
+  );
+  const sentNow = previewCommand(undone.state, {
+    id: "sent-now",
+    type: "completeNightStep",
+    payload: { key: open.key },
+  });
+  assert.equal(sentNow.status, "requires-storyteller-choice", "a command sent now asks for setup");
+  assert.equal(
+    applyCommand(undone.state, { ...completeEntry, payload: completeEntry.payload ?? {} }).status,
+    "allowed",
+    "the recorded command applies as it did",
+  );
+  assert.deepEqual(canonicalState(undone.state), canonicalState(saved));
 });
 
 for (const scenario of [
@@ -5946,6 +6143,7 @@ function preparing(
   possible: readonly string[],
   seen: InformationContext[] = [],
   shape: string = "one-of-two",
+  orZero: boolean = false,
 ): RoleModule {
   return {
     id,
@@ -5957,7 +6155,7 @@ function preparing(
         infoKind: "probe",
         resolve(context) {
           seen.push(context);
-          return { kind: "prepared", possible };
+          return orZero ? { kind: "prepared", possible, orZero } : { kind: "prepared", possible };
         },
       },
     ],
@@ -6019,17 +6217,36 @@ test("a Drunk with no prepared record is offered the first character the module 
   });
 });
 
-test("the zero is read from setup for any prepared answer and its options are not the module's", () => {
+test("the zero is written for a module that declares it, whatever its id, and its options are not the module's", () => {
   const state = preparedNight(NO_OUTSIDER_ROLES, {});
   const step = roleStep(state, "librarian");
-  const module = preparing("librarian", ["mayor"]);
+  const declaring = (id: RoleModule["id"]) => preparing(id, ["mayor"], [], "one-of-two", true);
+  const silent = (id: RoleModule["id"]) => preparing(id, ["mayor"]);
+  state.setup.info.washerwoman = { zero: true, pair: [] };
 
-  assert.deepEqual(moduleInfoForStep(state, module, step, {}), ZERO);
+  assert.deepEqual(moduleInfoForStep(state, declaring("librarian"), step, {}), ZERO);
+  assert.deepEqual(
+    moduleInfoForStep(state, declaring("washerwoman"), step, {}),
+    ZERO,
+    "the engine reads the declaration, not the id of the role",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(state, silent("librarian"), step, {}),
+    NOT_PREPARED,
+    "a zero is no prepared answer of a module that does not declare it",
+  );
+  assert.deepEqual(moduleInfoForStep(state, silent("washerwoman"), step, {}), NOT_PREPARED);
+
   completeRole(state, "poisoner", { targetIds: ["3"] });
   assert.deepEqual(
-    moduleInfoForStep(state, module, step, {}),
+    moduleInfoForStep(state, declaring("librarian"), step, {}),
     falseZero(["1", "2"]),
-    "every Outsider and the zero, as before the move",
+    "every Outsider and the zero, whatever the module names as possible",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(state, silent("librarian"), step, {}),
+    NOT_PREPARED,
+    "an impaired owner is not offered a zero its role does not declare",
   );
 });
 

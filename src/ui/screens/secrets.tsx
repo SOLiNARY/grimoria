@@ -17,7 +17,7 @@ import { roleSupportEntries, scriptSupport, type SupportLevel } from "../../core
 import { SetupShell } from "../components/setup-shell.tsx";
 import { useShellPorts } from "../ports.ts";
 import { useGame } from "../store/use-game.ts";
-import { infoRoleChoices, librarianZeroLegal, reminderRows } from "./secrets-options.ts";
+import { infoRoleChoices, librarianZeroLegal, reminderRows, zeroShown } from "./secrets-options.ts";
 import { commandRejectionText, setupProblemText } from "./setup-messages.ts";
 
 const INFO_ROLES: Array<[RoleId, Team]> = [
@@ -384,9 +384,10 @@ export function SecretsScreen() {
     });
     // The zero is a shaped answer only the Librarian gives, and a Drunk shown
     // the Librarian may be told it as false information. A stored zero stays
-    // editable even if the game changed, so the host can correct it.
+    // editable even if the game changed, so the host can correct it. A zero
+    // held for another role is no answer and its editor shows the fields.
     const stored = state.setup.info[roleId as InfoRoleId];
-    const zeroInfo = Boolean(stored && "zero" in stored);
+    const zeroInfo = zeroShown(roleId, stored);
     const zeroAllowed =
       roleId === "librarian" && (forDrunk || zeroInfo || librarianZeroLegal(players));
     const infoRoleId = roleOfInfo(roleId);

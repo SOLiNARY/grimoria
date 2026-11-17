@@ -1,11 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   createGame,
   importGame as importSavedGame,
   validateState,
 } from "../../core/model/state.ts";
-import { canonicalState } from "../../core/engine/index.ts";
+import { canonicalState, currentStep } from "../../core/engine/index.ts";
+import {
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  RULESET_VERSION,
+} from "../../core/engine/command-versions.ts";
 import { createGameStore } from "./create-game-store.ts";
 import type { GameStore } from "./create-game-store.ts";
 import type { StorePorts } from "../ports/index.ts";
@@ -656,6 +661,47 @@ test("a command applied before a reload is not applied twice after it", () => {
   assert.equal(repeated.idempotent, true);
   assert.equal(storage.writes, writes);
   assert.deepEqual(second.getSnapshot().state.order, first.getSnapshot().state.order);
+});
+
+test("a game saved before the zero became the Librarian's alone continues, and undo replays its journal (TB-WASHERWOMAN-01)", () => {
+  // A saved game of the ruleset that answered a zero held for any role: its
+  // Washerwoman and Investigator steps are completed with the zero. The host
+  // continues it with a command of the current ruleset and takes it back; the
+  // undo replays the whole journal, the recorded steps among them.
+  const text = readFileSync(
+    new URL("../../core/engine/fixtures/legacy-setup-zero-game.json", import.meta.url),
+    "utf8",
+  );
+  const storage = memoryStorage(text);
+  const { game } = store(storage);
+  const loaded = canonicalState(game.getSnapshot().state);
+  const recorded = game.state.journal.entries.length;
+  assert.equal(recorded > 0, true);
+  assert.equal(
+    game.state.journal.entries.every(
+      (entry) => entry.rulesetVersion === ANY_ROLE_ZERO_RULESET_VERSION,
+    ),
+    true,
+  );
+  assert.equal(game.canUndo(), false, "the commands that arrived with the load are history");
+
+  const open = currentStep(game.state);
+  assert.equal(open?.roleId, "chef");
+  const sent = game.dispatch(
+    command(game, { type: "completeNightStep", payload: { key: open!.key } }),
+  );
+  assert.equal(sent.status, "allowed", JSON.stringify(sent));
+  assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
+  const continued = canonicalState(game.getSnapshot().state);
+
+  const undone = game.undo();
+  assert.equal(undone.ok, true, undone.ok ? "" : `${undone.errorCode}: ${undone.error}`);
+  assert.equal(game.state.journal.entries.length, recorded);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), loaded);
+
+  const redone = game.redo();
+  assert.equal(redone.ok, true, redone.ok ? "" : `${redone.errorCode}: ${redone.error}`);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), continued);
 });
 
 test("a corrupt save is backed up, left in place and reported with an explicit error", () => {

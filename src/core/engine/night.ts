@@ -634,7 +634,7 @@ export function completeStep(
 
   // A role that owns its answer is an information step by its declaration.
   if (informationOf(module)) {
-    const info = infoForStep(state, step, options);
+    const info = infoForStep(state, step, options, ports);
     if (info.missing) {
       return {
         ok: false,

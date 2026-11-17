@@ -44,6 +44,7 @@ import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
+import { answersZeroForAnyRole } from "./command-versions.ts";
 import { svInfoForStep } from "./sv.ts";
 
 // Registration is an ability (Spy r3118, Recluse r3007): a drunk or poisoned
@@ -250,7 +251,9 @@ function informationFacts(
 /**
  * The record of an answer the Storyteller prepared in setup: one of two
  * players is a particular character. The role names the characters such an
- * answer can show. What was prepared, whether anything was, and the zero are
+ * answer can show, and says with `orZero` whether its ability has a zero
+ * answer; `zeroAnswered` is that declaration, or the older behavior a recorded
+ * command keeps. What was prepared, whether anything was, and the zero are
  * read here from the record kept under the role's id.
  */
 function preparedInfo(
@@ -259,6 +262,7 @@ function preparedInfo(
   actor: Player | null,
   impaired: boolean,
   possible: readonly InformationValue[],
+  zeroAnswered: boolean,
 ): InfoResult {
   const setup = state.setup.info[roleId];
   // The players a false answer points at until the host chooses: the first
@@ -288,11 +292,13 @@ function preparedInfo(
     return { kind: "one-of-two", missing: true, needsChoice: true };
   }
   if ("zero" in setup && setup.zero) {
-    // The zero did not move to a role. It is the Librarian's answer (r1721),
-    // but this path writes it for whichever role finds a zero prepared, with
-    // the Outsider options and sentences, as it did before the move. Giving it
-    // to the Librarian alone would change what the other two steps do with a
-    // zero written after the night began, which is a change of its own.
+    // "Or that zero are in play" is the Librarian's answer alone (r1721): the
+    // Washerwoman (r2630) and the Investigator (r2983) always learn a
+    // character. A zero held for a role that does not declare it is no
+    // prepared answer, as the setup check says, so the step asks for setup.
+    if (!zeroAnswered) return { kind: "one-of-two", missing: true, needsChoice: true };
+    // The record of the zero, with the Outsider options and sentences, is
+    // still written here: the role declares the form, not the record.
     if (impaired) {
       const options = ALL_ROLES.filter((id) => roleTeam(id) === "outsider");
       return {
@@ -344,6 +350,7 @@ export function moduleInfoForStep(
   module: RoleModule | null | undefined,
   step: NightStep,
   options: InfoOptions = {},
+  ports: CommandExecutionContext = systemPorts,
 ): InfoResult | null {
   const information = informationOf(module);
   if (!module || !information) return null;
@@ -367,7 +374,16 @@ export function moduleInfoForStep(
   // and is the same for an impaired owner.
   if (decision?.kind === "grimoire") return { kind: "grimoire" };
   if (decision?.kind === "prepared") {
-    return preparedInfo(state, module.id, actor, impaired, decision.possible);
+    return preparedInfo(
+      state,
+      module.id,
+      actor,
+      impaired,
+      decision.possible,
+      // A command recorded before the zero became the Librarian's alone keeps
+      // its answer, so its journal replays as written.
+      decision.orZero === true || answersZeroForAnyRole(ports.rulesetVersion),
+    );
   }
   if (decision?.kind !== "answer") {
     // A step that learns a character and has no player to read yet keeps its
@@ -429,7 +445,7 @@ export function infoForStep(
 
   // A role answers from its module; a step of a role that owns no answer has
   // none.
-  const owned = moduleInfoForStep(state, role ? roleModule(role) : null, step, options);
+  const owned = moduleInfoForStep(state, role ? roleModule(role) : null, step, options, ports);
   return owned ?? { kind: "none" };
 }
 

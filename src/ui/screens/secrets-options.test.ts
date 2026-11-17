@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { infoRoleChoices, librarianZeroLegal, reminderRows } from "./secrets-options.ts";
+import { infoRoleChoices, librarianZeroLegal, reminderRows, zeroShown } from "./secrets-options.ts";
 
 const scriptRoles = [
   "washerwoman",
@@ -20,6 +20,18 @@ test("the Librarian's zero is legal while the only Outsider in play is the Reclu
   assert.equal(librarianZeroLegal([{ roleId: "recluse" }]), true);
   assert.equal(librarianZeroLegal([{ roleId: "imp" }, { roleId: "chef" }]), true);
   assert.equal(librarianZeroLegal([{ roleId: "recluse" }, { roleId: "saint" }]), false);
+});
+
+test("a stored zero is shown as the zero for the Librarian alone (TB-LIBRARIAN-01)", () => {
+  // Librarian r1721: "(Or that zero are in play.)" The Washerwoman (r2630) and
+  // the Investigator (r2983) always learn a character.
+  const zero = { zero: true, pair: [] };
+  assert.equal(zeroShown("librarian", zero), true);
+  assert.equal(zeroShown("washerwoman", zero), false, "the editor keeps its fields");
+  assert.equal(zeroShown("investigator", zero), false, "the editor keeps its fields");
+  assert.equal(zeroShown("librarian", { roleId: "saint", pair: ["1", "2"] }), false);
+  assert.equal(zeroShown("librarian", null), false);
+  assert.equal(zeroShown("librarian", undefined), false);
 });
 
 test("a registering Spy adds the not-in-play Townsfolk and Outsider characters", () => {

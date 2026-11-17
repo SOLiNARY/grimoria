@@ -54,6 +54,14 @@ test("the Investigator reads no fact, so its decision is the same whether or not
   assert.deepEqual(
     Object.keys(decision),
     ["kind", "possible"],
-    "the character, the two players and the zero are the setup's",
+    "the character and the two players are the setup's",
   );
+});
+
+test("the Investigator declares no zero, so an Investigator always learns a character (TB-INVESTIGATOR-01)", () => {
+  // Investigator r2983: "You start knowing that 1 of 2 players is a particular
+  // Minion." The ability has no zero form.
+  const decision = resolve();
+  assert.equal(decision.kind, "prepared");
+  assert.equal("orZero" in decision, false);
 });
