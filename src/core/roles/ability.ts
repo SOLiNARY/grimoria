@@ -132,11 +132,6 @@ export type AbilityDecision =
     }
   | { readonly kind: "no-effect" };
 
-/** The optional capability a role module declares. */
-export interface RoleAbility {
-  resolve(context: AbilityContext): AbilityDecision;
-}
-
 /** One heir a Demon may pass the role to. */
 export interface HeirOption {
   readonly id: string;

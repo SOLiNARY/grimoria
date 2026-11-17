@@ -57,6 +57,23 @@ test("a migrated night step keeps the references of the shared mechanic that rea
   assert.equal(ownerOf(butler, engineLocations("butler")), "capability + engine reference");
 });
 
+test("the Gambler and the Pukka declare their resolver on the night-step capability", () => {
+  const facts = roleModules();
+  const gambler = facts.find((candidate) => candidate.id === "gambler");
+  assert.ok(gambler);
+  assert.deepEqual(gambler.declares, ["capability:night-step"]);
+  // The step builder still names the role for the list of characters to guess.
+  assert.deepEqual(engineLocations("gambler"), ["bmr.ts×1"]);
+  assert.equal(ownerOf(gambler, engineLocations("gambler")), "capability + engine reference");
+  const pukka = facts.find((candidate) => candidate.id === "pukka");
+  assert.ok(pukka);
+  assert.deepEqual(pukka.declares, ["capability:night-step"]);
+  // The Demon set, the Exorcist's block, the outcome panel and the delayed
+  // death still name the role; the step completion does not.
+  assert.deepEqual(engineLocations("pukka"), ["bmr.ts×3", "pukka.ts×1"]);
+  assert.equal(ownerOf(pukka, engineLocations("pukka")), "capability + engine reference");
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);
