@@ -22,6 +22,12 @@ export interface AbilityContext {
   readonly targetIds: readonly string[];
   /** The host's character answer for the step: the Courtier's character or the Gambler's guess. */
   readonly chosenRoleId: RoleId | null;
+  /**
+   * The host's answer for who the ability makes drunk: the Sailor or the
+   * chosen player, one of the Innkeeper's two players. Null when the host
+   * named nobody; the command path checks the answer against the step.
+   */
+  readonly drunkId: string | null;
   /** True when the effect graph says the actor is drunk or poisoned now. */
   readonly impaired: boolean;
   /** The night the step resolves in. */
@@ -36,8 +42,12 @@ export interface AbilityContext {
   nameOf(playerId: string): string;
 }
 
-/** The effect kinds a dated intent may add. A kind arrives with its first migrated role. */
-export type TimedEffectKind = "poison" | "protected" | "butler";
+/**
+ * The effect kinds a dated intent may add. A kind arrives with its first
+ * migrated role. `protected` is safe from the Demon (the Monk); `safe` cannot
+ * die tonight from any ability (the Innkeeper).
+ */
+export type TimedEffectKind = "poison" | "protected" | "butler" | "drunk" | "safe";
 
 /** An intent the engine applies through a shared mechanic. */
 export type RoleEffect =
@@ -372,6 +382,14 @@ export type RoleCapability =
       readonly timing: NightTiming;
       /** The step the night queue builds for the role. */
       readonly step: NightStepSpec;
+      /**
+       * The kinds of dated effect this ability gave that end each time the
+       * step resolves. The engine ends them before the resolver runs, also
+       * when the ability does not work now: tonight's choice replaces the
+       * last one. An arm that attacks does not declare them, because an
+       * attack may wait for the host before anything is written.
+       */
+      readonly endsOnUse?: readonly TimedEffectKind[];
       /** Resolves the completed step. Absent means the engine keeps its own path. */
       readonly resolve?: (context: AbilityContext) => AbilityDecision;
     }

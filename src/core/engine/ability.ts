@@ -7,6 +7,7 @@ import type {
   DayDecision,
   PendingDeathFact,
   RoleEffect,
+  TimedEffectKind,
   TransformationContext,
   TransformationDecision,
   InformationContext,
@@ -14,13 +15,13 @@ import type {
   ExecutionContext,
   ExecutionDecision,
 } from "../roles/ability.ts";
-import { nightResolverFor } from "../roles/night-step.ts";
+import { nightArmFor } from "../roles/night-step.ts";
 import type { RoleModule } from "../roles/types.ts";
 import { setStepNote } from "./context.ts";
 import { idSuffix, systemPorts } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, kill, resolveAttack, resolveDemonDeath } from "./death.ts";
-import { isImpaired } from "./effects.ts";
+import { givenBy, isImpaired, SAFE_EFFECT } from "./effects.ts";
 import { delayPukkaDeath, poisonPukkaPlayer, pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
 
 /** The host's answers for one step. The command path has validated them. */
@@ -29,6 +30,8 @@ export interface HostAnswers {
   readonly chosenRoleId?: RoleId | null;
   /** The Mayor's redirect for an attack: a seat, "none", or absent while unanswered. */
   readonly redirectId?: string | null;
+  /** Who the ability makes drunk: the Sailor's or the Innkeeper's answer. */
+  readonly drunkId?: string | null;
 }
 
 /** What the shared attack path returned for one attack. */
@@ -61,13 +64,18 @@ export function applyRoleAbility(
   answers: HostAnswers = {},
   ports: CommandExecutionContext = systemPorts,
 ): AbilityOutcome {
-  const resolve = nightResolverFor(module, at.number);
+  const arm = nightArmFor(module, at.number);
+  const resolve = arm?.resolve;
   const actorId = step.actorId;
   if (!resolve || !actorId) return APPLIED;
+  // Tonight's choice replaces the last one also when the ability fails, so
+  // the old effects end first and the owner's health is read after.
+  for (const kind of arm.endsOnUse ?? []) endOwnEffects(state, actorId, kind);
   const decision = resolve({
     actorId,
     targetIds: targets,
     chosenRoleId: answers.chosenRoleId ?? null,
+    drunkId: answers.drunkId ?? null,
     impaired: isImpaired(state, actorId, at),
     at: { phase: "night", number: at.number },
     pendings: pukkaPendings(state, actorId).map((effect): PendingDeathFact => ({
@@ -151,6 +159,19 @@ function applyDecision(
   return APPLIED;
 }
 
+/** How a dated effect is stored: under its own kind, except the Innkeeper's safety. */
+function storedShape(kind: TimedEffectKind): { readonly kind: string; readonly bmr?: string } {
+  return kind === "safe" ? SAFE_EFFECT : { kind };
+}
+
+/** Ends the dated effects of one kind that the acting seat's ability gave. */
+function endOwnEffects(state: GameState, actorId: string, kind: TimedEffectKind): void {
+  const stored = storedShape(kind).kind;
+  for (const candidate of state.effects) {
+    if (candidate.kind === stored && givenBy(candidate, actorId)) candidate.active = false;
+  }
+}
+
 /**
  * Applies one intent. `wasted` is the suppressed path: the ability did
  * nothing, so a dated effect stays as a record that never applies.
@@ -200,19 +221,15 @@ function applyEffect(
       const pending = state.effects.find((candidate) => candidate.id === effect.pendingId) || null;
       return resolvePukkaDeath(state, pending, at, {}, ports);
     }
-    case "timed-effect":
+    case "timed-effect": {
       // The source, the start and the id are engine bookkeeping: the id comes
       // from the command ports, so a role cannot choose it.
-      if (effect.replacesPrevious && !wasted) {
-        for (const candidate of state.effects) {
-          if (candidate.kind === effect.effect && candidate.sourceId === actorId) {
-            candidate.active = false;
-          }
-        }
-      }
+      if (effect.replacesPrevious && !wasted) endOwnEffects(state, actorId, effect.effect);
+      const stored = storedShape(effect.effect);
       state.effects.push({
         id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: effect.effect,
+        kind: stored.kind,
+        ...(stored.bmr ? { bmr: stored.bmr } : {}),
         sourceId: actorId,
         targetId: effect.playerId,
         start: at,
@@ -222,6 +239,7 @@ function applyEffect(
         active: !wasted,
       });
       return null;
+    }
     case "record-master": {
       const actor = playerById(state, actorId);
       if (actor) actor.butlerMasterId = effect.playerId;

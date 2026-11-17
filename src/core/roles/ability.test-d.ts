@@ -69,6 +69,22 @@ type NightStepFacts = Parameters<NonNullable<NightStepArm["resolve"]>>[0];
 // @ts-expect-error -- the night-step context exposes no game state
 export type NightStepStateAccess = NightStepFacts["state"];
 
+// Who is drunk is the host's answer: a resolver reads it and cannot change it.
+export function rewriteDrunkAnswer(facts: NightStepFacts): void {
+  // @ts-expect-error -- the host's drunk answer is read-only
+  facts.drunkId = "2";
+}
+
+// A use ends only dated effects the engine applies for the acting ability: an
+// arm cannot end another mechanic's record, such as the Goon's.
+export const endsForeignKind: NightStepArm = {
+  kind: "night-step",
+  timing: "any",
+  step: {},
+  // @ts-expect-error -- an arm cannot end an effect kind the engine does not date
+  endsOnUse: ["goon"],
+};
+
 // A resolver is declared on a `night-step` capability and nowhere else: the
 // module has no resolver field of its own.
 export const resolverBesideCapabilities: RoleModule = {

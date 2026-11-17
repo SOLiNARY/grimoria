@@ -668,6 +668,24 @@ Gambler for the list of characters to guess, and the Demon set, the
 Exorcist's block, the outcome panel and the delayed death still name the
 Pukka; none of them completes the step.
 
+`openspec/changes/bmr-sailor-innkeeper-night-step` continues slice 3 with
+the Sailor and the Innkeeper, the first roles whose resolution leaves
+`completeBmrStep`. The context gains the host's drunk answer, `drunkId`, a
+host answer like the Courtier's character; the command path still checks
+it against the step. The dated effects gain two kinds: `drunk`, and `safe`
+for the Innkeeper's players, stored as the protection the death path already
+tells from the Monk's by its marker. The `night-step` arm gains `endsOnUse`,
+the kinds of dated effect each use replaces. The coordinator ends the effects
+of those kinds that the ability gave before it reads the owner's health, the
+order of the removed branches, so a drunk or poisoned Sailor still ends last
+night's choice and makes nobody drunk. It is a declaration of the arm and not
+an intent, because `suppressed` ends nothing and must stay that way: a
+replacing intent on that path would let a failed ability end another
+ability's effect. The Goon's drunkenness names its chooser as the source but
+is the Goon's, so `givenBy` in `effects.ts` keeps it; `replacesPrevious`
+uses the same predicate. Who may be drunk, and that a working ability needs
+the answer, stays the command check in `night.ts`.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 
