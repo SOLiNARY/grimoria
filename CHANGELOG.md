@@ -11,6 +11,9 @@ All notable changes to Grimoria are recorded here. The format follows
 ### Changed
 
 - Move the night steps of the Poisoner, Monk, Butler, Imp, Spy, Gambler and Pukka, and the information answers of the Empath, Fortune Teller, Chef, Undertaker, Ravenkeeper, Washerwoman, Librarian and Investigator, from the engine into their role capabilities, with behavior pinned by tests before each move (#200)
+- Let a role module answer its own step: the information decision now returns `answer`, `prepared` or `grimoire` beside the legal alternatives, and the ownership ledger counts five roles on typed capabilities alone, up from one, with fifteen more holding a capability and an engine reference (#200)
+- Show a stored "zero are in play" as an answer in the secrets screen only for the Librarian; the Washerwoman and Investigator editors keep the fields the host prepares one with (#200)
+- Record the new ownership in ADR 0002, `docs/role-ownership.md`, the per-role `rule.md` dossiers and the eleven OpenSpec changes behind the migration (#200)
 
 ### Fixed
 
