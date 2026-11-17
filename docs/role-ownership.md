@@ -22,8 +22,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | Owner | Roles |
 | --- | --- |
 | Typed capability only | 5 |
-| Typed capability with an engine reference | 34 |
-| Engine branch | 32 |
+| Typed capability with an engine reference | 35 |
+| Engine branch | 31 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -75,7 +75,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `oracle` | snv | capability:night-step | sv.ts×1 | SNV-ORACLE-01 (verified, r2909) | capability + engine reference |
 | `pacifist` | bmr | capability:execution | day.ts×1 | BMR-PACIFIST-01 (host-choice, r2601) | capability + engine reference |
 | `philosopher` | snv | nightStep | sv.ts×10 | SNV-PHILOSOPHER-01 (verified, r2421)<br>SNV-PHILOSOPHER-02 (verified, r2421) | engine branch |
-| `pithag` | snv | nightStep, capability:transformation | sv.ts×5 | SNV-PITHAG-01 (verified, r2998) | capability + engine reference |
+| `pithag` | snv | capability:night-step, capability:transformation | sv.ts×5 | SNV-PITHAG-01 (verified, r2998) | capability + engine reference |
 | `po` | bmr | capability:night-step | bmr.ts×6 | BMR-PO-01 (verified, r3104) | capability + engine reference |
 | `poisoner` | tb | capability:night-step | — | TB-POISONER-01 (verified, r1737) | capability |
 | `professor` | bmr | nightStep | night.ts×1, bmr.ts×3 | BMR-PROFESSOR-01 (verified, r1775)<br>BMR-PROFESSOR-02 (verified, r1775)<br>BMR-PROFESSOR-03 (verified, r1775) | engine branch |
@@ -90,7 +90,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `seamstress` | snv | nightStep | night.ts×1, sv.ts×2 | SNV-SEAMSTRESS-01 (verified, r1999) | engine branch |
 | `shabaloth` | bmr | capability:night-step | bmr.ts×6 | BMR-SHABALOTH-01 (verified, r1790) | capability + engine reference |
 | `slayer` | tb | capability:day-action | day.ts×2 | TB-SLAYER-01 (verified, r3122) | capability + engine reference |
-| `snakecharmer` | snv | nightStep | sv.ts×2 | SNV-SNAKECHARMER-01 (verified, r2905) | engine branch |
+| `snakecharmer` | snv | capability:night-step, capability:transformation | sv.ts×4 | SNV-SNAKECHARMER-01 (verified, r2905) | capability + engine reference |
 | `soldier` | tb | — | effects.ts×3 | TB-SOLDIER-01 (verified, r3121) | engine branch |
 | `spy` | tb | capability:night-step, capability:information, capability:adjudication | day.ts×1, setup.ts×2, information.ts×4 | TB-SPY-01 (verified, r3118) | capability + engine reference |
 | `sweetheart` | snv | nightStep, deathStep | sv.ts×4 | SNV-SWEETHEART-01 (verified, r2704)<br>SNV-SWEETHEART-02 (verified, r2704) | engine branch |
