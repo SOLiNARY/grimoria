@@ -1421,6 +1421,123 @@ test("the record of tonight's choice names the module's role and is written also
   assert.deepEqual(draws, []);
 });
 
+test("the record of a choice of no one names the module's role and is written also when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ targetIds, impaired }) => {
+          const record = { kind: "record-no-one" as const, noOne: targetIds.length === 0 };
+          return impaired
+            ? { kind: "suppressed", effects: [record] }
+            : { kind: "effects", effects: [record] };
+        },
+      },
+    ],
+  };
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const actor = state.players["1"]!;
+  const others = JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1"));
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, [], at, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(JSON.stringify(actor.used), JSON.stringify({ monkNoOne: true }));
+
+  state.effects.pop();
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(JSON.stringify(actor.used), JSON.stringify({ monkNoOne: false }));
+  assert.equal(
+    JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1")),
+    others,
+    "no other seat is written",
+  );
+  assert.deepEqual(draws, []);
+});
+
+test("the record of tonight's players keeps the record it replaces as last night's, in the order it was written, also when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const chosen: string[][] = [["3", "4"], ["5"]];
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "two" },
+        resolve: ({ impaired }) => {
+          const record = { kind: "record-choices" as const, playerIds: chosen[0]! };
+          return impaired
+            ? { kind: "suppressed", effects: [record] }
+            : { kind: "effects", effects: [record] };
+        },
+      },
+    ],
+  };
+  const actor = state.players["1"]!;
+  const others = JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1"));
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, ["3", "4"], at, {}, ports);
+
+  // The first record has no night before it: the key is written, unset.
+  assert.deepEqual(Object.entries(actor.used!), [
+    ["monkPreviousTargets", []],
+    ["monkPreviousNight", undefined],
+    ["monkTargets", ["3", "4"]],
+    ["monkTargetsNight", 2],
+  ]);
+  // The record is the engine's copy, not the array the role returned.
+  chosen[0]!.push("6");
+  assert.deepEqual(actor.used!.monkTargets, ["3", "4"]);
+
+  chosen.shift();
+  const third = { phase: "night", number: 3 } as const;
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: third,
+    expires: { phase: "night", number: 4 },
+    active: true,
+  });
+  applyRoleAbility(state, module, step, ["5"], third, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(
+    JSON.stringify(actor.used),
+    JSON.stringify({
+      monkPreviousTargets: ["3", "4"],
+      monkPreviousNight: 2,
+      monkTargets: ["5"],
+      monkTargetsNight: 3,
+    }),
+  );
+  assert.equal(
+    JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1")),
+    others,
+    "no other seat is written",
+  );
+  assert.deepEqual(draws, []);
+});
+
 // A module whose night step is an attack under its own title. The coordinator
 // tests below use it, so they do not depend on the Imp's wording.
 const attacker: RoleModule = {

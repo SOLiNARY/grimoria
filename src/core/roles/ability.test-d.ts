@@ -100,6 +100,39 @@ export const choiceOnAnotherSeat: RoleEffect = {
   actorId: "3",
 };
 
+// The Po's and the Shabaloth's records are written the same way: on the acting
+// seat, under the acting role. Last night's players are the engine's to keep.
+export const foreignNoOne: RoleEffect = {
+  kind: "record-no-one",
+  noOne: true,
+  // @ts-expect-error -- a role cannot name the record it writes
+  roleId: "po",
+};
+export const noOneOnAnotherSeat: RoleEffect = {
+  kind: "record-no-one",
+  noOne: true,
+  // @ts-expect-error -- a role cannot name the seat the record is written on
+  actorId: "3",
+};
+export const foreignChoices: RoleEffect = {
+  kind: "record-choices",
+  playerIds: ["2", "4"],
+  // @ts-expect-error -- a role cannot name the record it writes
+  roleId: "shabaloth",
+};
+export const choicesOnAnotherSeat: RoleEffect = {
+  kind: "record-choices",
+  playerIds: ["2", "4"],
+  // @ts-expect-error -- a role cannot name the seat the record is written on
+  actorId: "3",
+};
+export const rewrittenLastNight: RoleEffect = {
+  kind: "record-choices",
+  playerIds: ["2", "4"],
+  // @ts-expect-error -- last night's record is kept by the engine, not written by the role
+  previousIds: ["5"],
+};
+
 // Keeping the Demon asleep is the engine's: the role names the seat and says
 // why, and cannot change the Demon's step itself.
 // @ts-expect-error -- a block says on the Demon's step why it does not wake

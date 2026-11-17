@@ -700,6 +700,22 @@ the resolver decides it and writes what the host reads; what a Demon that does
 not wake still does is the Demon's, so the Shabaloth's regurgitation and the
 Pukka's waiting death stay in `keepDemonAsleep` in `bmr.ts`.
 
+`openspec/changes/bmr-tinker-po-shabaloth-night-step` moves the Tinker, the
+Po and the Shabaloth, whose deaths the host marks on the outcome of the
+step. Their completion only keeps what the next night reads, so the
+contract gains two records, each written on the acting seat under the
+acting role. `record-no-one` says whether the seat chose no one; the Po
+returns it also when drunk or poisoned, because the next night's three
+players depend on the choice (Po r3104). `record-choices` names tonight's
+players and keeps the record it replaces as last night's, in the key order
+saved games hold; the Shabaloth returns it only when sober and healthy, as
+before. The Tinker's resolver returns `no-effect`. The outcome, its checks
+and the regurgitation stay in `recordBmrOutcome`, the size of the Po's step
+in the step builder, and the Tinker's death during the day in `day.ts`.
+After this change the Bad Moon Rising roles with a legacy step are those
+whose wake is read from the game: nine through `actor` hooks, and the
+Grandmother, whose later step a death adds.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 
