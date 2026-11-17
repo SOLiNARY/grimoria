@@ -13,6 +13,7 @@ All notable changes to Grimoria are recorded here. The format follows
 - Ask the host for the Mayor's fate: choosing the Mayor as the Demon's target from a seat leaves the redirect unanswered and the step blocked, where the tap answered "the Mayor dies"
 - Ask for the Demon's heir first: after an Imp self-kill with several Minions alive, the dock and the centre of the table name the heir question and offer the Minions, and no control of the next step is shown until the host names one
 - Label a registration as one: the count of a healthy Chef beside a Spy is labelled a registration, not false information
+- Let only a working Tinker die on the Tinker's night step: the step refuses the death of a drunk or poisoned Tinker, as the day already did, and the death of any other player; saved games keep the deaths they recorded
 
 ## [0.1.0] - 2026-11-16
 

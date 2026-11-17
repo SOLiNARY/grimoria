@@ -79,6 +79,7 @@ import { bmrCannotDie } from "./effects.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
   LEGACY_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
   REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
 } from "./command-versions.ts";
@@ -9821,6 +9822,292 @@ test("a sober Tinker dies from an ability death during the day and the night (BM
   });
   assert.equal(wrong.status, "rejected");
   assert.equal(wrong.errorCode, "error.58");
+});
+
+// A Bad Moon Rising game at the start of night 2, before any command, so a
+// journal written from here replays from this state.
+function tinkerNight(): GameState {
+  const state = makeBmr(
+    { 1: "tinker", 2: "chambermaid", 3: "courtier", 4: "gossip", 5: "assassin", 6: "po" },
+    { count: 8 },
+  );
+  assert.equal(startNight(state).ok, true);
+  nextNight(state);
+  assert.equal(state.night.number, 2);
+  assert.ok(roleStep(state, "tinker"), "the Tinker wakes on night 2");
+  return state;
+}
+
+// The Courtier's three nights of drunkenness, as the Courtier's step writes it.
+function courtierDrunk(targetId: string, night: number) {
+  return {
+    id: "test-drunk-3-" + targetId,
+    kind: "drunk",
+    sourceId: "3",
+    targetId,
+    start: { phase: "night" as const, number: night },
+    expires: { phase: "night" as const, number: night + 3 },
+    active: true,
+  };
+}
+
+test("a drunk or poisoned Tinker does not die on their night step, as by day (BMR-TINKER-01)", () => {
+  // States r1039: "A drunk or poisoned player has no ability." Tinker r1782:
+  // the Tinker dies through their own ability, which an impaired Tinker has
+  // not. The night step's outcome refuses the death as the command does.
+  for (const [label, effect] of [
+    ["poisoned", testPoison("5", "1", 2)],
+    ["drunk", courtierDrunk("1", 2)],
+  ] as const) {
+    const state = tinkerNight();
+    state.effects.push(effect);
+    assert.equal(isImpaired(state, "1"), true, label);
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const key = roleStep(state, "tinker").key;
+    const before = canonicalState(state);
+    const marked = {
+      id: "tinker-" + label,
+      type: "completeNightStep",
+      payload: { key, deathIds: ["1"] },
+      at: "2030-01-01T00:00:00.000Z",
+    };
+
+    const preview = previewCommand(state, marked, runtime);
+    assert.equal(preview.status, "rejected", label + " " + JSON.stringify(preview));
+    assert.equal(rejectionCode(preview), "error.59", label);
+    const refused = applyCommand(state, marked, runtime);
+    assert.equal(refused.status, "rejected", label + " " + JSON.stringify(refused));
+    assert.equal(rejectionCode(refused), "error.59", label);
+    assert.deepEqual(canonicalState(state), before, label + ": the step stays open");
+
+    const lives = applyCommand(
+      state,
+      { id: "tinker-lives-" + label, type: "completeNightStep", payload: { key } },
+      runtime,
+    );
+    assert.equal(lives.status, "allowed", JSON.stringify(lives));
+    const outcome = applyCommand(
+      state,
+      {
+        id: "tinker-outcome-" + label,
+        type: "recordBmrOutcome",
+        payload: { stepKey: key, options: { deathIds: ["1"] } },
+      },
+      runtime,
+    );
+    assert.equal(outcome.status, "rejected", label + " " + JSON.stringify(outcome));
+    assert.equal(rejectionCode(outcome), "error.59", label);
+    const command = applyCommand(
+      state,
+      { id: "tinker-command-" + label, type: "tinkerDeath", payload: { playerId: "1" } },
+      runtime,
+    );
+    assert.equal(command.status, "rejected", label + " " + JSON.stringify(command));
+    assert.equal(rejectionCode(command), "error.59", label);
+    assert.equal(state.players["1"].alive, true, label);
+    assert.deepEqual(state.deaths, [], label);
+
+    skipNight(state);
+    const day = applyCommand(
+      state,
+      { id: "tinker-day-" + label, type: "tinkerDeath", payload: { playerId: "1" } },
+      runtime,
+    );
+    assert.equal(day.status, "rejected", label + " " + JSON.stringify(day));
+    assert.equal(rejectionCode(day), "error.59", label + ": by day as well");
+    assert.equal(state.players["1"].alive, true, label);
+  }
+});
+
+test("only the Tinker dies on the Tinker's step (BMR-TINKER-01)", () => {
+  // Tinker r1782: "At any time, you may decide that the Tinker dies." The step
+  // is the Tinker's ability, so the host marks the Tinker's death there and no
+  // other; another player's death comes from the ability that causes it.
+  const state = tinkerNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const key = roleStep(state, "tinker").key;
+  const before = canonicalState(state);
+  for (const deathIds of [["4"], ["1", "4"], ["4", "1"]]) {
+    const command = {
+      id: "tinker-" + deathIds.join("-"),
+      type: "completeNightStep",
+      payload: { key, deathIds },
+    };
+    const preview = previewCommand(state, command, runtime);
+    assert.equal(preview.status, "rejected", JSON.stringify(preview));
+    assert.equal(rejectionCode(preview), "error.51", deathIds.join(","));
+    const refused = applyCommand(state, command, runtime);
+    assert.equal(refused.status, "rejected", JSON.stringify(refused));
+    assert.equal(rejectionCode(refused), "error.51", deathIds.join(","));
+    assert.deepEqual(canonicalState(state), before, deathIds.join(",") + ": nothing changes");
+  }
+
+  const lives = applyCommand(
+    state,
+    { id: "tinker-lives", type: "completeNightStep", payload: { key } },
+    runtime,
+  );
+  assert.equal(lives.status, "allowed", JSON.stringify(lives));
+  const other = applyCommand(
+    state,
+    {
+      id: "tinker-other",
+      type: "recordBmrOutcome",
+      payload: { stepKey: key, options: { deathIds: ["4"] } },
+    },
+    runtime,
+  );
+  assert.equal(other.status, "rejected", JSON.stringify(other));
+  assert.equal(rejectionCode(other), "error.51");
+  assert.equal(state.players["4"].alive, true);
+
+  const dies = applyCommand(
+    state,
+    {
+      id: "tinker-dies",
+      type: "recordBmrOutcome",
+      payload: { stepKey: key, options: { deathIds: ["1"] } },
+    },
+    runtime,
+  );
+  assert.equal(dies.status, "allowed", JSON.stringify(dies));
+  assert.equal(state.players["1"].alive, false);
+  assert.deepEqual(
+    state.deaths.map((death) => [death.playerId, death.cause, death.ability]),
+    [["1", "ability", "tinker"]],
+  );
+});
+
+// Recorded commands keep their behavior. Until the ruleset after
+// tb-bmr-snv-2026-11-17.1 the Tinker's step took any death the host marked,
+// also while the Tinker was drunk or poisoned.
+for (const version of [
+  LEGACY_RULESET_VERSION,
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
+]) {
+  test(`a Tinker's step recorded under the ruleset ${version} keeps the deaths the host marked, and the journal replays (BMR-TINKER-01)`, () => {
+    assert.notEqual(RULESET_VERSION, version, "commands sent now carry a later ruleset");
+    const state = tinkerNight();
+    state.effects.push(testPoison("5", "1", 2));
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const at = "2030-01-01T00:00:00.000Z";
+    let sent = 0;
+    const send = (type: string, payload: Record<string, unknown>, rulesetVersion = version) =>
+      applyCommand(state, { id: "c" + ++sent, type, payload, at, rulesetVersion }, runtime);
+    const key = roleStep(state, "tinker").key;
+
+    const now = structuredClone(state);
+    for (const deathIds of [["1"], ["4"]]) {
+      const refused = applyCommand(
+        now,
+        { id: "now-" + deathIds[0], type: "completeNightStep", payload: { key, deathIds }, at },
+        runtime,
+      );
+      assert.equal(refused.status, "rejected", "a command sent now is refused");
+    }
+
+    const recorded = send("completeNightStep", { key, deathIds: ["1"] });
+    assert.equal(recorded.status, "allowed", JSON.stringify(recorded));
+    assert.equal(state.players["1"].alive, false, "the poisoned Tinker died as recorded");
+    const other = send("recordBmrOutcome", { stepKey: key, options: { deathIds: ["4"] } });
+    assert.equal(other.status, "allowed", JSON.stringify(other));
+    assert.equal(state.players["4"].alive, false, "the Gossip died on the Tinker's step");
+    assert.deepEqual(
+      state.deaths.map((death) => [death.playerId, death.ability]),
+      [
+        ["1", "tinker"],
+        ["4", "tinker"],
+      ],
+    );
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    if (!replayed.ok) return;
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  });
+}
+
+test("a journal recorded while the Tinker's step took any death replays and undoes as written (BMR-TINKER-01)", () => {
+  // Generated with createGame/applyCommand at e2b8015: eight players. On night
+  // 2 the host marks the Gossip's (4) death on the sober Tinker's (1) step. On
+  // night 3 the Courtier (2) makes the Tinker drunk and the host marks the
+  // drunk Tinker's death on its step. The game is saved at dawn of day 3.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-tinker-night-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.phase, "day");
+  assert.equal(saved.day.number, 3);
+  assert.deepEqual(
+    saved.deaths.map((death) => [death.playerId, death.number, death.ability]),
+    [
+      ["4", 2, "tinker"],
+      ["1", 3, "tinker"],
+    ],
+  );
+  assert.deepEqual(
+    [...new Set(saved.journal.entries.map((entry) => entry.rulesetVersion))],
+    [OPEN_TINKER_STEP_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  const entries = saved.journal.entries;
+  const tinkerSteps = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      ({ entry }) =>
+        entry.type === "completeNightStep" &&
+        String((entry.payload as { key?: string } | undefined)?.key).includes("-tinker-"),
+    );
+  assert.equal(tinkerSteps.length, 2);
+
+  // Undo to the drunk Tinker's step of night 3. The recorded death lands; the
+  // same death sent now is refused.
+  const [night2, night3] = tinkerSteps;
+  const atNight3 = replay({ ...saved.journal, entries: entries.slice(0, night3!.index) });
+  assert.equal(atNight3.ok, true, JSON.stringify(atNight3));
+  if (!atNight3.ok) return;
+  assert.equal(isImpaired(atNight3.state, "1"), true, "the Courtier made the Tinker drunk");
+  const drunkNow = applyCommand(structuredClone(atNight3.state), {
+    id: "drunk-now",
+    type: "completeNightStep",
+    payload: night3!.entry.payload ?? {},
+  });
+  assert.equal(drunkNow.status, "rejected", JSON.stringify(drunkNow));
+  assert.equal(rejectionCode(drunkNow), "error.59");
+  const drunkRecorded = applyCommand(atNight3.state, {
+    ...night3!.entry,
+    payload: night3!.entry.payload ?? {},
+  });
+  assert.equal(drunkRecorded.status, "allowed", "the recorded death applies as it did");
+  assert.equal(atNight3.state.players["1"].alive, false);
+
+  // Undo to the Tinker's step of night 2. The recorded death of the Gossip
+  // lands; the same death sent now is refused.
+  const atNight2 = replay({ ...saved.journal, entries: entries.slice(0, night2!.index) });
+  assert.equal(atNight2.ok, true, JSON.stringify(atNight2));
+  if (!atNight2.ok) return;
+  const otherNow = applyCommand(structuredClone(atNight2.state), {
+    id: "other-now",
+    type: "completeNightStep",
+    payload: night2!.entry.payload ?? {},
+  });
+  assert.equal(otherNow.status, "rejected", JSON.stringify(otherNow));
+  assert.equal(rejectionCode(otherNow), "error.51");
+  const otherRecorded = applyCommand(atNight2.state, {
+    ...night2!.entry,
+    payload: night2!.entry.payload ?? {},
+  });
+  assert.equal(otherRecorded.status, "allowed", "the recorded death applies as it did");
+  assert.equal(atNight2.state.players["4"].alive, false);
 });
 
 test("the Klutz public choice runs through the command surface", () => {

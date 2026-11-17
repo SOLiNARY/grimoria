@@ -2040,6 +2040,171 @@ async function madnessExecutionFromTable() {
   await page.keyboard.press("Escape");
 }
 
+// Tinker r1782: "At any time, you may decide that the Tinker dies." States
+// r1039: "A drunk or poisoned player has no ability." On a drunk Tinker's step
+// the table refuses the death the host marks, keeps the step open and the
+// Tinker alive; the Tinker who survives completes it. A sober Tinker still
+// dies there.
+async function tinkerNightDeathNeedsTheAbility() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seed = (drunk: boolean) =>
+    page.evaluate(async (drunk) => {
+      const { model, engine, store, rules } = await window.PG_MODULES();
+      const assignment: Record<string, string> = {
+        1: "tinker",
+        2: "courtier",
+        3: "chambermaid",
+        4: "gossip",
+        5: "sailor",
+        6: "exorcist",
+        7: "assassin",
+        8: "po",
+      };
+      const game = model.createGame(8);
+      game.scriptId = "bmr";
+      game.script = {
+        ...game.script,
+        id: "bmr",
+        name: "Bad Moon Rising",
+        edition: "bmr",
+        roles: [...rules.BMR_ALL],
+      };
+      Object.keys(assignment).forEach((id) => {
+        game.players[id].name = "Player " + id;
+        game.players[id].claimed = true;
+      });
+      game.setup.count = 8;
+      game.setup.roles = Object.values(assignment);
+      game.setup.bluffs = ["innkeeper", "grandmother", "minstrel"];
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      game.phase = "seat";
+      const start = engine.startNight(game);
+      if (!start.ok) return start;
+      while (engine.currentStep(game))
+        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      const night = engine.endNight(game);
+      if (!night.ok) return night;
+      const day = engine.endDay(game);
+      if (!day.ok) return day;
+      // Night 2: the Courtier makes the Tinker drunk, or skips.
+      while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "tinker") {
+        const step = engine.currentStep(game)!;
+        if (drunk && step.roleId === "courtier") {
+          const done = engine.completeStep(game, step.key, { roleId: "tinker" });
+          if (!done.ok) return done;
+        } else engine.skipStep(game, step.key, "browser check");
+      }
+      const errors = model.validateState(game);
+      if (errors.length) return { ok: false, errors };
+      store.replaceState(game);
+      dispatchEvent(new PopStateEvent("popstate"));
+      return { ok: true };
+    }, drunk);
+  const read = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const { state } = store;
+      const step = state.night.queue.find((entry) => entry.roleId === "tinker");
+      return {
+        night: state.night.number,
+        current: engine.currentStep(state)?.roleId ?? null,
+        tinkerDrunk: engine.isImpaired(state, "1"),
+        tinkerAlive: state.players["1"].alive,
+        done: step?.done ?? false,
+        deaths: state.deaths.map((death) => death.playerId),
+      };
+    });
+  const previewOf = (deathIds: string[]) =>
+    page.evaluate(async (deathIds) => {
+      const { engine, store } = await window.PG_MODULES();
+      const step = store.state.night.queue.find((entry) => entry.roleId === "tinker")!;
+      const preview = engine.previewCommand(store.state, {
+        id: "browser-check-tinker",
+        type: "completeNightStep",
+        payload: { key: step.key, deathIds },
+      });
+      return {
+        status: preview.status,
+        errorCode: "errorCode" in preview ? (preview.errorCode ?? null) : null,
+      };
+    }, deathIds);
+  const dialog = page.locator('[role="dialog"]');
+
+  const drunk = await seed(true);
+  assert.equal(drunk.ok, true, JSON.stringify(drunk));
+  await page.waitForTimeout(100);
+  await route("/table");
+  assert.deepEqual(
+    await read(),
+    { night: 2, current: "tinker", tinkerDrunk: true, tinkerAlive: true, done: false, deaths: [] },
+    "night 2 opens on the Tinker's step, the Tinker drunk",
+  );
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await dialog.locator('[data-tinker-decision="die"]').click();
+  await page.waitForTimeout(150);
+  assert.deepEqual(await previewOf(["1"]), { status: "rejected", errorCode: "error.59" });
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "tinker-drunk-dies-390.png") });
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: join(screenshots, "tinker-drunk-refused-390.png") });
+  assert.equal(await page.locator("[data-rejection]").count(), 1, "the death is refused");
+  assert.equal(await dialog.count(), 1, "the step sheet stays open");
+  assert.deepEqual(
+    await read(),
+    { night: 2, current: "tinker", tinkerDrunk: true, tinkerAlive: true, done: false, deaths: [] },
+    "the drunk Tinker lives and the step stays open",
+  );
+  await dialog.locator('[data-tinker-decision="live"]').click();
+  await page.waitForTimeout(150);
+  assert.deepEqual(await previewOf([]), { status: "allowed", errorCode: null });
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator("[data-rejection]").count(), 0, "the refusal clears");
+  assert.deepEqual(
+    await read(),
+    {
+      night: 2,
+      current: "chambermaid",
+      tinkerDrunk: true,
+      tinkerAlive: true,
+      done: true,
+      deaths: [],
+    },
+    "the Tinker who survives completes the step",
+  );
+
+  const sober = await seed(false);
+  assert.equal(sober.ok, true, JSON.stringify(sober));
+  await page.waitForTimeout(100);
+  await route("/table");
+  assert.equal((await read()).tinkerDrunk, false);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await dialog.locator('[data-tinker-decision="die"]').click();
+  await page.waitForTimeout(150);
+  assert.deepEqual(await previewOf(["1"]), { status: "allowed", errorCode: null });
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator("[data-rejection]").count(), 0);
+  assert.deepEqual(
+    await read(),
+    {
+      night: 2,
+      current: "chambermaid",
+      tinkerDrunk: false,
+      tinkerAlive: false,
+      done: true,
+      deaths: ["1"],
+    },
+    "a sober Tinker dies on the step",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "tinker-sober-dies-390.png") });
+}
+
 async function fullChecks() {
   await page.goto(url);
   await page.waitForSelector(".host");
@@ -5817,6 +5982,7 @@ async function fullChecks() {
   await heirQuestionLeadsTheNight();
   await heirQuestionLeadsAnOpenSheet();
   await chefRegistrationIsLabelled();
+  await tinkerNightDeathNeedsTheAbility();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
@@ -5840,6 +6006,7 @@ try {
       "heir-question": heirQuestionLeadsTheNight,
       "heir-sheet": heirQuestionLeadsAnOpenSheet,
       "chef-label": chefRegistrationIsLabelled,
+      "tinker-night": tinkerNightDeathNeedsTheAbility,
     }[focused];
     if (!check) throw new Error("Unknown browser check: " + focused);
     await page.goto(url);
