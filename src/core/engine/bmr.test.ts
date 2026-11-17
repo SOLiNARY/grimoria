@@ -15,6 +15,8 @@ import {
   roleTeam,
 } from "../model/rules.ts";
 import { bmrTargetError } from "./bmr.ts";
+import { applyRoleAbility } from "./ability.ts";
+import type { RoleModule } from "../roles/types.ts";
 import { roleSupportEntries } from "../model/support.ts";
 import { createGame, exportGame, importGame, validateState } from "../model/state.ts";
 import {
@@ -6378,4 +6380,81 @@ test("an Exorcist who chooses the Shabaloth leaves it only the regurgitation, an
       ability: "pukka",
     },
   ]);
+});
+
+test("a Demon kept asleep gets the note the role wrote, and a Demon whose step is finished only the log line (BMR-EXORCIST-01)", () => {
+  // A module with its own texts, so the test does not depend on the Exorcist's
+  // wording: the engine writes what the decision says.
+  const blocker = (text: string): RoleModule => ({
+    id: "exorcist",
+    edition: "bmr",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "other",
+        step: { target: "one-any" },
+        resolve: ({ targetIds }) => ({
+          kind: "effects",
+          effects: [
+            {
+              kind: "block-demon",
+              playerId: targetIds[0]!,
+              note: { key: "note.test", vars: { seat: 2 }, text },
+              log: { title: "Проверочный заголовок", detail: text },
+            },
+          ],
+        }),
+      },
+    ],
+  });
+  const state = advocateAndExorcist("po");
+  startNight(state);
+  skipRemaining(state);
+  endNightToNext(state);
+  const step = roleStepOf(state, "exorcist");
+  const po = roleStepOf(state, "po");
+  const at = { phase: "night", number: 2 } as const;
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, blocker("Проверочная заметка"), step, ["7"], at, {}, ports);
+
+  assert.deepEqual(recordOf(po), {
+    ...OPEN_STEP,
+    key: "n2-10-po-7",
+    roleId: "po",
+    actorId: "7",
+    actorName: "P7",
+    order: 10,
+    targetMode: "po",
+    minTargets: 0,
+    canKill: true,
+    note: "Проверочная заметка",
+    noteKey: "note.test",
+    done: true,
+    skipped: true,
+    noteVars: { seat: 2 },
+  });
+  const line = {
+    at: "2030-01-01T00:00:01.000Z",
+    phase: "Ночь 2",
+    kind: "night",
+    title: "Проверочный заголовок",
+    detail: "Проверочная заметка",
+    playerId: null,
+    secret: true,
+  };
+  assert.deepEqual(JSON.parse(JSON.stringify(state.log.slice(logged))), [
+    { id: "log-" + (logged + 1) + "-k1000", ...line },
+  ]);
+  assert.equal(step.noteKey, "note.bmr.exorcist", "the blocking step keeps its own note");
+  assert.equal(step.result, null, "only a Pukka's waiting death reports on the blocking step");
+
+  const finished = recordOf(po);
+  applyRoleAbility(state, blocker("Вторая заметка"), step, ["7"], at, {}, ports);
+
+  assert.deepEqual(recordOf(po), finished, "a finished Demon step is not written again");
+  assert.equal(state.log.length, logged + 2);
+  assert.equal(state.log.at(-1)!.detail, "Вторая заметка");
+  assert.deepEqual(draws, ["id:5", "clock", "id:5", "clock"]);
 });

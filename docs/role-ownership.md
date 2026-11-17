@@ -22,8 +22,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | Owner | Roles |
 | --- | --- |
 | Typed capability only | 5 |
-| Typed capability with an engine reference | 17 |
-| Engine branch | 49 |
+| Typed capability with an engine reference | 19 |
+| Engine branch | 47 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -42,12 +42,12 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `chef` | tb | capability:night-step, capability:information | information.ts×1 | TB-CHEF-01 (verified, r2510)<br>TB-CHEF-02 (host-choice, r2510) | capability + engine reference |
 | `clockmaker` | snv | firstNightStep | sv.ts×1 | SNV-CLOCKMAKER-01 (verified, r2967)<br>SNV-CLOCKMAKER-02 (verified, r2967)<br>SNV-CLOCKMAKER-03 (verified, r2967) | engine branch |
 | `courtier` | bmr | nightStep | bmr.ts×3 | BMR-COURTIER-01 (verified, r2968) | engine branch |
-| `devilsadvocate` | bmr | nightStep, firstNightStep | effects.ts×2, night.ts×1, bmr.ts×4 | BMR-DEVILSADVOCATE-01 (verified, r2594)<br>BMR-DEVILSADVOCATE-03 (verified, r2594)<br>BMR-DEVILSADVOCATE-02 (verified, r2594) | engine branch |
+| `devilsadvocate` | bmr | capability:night-step | effects.ts×2, night.ts×1, bmr.ts×1 | BMR-DEVILSADVOCATE-01 (verified, r2594)<br>BMR-DEVILSADVOCATE-03 (verified, r2594)<br>BMR-DEVILSADVOCATE-02 (verified, r2594) | capability + engine reference |
 | `dreamer` | snv | nightStep | night.ts×1, sv.ts×1 | SNV-DREAMER-01 (host-choice, r2904) | engine branch |
 | `drunk` | tb | — | model/state.ts×2, effects.ts×2, day.ts×1, setup.ts×2, information.ts×1, bmr.ts×2, sv.ts×2 | TB-DRUNK-01 (verified, r3165) | engine branch |
 | `empath` | tb | capability:night-step, capability:information | — | TB-EMPATH-01 (verified, r1724)<br>TB-EMPATH-02 (host-choice, r1724)<br>TB-EMPATH-03 (host-choice, r1724) | capability |
 | `eviltwin` | snv | firstNightStep | model/state.ts×1, death.ts×2, setup.ts×3, sv.ts×3, corrections.ts×1 | SNV-EVILTWIN-01 (verified, r3101)<br>SNV-EVILTWIN-02 (verified, r3101)<br>SNV-EVILTWIN-03 (host-choice, r3101)<br>SNV-EVILTWIN-04 (verified, r3101)<br>SNV-EVILTWIN-05 (host-choice, r3101) | engine branch |
-| `exorcist` | bmr | nightStep | bmr.ts×3 | BMR-EXORCIST-01 (verified, r2973)<br>BMR-EXORCIST-02 (verified, r2973) | engine branch |
+| `exorcist` | bmr | capability:night-step | bmr.ts×2 | BMR-EXORCIST-01 (verified, r2973)<br>BMR-EXORCIST-02 (verified, r2973) | capability + engine reference |
 | `fanggu` | snv | nightStep | sv.ts×5 | SNV-FANGGU-01 (verified, r2974)<br>SNV-FANGGU-02 (verified, r2974)<br>SNV-FANGGU-03 (verified, r2974)<br>SNV-FANGGU-04 (verified, r2974) | engine branch |
 | `flowergirl` | snv | nightStep | sv.ts×3, host-choice.ts×1 | SNV-FLOWERGIRL-01 (verified, r2907)<br>SNV-FLOWERGIRL-02 (verified, r2907) | engine branch |
 | `fool` | bmr | — | effects.ts×1, death.ts×1, bmr.ts×1 | BMR-FOOL-01 (verified, r2636) | engine branch |

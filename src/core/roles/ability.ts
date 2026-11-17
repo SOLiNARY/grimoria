@@ -45,9 +45,16 @@ export interface AbilityContext {
 /**
  * The effect kinds a dated intent may add. A kind arrives with its first
  * migrated role. `protected` is safe from the Demon (the Monk); `safe` cannot
- * die tonight from any ability (the Innkeeper).
+ * die tonight from any ability (the Innkeeper); `survives-execution` stays
+ * alive if executed the next day (the Devil's Advocate).
  */
-export type TimedEffectKind = "poison" | "protected" | "butler" | "drunk" | "safe";
+export type TimedEffectKind =
+  | "poison"
+  | "protected"
+  | "butler"
+  | "drunk"
+  | "safe"
+  | "survives-execution";
 
 /** An intent the engine applies through a shared mechanic. */
 export type RoleEffect =
@@ -98,7 +105,25 @@ export type RoleEffect =
    * of the choice, not the restriction, so it is recorded whether or not the
    * ability works.
    */
-  | { readonly kind: "record-master"; readonly playerId: string };
+  | { readonly kind: "record-master"; readonly playerId: string }
+  /**
+   * The player the acting seat chose tonight, or null for nobody. The step
+   * builder reads it for "different to last night", which is about the
+   * choice, so it is recorded whether or not the ability works.
+   */
+  | { readonly kind: "record-choice"; readonly playerId: string | null }
+  /**
+   * The Demon on this seat does not wake tonight; its other abilities still
+   * resolve. The engine finds the Demon's step in tonight's queue and writes
+   * `note` on it, and adds `log` as a secret log line. The role names a seat
+   * that holds the Demon.
+   */
+  | {
+      readonly kind: "block-demon";
+      readonly playerId: string;
+      readonly note: AbilityNote;
+      readonly log: { readonly title: string; readonly detail: string };
+    };
 
 export interface AbilityNote {
   readonly key: string;

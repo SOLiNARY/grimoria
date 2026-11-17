@@ -85,6 +85,38 @@ export const endsForeignKind: NightStepArm = {
   endsOnUse: ["goon"],
 };
 
+// The record of tonight's choice is written on the acting seat, under the
+// acting role: a role cannot name the record or the seat.
+export const foreignChoice: RoleEffect = {
+  kind: "record-choice",
+  playerId: "2",
+  // @ts-expect-error -- a role cannot name the record it writes
+  roleId: "exorcist",
+};
+export const choiceOnAnotherSeat: RoleEffect = {
+  kind: "record-choice",
+  playerId: "2",
+  // @ts-expect-error -- a role cannot name the seat the record is written on
+  actorId: "3",
+};
+
+// Keeping the Demon asleep is the engine's: the role names the seat and says
+// why, and cannot change the Demon's step itself.
+// @ts-expect-error -- a block says on the Demon's step why it does not wake
+export const silentBlock: RoleEffect = {
+  kind: "block-demon",
+  playerId: "7",
+  log: { title: "t", detail: "d" },
+};
+export const rewrittenDemonStep: RoleEffect = {
+  kind: "block-demon",
+  playerId: "7",
+  note: { key: "k", text: "t" },
+  log: { title: "t", detail: "d" },
+  // @ts-expect-error -- a role cannot choose how the Demon's step changes
+  targetMode: "none",
+};
+
 // A resolver is declared on a `night-step` capability and nowhere else: the
 // module has no resolver field of its own.
 export const resolverBesideCapabilities: RoleModule = {
