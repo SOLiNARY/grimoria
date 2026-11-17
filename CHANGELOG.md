@@ -12,6 +12,7 @@ All notable changes to Grimoria are recorded here. The format follows
 - Move the night steps of the four Sects & Violets Demons (Fang Gu, No Dashii, Vigormortis and Vortox) from legacy fields to their role capabilities, with behavior pinned by tests before the move; the Sects & Violets step completion now hands a role that owns a resolver to the shared capability coordinator, as the Bad Moon Rising one does (#200)
 - Move the Cerenovus's night step to its role capability, with behavior pinned by tests before the move; the night-step contract gains the `madness` intent, which writes the madness token with the id saved games already hold (#200)
 - Declare the night steps of the Sects & Violets Clockmaker, Dreamer, Evil Twin, Flowergirl, Mathematician, Oracle and Town Crier on their role capabilities, with behavior pinned by tests before the move; their answers stay in the engine until the information slice (#200)
+- Move the Snake Charmer's swap to its transformation capability and declare the Snake Charmer's and the Pit-Hag's night steps on their capabilities, with behavior pinned by tests before the move; the transformation contract gains the `swap` decision (#200)
 
 ### Fixed
 

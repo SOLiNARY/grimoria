@@ -6,6 +6,7 @@ import type {
   InformationDecision,
   RoleCapability,
   RoleEffect,
+  TransformationDecision,
 } from "./ability.ts";
 import type { RoleModule } from "./types.ts";
 
@@ -368,4 +369,35 @@ export const grimoireForImpaired: GrimoireShown = {
   kind: "grimoire",
   // @ts-expect-error -- a role cannot mark what an impaired owner is shown
   impaired: true,
+};
+
+// A swap names the other player and what the role's rule does with the
+// alignments and the poison. The acting seat, the poison's id and its source
+// are the engine's.
+export const swapWithPoisonId: TransformationDecision = {
+  kind: "swap",
+  playerId: "8",
+  alignments: true,
+  poisoned: true,
+  // @ts-expect-error -- a role cannot choose the poison's id
+  id: "eff-snakecharmer-3-8",
+};
+export const swapFromAnotherSeat: TransformationDecision = {
+  kind: "swap",
+  playerId: "8",
+  alignments: true,
+  poisoned: true,
+  // @ts-expect-error -- a role cannot name the seat the swap starts from
+  actorId: "4",
+};
+// @ts-expect-error -- a swap says whether the alignments are exchanged
+export const swapWithoutAlignments: TransformationDecision = {
+  kind: "swap",
+  playerId: "8",
+  poisoned: true,
+};
+export const unknownTransformationReason: TransformationDecision = {
+  kind: "no-effect",
+  // @ts-expect-error -- a role cannot invent a reason for nothing happening
+  reason: "bored",
 };

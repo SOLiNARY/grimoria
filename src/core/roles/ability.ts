@@ -276,6 +276,7 @@ export type TransformationCause = "pithag" | "snakecharmer" | "barber" | "fanggu
 export interface TransformationContext {
   readonly actorId: string;
   readonly targetId: string;
+  /** The character the change gives; for a swap, the one the acting seat would take. */
   readonly newRoleId: RoleId;
   readonly cause: TransformationCause;
   readonly impaired: boolean;
@@ -288,7 +289,20 @@ export interface TransformationContext {
 
 export type TransformationDecision =
   | { readonly kind: "replace"; readonly playerId: string; readonly roleId: RoleId }
-  | { readonly kind: "no-effect"; readonly reason: "impaired" | "in-play" };
+  /**
+   * The acting seat and the player swap characters through the shared swap,
+   * which requeues tonight's steps. `alignments` exchanges their alignments
+   * too. `poisoned` poisons the player for good by the acting ability once
+   * the swap is done; the engine mints the effect's id from the ability, the
+   * acting seat and the player, and writes it once.
+   */
+  | {
+      readonly kind: "swap";
+      readonly playerId: string;
+      readonly alignments: boolean;
+      readonly poisoned: boolean;
+    }
+  | { readonly kind: "no-effect"; readonly reason: "impaired" | "in-play" | "not-demon" };
 
 /** Read-only facts for an information capability. */
 export interface InformationContext {

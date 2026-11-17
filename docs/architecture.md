@@ -66,7 +66,11 @@ Shabaloth, and in Sects & Violets the Fang Gu, the No Dashii, the
 Vigormortis, the Vortox and the Cerenovus have moved. The Sects & Violets
 Clockmaker, Dreamer, Evil Twin, Flowergirl, Mathematician, Oracle and Town
 Crier declare their step on the capability but keep their answers in
-`svInfoForStep` until their own slice. The Sects & Violets step completion
+`svInfoForStep` until their own slice. The Snake Charmer and the Pit-Hag
+declare their step on the capability and their character change on the
+`transformation` capability, which `sv.ts` applies: the Pit-Hag's
+`replace`, and the Snake Charmer's `swap`, which names the other player and
+whether the alignments are exchanged and the player poisoned. The Sects & Violets step completion
 hands a role that owns a resolver to the coordinator, as the Bad Moon Rising
 one does; the four Demons' resolvers change nothing, because the host marks
 their deaths on the step's outcome.

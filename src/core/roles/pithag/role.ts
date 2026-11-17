@@ -3,8 +3,16 @@ import type { RoleModule } from "../types.ts";
 export const role = {
   id: "pithag",
   edition: "snv",
-  nightStep: { target: "one-any", infoKind: "note", canKill: true },
   capabilities: [
+    {
+      kind: "night-step",
+      // Pit-Hag r2998: "Each night except the first, wake the Pit-Hag. They
+      // point at any player and any character icon." The character is the
+      // host's answer; "if a Demon is created" the host marks tonight's
+      // deaths on this step.
+      timing: "other",
+      step: { target: "one-any", infoKind: "note", canKill: true },
+    },
     {
       kind: "transformation",
       cause: "pithag",
