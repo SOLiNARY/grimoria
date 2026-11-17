@@ -199,3 +199,28 @@ export const selfMissingAnswer: PreparedAnswer = {
 };
 // @ts-expect-error -- a prepared answer always names what it can show
 export const silentPreparedAnswer: PreparedAnswer = { kind: "prepared" };
+
+// The Grimoire is shown, not told: the decision has nothing a role could fill
+// in, change for an impaired owner or hand to the host.
+type GrimoireShown = Extract<InformationDecision, { kind: "grimoire" }>;
+export const grimoireShown: GrimoireShown = { kind: "grimoire" };
+export const grimoireWithValue: GrimoireShown = {
+  kind: "grimoire",
+  // @ts-expect-error -- the Grimoire is not a value the role computes
+  value: "imp",
+};
+export const grimoireWithOptions: GrimoireShown = {
+  kind: "grimoire",
+  // @ts-expect-error -- a role cannot offer other answers in place of the Grimoire
+  possible: ["chef"],
+};
+export const grimoireWithText: GrimoireShown = {
+  kind: "grimoire",
+  // @ts-expect-error -- a role cannot write the record of the step
+  text: "a false Grimoire",
+};
+export const grimoireForImpaired: GrimoireShown = {
+  kind: "grimoire",
+  // @ts-expect-error -- a role cannot mark what an impaired owner is shown
+  impaired: true,
+};

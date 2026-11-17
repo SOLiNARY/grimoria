@@ -89,7 +89,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `slayer` | tb | capability:day-action | day.ts×2 | TB-SLAYER-01 (verified, r3122) | capability + engine reference |
 | `snakecharmer` | snv | nightStep | sv.ts×2 | SNV-SNAKECHARMER-01 (verified, r2905) | engine branch |
 | `soldier` | tb | — | effects.ts×3 | TB-SOLDIER-01 (verified, r3121) | engine branch |
-| `spy` | tb | nightStep, capability:adjudication | night.ts×1, day.ts×1, setup.ts×2, information.ts×5 | TB-SPY-01 (verified, r3118) | capability + engine reference |
+| `spy` | tb | capability:night-step, capability:information, capability:adjudication | day.ts×1, setup.ts×2, information.ts×4 | TB-SPY-01 (verified, r3118) | capability + engine reference |
 | `sweetheart` | snv | nightStep, deathStep | sv.ts×4 | SNV-SWEETHEART-01 (verified, r2704)<br>SNV-SWEETHEART-02 (verified, r2704) | engine branch |
 | `tealady` | bmr | — | effects.ts×2 | BMR-TEALADY-01 (verified, r1777) | engine branch |
 | `tinker` | bmr | nightStep | day.ts×2, bmr.ts×2 | BMR-TINKER-01 (host-choice, r1782) | engine branch |

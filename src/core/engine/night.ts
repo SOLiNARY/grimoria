@@ -145,19 +145,6 @@ export function targetBounds(step: NightStep): TargetBounds {
   return { min, max: step.bmr || step.sv ? step.maxTargets || 0 : min };
 }
 
-/**
- * The shape of the answer of a role step that has not declared it. A migrated
- * role declares the shape in its night step, and `makeRoleStep` reads that
- * first.
- */
-export function infoKindFor(roleId: RoleId | null): string {
-  return (
-    {
-      spy: "grimoire",
-    }[roleId || ""] || "none"
-  );
-}
-
 export function makeRoleStep(
   state: GameState,
   sequenceIndex: number,
@@ -175,7 +162,8 @@ export function makeRoleStep(
     actorAlive: actor ? actor.alive : false,
     order: sequenceIndex,
     targetMode: declared?.target ?? "none",
-    infoKind: declared?.infoKind ?? infoKindFor(roleId),
+    // A role declares the shape of its answer with its step.
+    infoKind: declared?.infoKind ?? "none",
     targetIds: [],
     redirectId: null,
     registrations: {},
@@ -656,16 +644,17 @@ export function completeStep(
         error: "Секретная информация ещё не настроена.",
       };
     }
+    if (info.kind === "grimoire") {
+      // The Grimoire is shown, not told. No answer can stand in its place, so
+      // one sent with the step is not stored.
+      step.given = info;
+      return finishStep(state, step, options, targets, at, ports);
+    }
     const checked = validateGiven(step, info, options);
     if ("rejection" in checked) return checked.rejection;
     const finished = finishStep(state, step, options, targets, at, ports);
     recordPending(state, checked.pending, step, ports);
     return finished;
-  }
-
-  if (role === "spy") {
-    step.given = { kind: "grimoire" };
-    return finishStep(state, step, options, targets, at, ports);
   }
 
   return finishStep(state, step, options, targets, at, ports);

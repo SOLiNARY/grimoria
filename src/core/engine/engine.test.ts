@@ -6044,6 +6044,380 @@ test("a module with a prepared answer is told nothing of what was prepared", () 
   }
 });
 
+// --- The Spy's night step --------------------------------------------------
+// Spy r3118: "Each night, you see the Grimoire." "Each night, wake the Spy and
+// show them the Grimoire for as long as they need." The step is a record that
+// the Grimoire was shown; nothing is computed and nothing is asked.
+
+const SPY_ROLES = {
+  1: "spy",
+  2: "chef",
+  3: "empath",
+  4: "monk",
+  5: "soldier",
+  6: "poisoner",
+  7: "imp",
+  8: "virgin",
+  9: "mayor",
+  10: "slayer",
+};
+
+const GRIMOIRE = { kind: "grimoire" };
+
+const spyStep = (night: number, order: number) => ({
+  key: "n" + night + "-" + order + "-spy-1",
+  kind: "role",
+  roleId: "spy",
+  actorId: "1",
+  actorName: "P1",
+  actorAlive: true,
+  order,
+  targetMode: "none",
+  infoKind: "grimoire",
+  targetIds: [],
+  redirectId: null,
+  registrations: {},
+  given: null,
+  result: null,
+  note: null,
+  pending: null,
+  done: false,
+  skipped: false,
+  completedAt: null,
+});
+
+// The line a completed Spy step writes after `logged` earlier lines, with the
+// ids of `recordingPorts`.
+const spyStepLine = (night: number, logged: number) => ({
+  ...firstNightStepLine("spy", "Шпион", logged),
+  phase: "Ночь " + night,
+  phaseNumber: night,
+});
+
+function spyNight(night: number = 1): GameState {
+  const state = make(SPY_ROLES);
+  const started = startNight(state);
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (night === 2) nextNight(state);
+  return state;
+}
+
+test("the Spy step is built on every night with the grimoire shape and no target (TB-SPY-01, SYS-NIGHT-02)", () => {
+  const state = spyNight();
+  assert.deepEqual(queueKeys(state), [
+    "n1-0-minioninfo-all",
+    "n1-1-demoninfo-all",
+    "n1-2-poisoner-6",
+    "n1-6-chef-2",
+    "n1-7-empath-3",
+    "n1-10-spy-1",
+  ]);
+  assert.deepEqual(plain(roleStep(state, "spy")), spyStep(1, 10));
+
+  nextNight(state);
+  assert.equal(state.night.number, 2);
+  assert.deepEqual(queueKeys(state), [
+    "n2-0-poisoner-6",
+    "n2-1-monk-4",
+    "n2-3-imp-7",
+    "n2-5-empath-3",
+    "n2-9-spy-1",
+  ]);
+  assert.deepEqual(plain(roleStep(state, "spy")), spyStep(2, 9));
+
+  nextNight(state);
+  assert.equal(state.night.number, 3);
+  assert.deepEqual(plain(roleStep(state, "spy")), spyStep(3, 9));
+});
+
+for (const [night, order] of [
+  [1, 10],
+  [2, 9],
+]) {
+  test(`the Spy step of night ${night} keeps the grimoire as its record and writes one step line (TB-SPY-01)`, () => {
+    const state = spyNight(night);
+    const step = roleStep(state, "spy");
+    const built = plain(step);
+    assert.deepEqual(built, spyStep(night!, order!));
+    const logged = state.log.length;
+    const { ports, draws } = recordingPorts();
+
+    assert.deepEqual(infoForStep(state, step, {}), GRIMOIRE);
+    const result = completeStep(state, step.key, {}, ports);
+
+    assert.deepEqual(Object.keys(result), ["ok", "step"]);
+    assert.equal(result.ok, true);
+    assert.deepEqual(plain(step), { ...built, ...COMPLETED, given: GRIMOIRE, impaired: false });
+    assert.deepEqual(plain(state.log.slice(logged)), [spyStepLine(night!, logged)]);
+    assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+  });
+}
+
+test("the Spy step stores the grimoire whatever answer is sent with it (TB-SPY-01)", () => {
+  // Kept as found: nothing is asked, so no answer can stand in place of the
+  // Grimoire, and the targets are stored as they were sent.
+  for (const given of [
+    { kind: "number", value: 3 },
+    { kind: "character", roleId: "mayor" },
+    { kind: "grimoire", text: "another" },
+  ]) {
+    const state = spyNight();
+    const step = roleStep(state, "spy");
+    const logged = state.log.length;
+    const { ports, draws } = recordingPorts();
+
+    assert.deepEqual(infoForStep(state, step, { targetIds: ["2"] }), GRIMOIRE);
+    const result = completeStep(state, step.key, { given, targetIds: ["2"] }, ports);
+
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(plain(step), {
+      ...spyStep(1, 10),
+      ...COMPLETED,
+      given: GRIMOIRE,
+      targetIds: ["2"],
+      impaired: false,
+    });
+    assert.deepEqual(plain(state.log.slice(logged)), [spyStepLine(1, logged)], "no choice line");
+    assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+  }
+});
+
+test("a poisoned Spy is shown the grimoire without a question and the step is marked impaired (TB-SPY-01, SYS-EFFECTS-01)", () => {
+  const state = spyNight();
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const step = roleStep(state, "spy");
+  const logged = state.log.length;
+  const { ports, draws } = recordingPorts();
+
+  assert.deepEqual(
+    infoForStep(state, step, {}),
+    GRIMOIRE,
+    "nothing is offered and nothing is asked",
+  );
+  const result = completeStep(state, step.key, {}, ports);
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step), {
+    ...spyStep(1, 10),
+    ...COMPLETED,
+    given: GRIMOIRE,
+    impaired: true,
+  });
+  assert.deepEqual(plain(state.log.slice(logged)), [spyStepLine(1, logged)], "no choice line");
+  assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+});
+
+test("the Spy's own registration sent with its step is journaled before the step line, and another player's is refused (TB-SPY-01)", () => {
+  const state = spyNight();
+  const step = roleStep(state, "spy");
+  const logged = state.log.length;
+
+  const before = canonicalState(state);
+  assert.deepEqual(completeStep(state, step.key, { registrations: { "2": "evil" } }), {
+    ok: false,
+    errorCode: "error.67",
+    error: "Этот персонаж не меняет регистрацию.",
+  });
+  assert.deepEqual(canonicalState(state), before, "the refusal leaves the game as it was");
+
+  const result = completeStep(state, step.key, { registrations: { "1": "good" } });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(plain(step.given), GRIMOIRE);
+  assert.deepEqual(plain(step.registrations), { "1": "good" });
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => [line.kind, line.case ?? null, line.detail]),
+    [
+      ["choice", "registration", "P1 → good"],
+      ["night", null, "Шаг выполнен."],
+    ],
+  );
+});
+
+// Kept as found, not a rule: no rule gives the Spy a redirect. The shared end
+// of a step journals one that is sent with any step, and the step keeps none.
+test("a redirect sent with the Spy step is journaled as it was before the move", () => {
+  for (const [redirectId, detail] of [
+    ["3", "P3"],
+    ["none", "—"],
+  ] as const) {
+    const state = spyNight();
+    const step = roleStep(state, "spy");
+    const logged = state.log.length;
+
+    const result = completeStep(state, step.key, { redirectId });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(plain(step.given), GRIMOIRE);
+    assert.equal(step.redirectId, null, "the step keeps no redirect");
+    assert.deepEqual(
+      state.log.slice(logged).map((line) => [line.kind, line.case ?? null, line.detail]),
+      [
+        ["choice", "mayor-redirect", detail],
+        ["night", null, "Шаг выполнен."],
+      ],
+    );
+  }
+});
+
+test("a step of a role that owns no answer has no information", () => {
+  const state = spyNight();
+  const poisoner = roleStep(state, "poisoner");
+  assert.deepEqual(infoForStep(state, poisoner), { kind: "none" });
+  assert.deepEqual(infoForStep(state, poisoner, { targetIds: ["2"] }), { kind: "none" });
+
+  nextNight(state);
+  for (const roleId of ["monk", "imp"] as const) {
+    assert.deepEqual(infoForStep(state, roleStep(state, roleId)), { kind: "none" }, roleId);
+  }
+  assert.deepEqual(
+    infoForStep(state, { ...roleStep(state, "monk"), roleId: null }),
+    { kind: "none" },
+    "nor has a step without a role",
+  );
+});
+
+test("a Spy killed by the Demon loses its step of that night (TB-SPY-01)", () => {
+  const state = spyNight(2);
+  completeRole(state, "poisoner", { targetIds: ["2"] });
+  completeRole(state, "monk", { targetIds: ["3"] });
+  completeRole(state, "imp", { targetIds: ["1"] });
+  assert.equal(state.players["1"].alive, false);
+
+  const step = state.night.queue.find((candidate) => candidate.roleId === "spy")!;
+  assert.deepEqual(plain(step), {
+    ...spyStep(2, 9),
+    note: "Игрок погиб до своего шага.",
+    done: true,
+    skipped: true,
+    noteKey: "note.actorDied",
+    noteVars: null,
+  });
+  assert.deepEqual(completeStep(state, step.key, {}), {
+    ok: false,
+    errorCode: "error.37",
+    error: "Этот шаг уже выполнен.",
+  });
+
+  nextNight(state);
+  assert.equal(
+    state.night.queue.some((candidate) => candidate.roleId === "spy"),
+    false,
+    "a dead Spy does not wake",
+  );
+});
+
+test("the Spy step previews, applies and replays with the command clock and ids, also with an answer sent (TB-SPY-01)", () => {
+  for (const given of [undefined, { kind: "number", value: 3 }]) {
+    const state = spyNight();
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const at = "2030-01-01T00:00:00.000Z";
+    const key = roleStep(state, "spy").key;
+    const command = {
+      id: "spy-step",
+      type: "completeNightStep",
+      payload: given ? { key, given } : { key },
+      at,
+    };
+    const before = canonicalState(state);
+    const twin = plain(state);
+
+    const preview = previewCommand(state, command, runtime);
+    assert.equal(preview.status, "allowed", JSON.stringify(preview));
+    assert.deepEqual(canonicalState(state), before, "preview must not mutate");
+    const applied = applyCommand(state, command, runtime);
+    assert.equal(applied.status, "allowed", JSON.stringify(applied));
+    assert.deepEqual(
+      "events" in preview ? preview.events : null,
+      "events" in applied ? applied.events : undefined,
+      "preview and apply derive the same events",
+    );
+    assert.deepEqual(
+      ("events" in applied ? (applied.events ?? []) : []).map((event) => event.type),
+      ["step.completed", "step.updated"],
+    );
+    const step = state.night.queue.find((candidate) => candidate.roleId === "spy")!;
+    assert.deepEqual(plain(step.given), GRIMOIRE);
+    assert.equal(step.completedAt, at, "the step uses the command clock");
+
+    assert.equal(applyCommand(twin, command, runtime).status, "allowed");
+    assert.deepEqual(
+      twin.log.at(-1),
+      state.log.at(-1),
+      "the line id comes from the command stream",
+    );
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+
+    const saved = importGame(exportGame(state));
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    if (!saved.ok) return;
+    const reloaded = replay(saved.state.journal, runtime);
+    assert.equal(reloaded.ok, true, JSON.stringify(reloaded));
+    assert.deepEqual(canonicalState(reloaded.state), canonicalState(state));
+  }
+});
+
+// A module whose ability shows the Grimoire. The tests below use it, so they
+// show what the engine records for the decision itself, whatever role and
+// step shape it comes with.
+function showing(
+  id: RoleModule["id"],
+  seen: InformationContext[] = [],
+  shape: string = "grimoire",
+): RoleModule {
+  return {
+    id,
+    edition: "tb",
+    capabilities: [
+      { kind: "night-step", timing: "any", step: { infoKind: shape } },
+      {
+        kind: "information",
+        infoKind: "probe",
+        resolve(context) {
+          seen.push(context);
+          return { kind: "grimoire" };
+        },
+      },
+    ],
+  };
+}
+
+test("a grimoire decision is recorded as the Grimoire, whatever shape the step declares", () => {
+  const state = spyNight();
+  const step = roleStep(state, "spy");
+
+  const info = moduleInfoForStep(state, showing("spy"), step, {});
+  assert.deepEqual(info, GRIMOIRE);
+  assert.deepEqual(Object.keys(info!), ["kind"], "the record offers nothing and asks nothing");
+  assert.deepEqual(
+    moduleInfoForStep(state, showing("spy", [], "number"), step, {}),
+    GRIMOIRE,
+    "the Grimoire is not a value of another shape",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(state, showing("chef"), roleStep(state, "chef"), {}),
+    GRIMOIRE,
+    "the decision is the module's, not the name of a role",
+  );
+  assert.notEqual(
+    moduleInfoForStep(state, showing("spy"), step, {}),
+    info,
+    "each read gives the step its own record",
+  );
+});
+
+test("an impaired owner of a grimoire decision is asked nothing", () => {
+  const state = spyNight();
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const seen: InformationContext[] = [];
+
+  const info = moduleInfoForStep(state, showing("spy", seen), roleStep(state, "spy"), {});
+  assert.equal(seen.length, 1, "the module is asked once");
+  assert.equal(seen[0]!.impaired, true, "the engine knows the owner is poisoned");
+  assert.deepEqual(info, GRIMOIRE, "and records the Grimoire without a question");
+});
+
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {
   const state = make({
     1: "monk",
