@@ -195,13 +195,15 @@ default; a store command always passes its own ports.
 The ports also carry the command's ruleset version. A fix that would change
 what a recorded command did adds a version to `command-versions.ts`, and the
 engine branches on it where the fix applies, so a recorded command keeps its
-behavior and a saved journal replays and undoes as it was written. Three
+behavior and a saved journal replays and undoes as it was written. Four
 fixes do so: the zero answered for any role (`answersZeroForAnyRole`), the new
 Demon's wake, repeated on the next night and late after a named heir
-(`repeatsDemonWake`), and the Tinker's night step, which took any death the
+(`repeatsDemonWake`), the Tinker's night step, which took any death the
 host marked, also while the Tinker was drunk or poisoned
-(`marksAnyDeathOnTinkerStep`). A direct read outside a command has no version
-and follows the rule.
+(`marksAnyDeathOnTinkerStep`), and the Bad Moon Rising night steps, which
+brought back any dead player the host marked, also on a step whose ability
+does not resurrect (`resurrectsOnAnyStep`). A direct read outside a command
+has no version and follows the rule.
 
 ## Store transaction
 

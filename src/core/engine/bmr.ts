@@ -56,7 +56,11 @@ import {
   otherNightStepOf,
 } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
-import { LEGACY_RULESET_VERSION, marksAnyDeathOnTinkerStep } from "./command-versions.ts";
+import {
+  LEGACY_RULESET_VERSION,
+  marksAnyDeathOnTinkerStep,
+  resurrectsOnAnyStep,
+} from "./command-versions.ts";
 
 const DEMON_ROLES = new Set(["po", "pukka", "shabaloth", "zombuul"]);
 
@@ -1064,6 +1068,17 @@ export function recordBmrOutcome(
     }
   }
   if (resurrectId) {
+    // Professor r1775 and Shabaloth r1790 are the Bad Moon Rising abilities
+    // that bring a player back, so a step whose ability does not resurrect
+    // brings no one back. A command recorded before this rule keeps the
+    // resurrection it marked.
+    if (!step.canResurrect && !resurrectsOnAnyStep(ports.rulesetVersion)) {
+      return {
+        ok: false,
+        errorCode: "error.51",
+        error: "Способность этого шага никого не возвращает.",
+      };
+    }
     const target = playerById(state, resurrectId);
     if (step.roleId === "professor") {
       // The step owns the ability: the outcome may only repeat the chosen

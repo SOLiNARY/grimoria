@@ -4234,6 +4234,38 @@ test("the Lunatic attacks as the Demon mask, with its target mode (BMR27)", () =
   assert.equal(three.maxTargets, 3);
 });
 
+test("a Lunatic shown the Shabaloth brings no one back on their step (BMR-SHABALOTH-01)", () => {
+  // Shabaloth r1790: "A dead player you chose last night might be
+  // regurgitated." The Lunatic only believes they are the Shabaloth: their step
+  // targets as the Shabaloth does but has no ability, so it regurgitates no
+  // one, while the real Po's kill stands.
+  const state = make(
+    {
+      1: "lunatic",
+      2: "po",
+      3: "chambermaid",
+      4: "courtier",
+      5: "exorcist",
+      6: "gambler",
+      7: "sailor",
+      8: "mastermind",
+    },
+    { count: 8, lunaticShownId: "shabaloth" },
+  );
+  nextNight(state);
+  const lunatic = state.night.queue.find((step) => step.roleId === "lunatic")!;
+  const po = state.night.queue.find((step) => step.roleId === "po")!;
+  assert.equal(lunatic.canResurrect, false);
+  assert.equal(completeStep(state, lunatic.key, { targetIds: ["3", "4"] }).ok, true);
+  assert.equal(completeStep(state, po.key, { targetIds: ["3"] }).ok, true);
+  assert.equal(recordBmrOutcome(state, po.key, { deathIds: ["3"] }).ok, true);
+  assert.equal(state.players["3"].alive, false, "the Po killed the Chambermaid");
+  const regurgitated = recordBmrOutcome(state, lunatic.key, { resurrectId: "3" });
+  assert.equal(regurgitated.ok, false, JSON.stringify(regurgitated));
+  assert.equal(regurgitated.errorCode, "error.51");
+  assert.equal(state.players["3"].alive, false, "the Chambermaid stays dead");
+});
+
 test("the Demon learns the Lunatic's choice even when it does not wake (BMR28)", () => {
   // The Lunatic believes they are the Po while the real Demon is a Zombuul:
   // the Zombuul does not wake after a death today, the Lunatic does.

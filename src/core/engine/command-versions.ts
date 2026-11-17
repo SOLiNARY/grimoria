@@ -19,12 +19,19 @@ export const REPEATED_DEMON_WAKE_RULESET_VERSION = "tb-bmr-snv-2026-11-17";
  * dies there, and only while the ability works (Tinker r1782, States r1039).
  */
 export const OPEN_TINKER_STEP_RULESET_VERSION = "tb-bmr-snv-2026-11-17.1";
-export const RULESET_VERSION = "tb-bmr-snv-2026-11-17.2";
+/**
+ * The last version whose Bad Moon Rising night steps took any resurrection
+ * the host marked. From the next one only a step whose ability resurrects
+ * brings a player back (Professor r1775, Shabaloth r1790).
+ */
+export const ANY_STEP_RESURRECTS_RULESET_VERSION = "tb-bmr-snv-2026-11-17.2";
+export const RULESET_VERSION = "tb-bmr-snv-2026-11-17.3";
 export const SUPPORTED_RULESET_VERSIONS = new Set([
   LEGACY_RULESET_VERSION,
   ANY_ROLE_ZERO_RULESET_VERSION,
   REPEATED_DEMON_WAKE_RULESET_VERSION,
   OPEN_TINKER_STEP_RULESET_VERSION,
+  ANY_STEP_RESURRECTS_RULESET_VERSION,
   RULESET_VERSION,
 ]);
 
@@ -56,5 +63,19 @@ export function marksAnyDeathOnTinkerStep(version: string | undefined): boolean 
     version === ANY_ROLE_ZERO_RULESET_VERSION ||
     version === REPEATED_DEMON_WAKE_RULESET_VERSION ||
     version === OPEN_TINKER_STEP_RULESET_VERSION
+  );
+}
+
+/**
+ * Whether a command recorded under this version lets the host bring a player
+ * back on a Bad Moon Rising night step whose ability does not resurrect.
+ */
+export function resurrectsOnAnyStep(version: string | undefined): boolean {
+  return (
+    version === LEGACY_RULESET_VERSION ||
+    version === ANY_ROLE_ZERO_RULESET_VERSION ||
+    version === REPEATED_DEMON_WAKE_RULESET_VERSION ||
+    version === OPEN_TINKER_STEP_RULESET_VERSION ||
+    version === ANY_STEP_RESURRECTS_RULESET_VERSION
   );
 }

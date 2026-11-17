@@ -1,0 +1,2018 @@
+{
+  "v": 4,
+  "scriptId": "bmr",
+  "script": {
+    "id": "bmr",
+    "name": "Bad Moon Rising",
+    "edition": "bmr",
+    "source": "official",
+    "author": "",
+    "roles": [
+      "chambermaid",
+      "courtier",
+      "exorcist",
+      "fool",
+      "gambler",
+      "gossip",
+      "grandmother",
+      "innkeeper",
+      "minstrel",
+      "pacifist",
+      "professor",
+      "sailor",
+      "tealady",
+      "goon",
+      "lunatic",
+      "moonchild",
+      "tinker",
+      "assassin",
+      "devilsadvocate",
+      "godfather",
+      "mastermind",
+      "po",
+      "pukka",
+      "shabaloth",
+      "zombuul"
+    ],
+    "manualOnly": false
+  },
+  "createdAt": "2026-11-17T13:51:23.260Z",
+  "updatedAt": "2026-11-17T13:51:23.265Z",
+  "phase": "day",
+  "setup": {
+    "count": 8,
+    "roles": [
+      "tinker",
+      "courtier",
+      "chambermaid",
+      "gossip",
+      "sailor",
+      "exorcist",
+      "assassin",
+      "po"
+    ],
+    "bluffs": ["innkeeper", "grandmother", "minstrel"],
+    "drunkShownId": null,
+    "lunaticShownId": null,
+    "lunaticShownExplicit": false,
+    "lunaticBluffs": [],
+    "godfatherOutsider": 1,
+    "grandmotherId": null,
+    "evilTwinGoodId": null,
+    "evilTwinGoodPlayerId": null,
+    "evilTwinPlayerId": null,
+    "herringId": null,
+    "info": {
+      "washerwoman": null,
+      "librarian": null,
+      "investigator": null
+    },
+    "ready": true
+  },
+  "order": ["1", "2", "3", "4", "5", "6", "7", "8"],
+  "players": {
+    "1": {
+      "id": "1",
+      "seat": 1,
+      "name": "",
+      "roleId": "tinker",
+      "shownRoleId": "tinker",
+      "team": "good",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "2": {
+      "id": "2",
+      "seat": 2,
+      "name": "",
+      "roleId": "courtier",
+      "shownRoleId": "courtier",
+      "team": "good",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "3": {
+      "id": "3",
+      "seat": 3,
+      "name": "",
+      "roleId": "chambermaid",
+      "shownRoleId": "chambermaid",
+      "team": "good",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": "",
+      "registeredDead": false
+    },
+    "4": {
+      "id": "4",
+      "seat": 4,
+      "name": "",
+      "roleId": "gossip",
+      "shownRoleId": "gossip",
+      "team": "good",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": "",
+      "registeredDead": false
+    },
+    "5": {
+      "id": "5",
+      "seat": 5,
+      "name": "",
+      "roleId": "sailor",
+      "shownRoleId": "sailor",
+      "team": "good",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "6": {
+      "id": "6",
+      "seat": 6,
+      "name": "",
+      "roleId": "exorcist",
+      "shownRoleId": "exorcist",
+      "team": "good",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "7": {
+      "id": "7",
+      "seat": 7,
+      "name": "",
+      "roleId": "assassin",
+      "shownRoleId": "assassin",
+      "team": "evil",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {},
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    },
+    "8": {
+      "id": "8",
+      "seat": 8,
+      "name": "",
+      "roleId": "po",
+      "shownRoleId": "po",
+      "team": "evil",
+      "alive": true,
+      "claimed": true,
+      "reminders": [],
+      "used": {
+        "poNoOne": false
+      },
+      "voteToken": true,
+      "butlerMasterId": null,
+      "changedFrom": null,
+      "deadAt": null,
+      "notes": ""
+    }
+  },
+  "bluffs": ["innkeeper", "grandmother", "minstrel"],
+  "herringId": null,
+  "gossip": null,
+  "juggler": null,
+  "artist": null,
+  "savant": null,
+  "abnormal": [],
+  "lastDay": {
+    "number": 2,
+    "nominations": [],
+    "execution": null
+  },
+  "mastermind": null,
+  "fangguJumped": false,
+  "night": {
+    "number": 3,
+    "queue": [
+      {
+        "key": "n3-0-sailor-5",
+        "kind": "role",
+        "bmr": true,
+        "roleId": "sailor",
+        "actorId": "5",
+        "actorName": "",
+        "actorAlive": true,
+        "order": 0,
+        "targetMode": "one-any",
+        "minTargets": 1,
+        "maxTargets": 1,
+        "infoKind": "none",
+        "optional": false,
+        "canKill": false,
+        "canResurrect": false,
+        "note": "Пропущено: fixture",
+        "noteKey": "note.skipped",
+        "targetIds": [],
+        "registrations": {},
+        "given": null,
+        "result": null,
+        "pending": null,
+        "done": true,
+        "skipped": true,
+        "completedAt": null,
+        "noteVars": {
+          "reason": "fixture"
+        }
+      },
+      {
+        "key": "n3-1-courtier-2",
+        "kind": "role",
+        "bmr": true,
+        "roleId": "courtier",
+        "actorId": "2",
+        "actorName": "",
+        "actorAlive": true,
+        "order": 1,
+        "targetMode": "none",
+        "minTargets": 0,
+        "maxTargets": 0,
+        "infoKind": "none",
+        "optional": true,
+        "canKill": false,
+        "canResurrect": false,
+        "note": "Пропущено: fixture",
+        "noteKey": "note.skipped",
+        "targetIds": [],
+        "registrations": {},
+        "given": null,
+        "result": null,
+        "pending": null,
+        "done": true,
+        "skipped": true,
+        "completedAt": null,
+        "roleChoices": [
+          "chambermaid",
+          "courtier",
+          "exorcist",
+          "fool",
+          "gambler",
+          "gossip",
+          "grandmother",
+          "innkeeper",
+          "minstrel",
+          "pacifist",
+          "professor",
+          "sailor",
+          "tealady",
+          "goon",
+          "lunatic",
+          "moonchild",
+          "tinker",
+          "assassin",
+          "devilsadvocate",
+          "godfather",
+          "mastermind",
+          "po",
+          "pukka",
+          "shabaloth",
+          "zombuul"
+        ],
+        "noteVars": {
+          "reason": "fixture"
+        }
+      },
+      {
+        "key": "n3-6-exorcist-6",
+        "kind": "role",
+        "bmr": true,
+        "roleId": "exorcist",
+        "actorId": "6",
+        "actorName": "",
+        "actorAlive": true,
+        "order": 6,
+        "targetMode": "one-any",
+        "minTargets": 1,
+        "maxTargets": 1,
+        "infoKind": "none",
+        "optional": false,
+        "canKill": false,
+        "canResurrect": false,
+        "note": "Пропущено: fixture",
+        "noteKey": "note.skipped",
+        "targetIds": [],
+        "registrations": {},
+        "given": null,
+        "result": null,
+        "pending": null,
+        "done": true,
+        "skipped": true,
+        "completedAt": null,
+        "noteVars": {
+          "reason": "fixture"
+        }
+      },
+      {
+        "key": "n3-10-po-8",
+        "kind": "role",
+        "bmr": true,
+        "roleId": "po",
+        "actorId": "8",
+        "actorName": "",
+        "actorAlive": true,
+        "order": 10,
+        "targetMode": "po",
+        "minTargets": 0,
+        "maxTargets": 1,
+        "infoKind": "none",
+        "optional": false,
+        "canKill": true,
+        "canResurrect": false,
+        "note": "Шаг выполнен.",
+        "noteKey": "note.finished",
+        "targetIds": ["3"],
+        "registrations": {},
+        "given": null,
+        "result": null,
+        "pending": null,
+        "done": true,
+        "skipped": false,
+        "completedAt": "2026-11-17T00:00:00.000Z",
+        "impaired": false,
+        "noteVars": null
+      },
+      {
+        "key": "n3-11-assassin-7",
+        "kind": "role",
+        "bmr": true,
+        "roleId": "assassin",
+        "actorId": "7",
+        "actorName": "",
+        "actorAlive": true,
+        "order": 11,
+        "targetMode": "one-any",
+        "minTargets": 1,
+        "maxTargets": 1,
+        "infoKind": "none",
+        "optional": true,
+        "canKill": true,
+        "canResurrect": false,
+        "note": "Пропущено: fixture",
+        "noteKey": "note.skipped",
+        "targetIds": [],
+        "registrations": {},
+        "given": null,
+        "result": null,
+        "pending": null,
+        "done": true,
+        "skipped": true,
+        "completedAt": null,
+        "noteVars": {
+          "reason": "fixture"
+        }
+      },
+      {
+        "key": "n3-15-tinker-1",
+        "kind": "role",
+        "bmr": true,
+        "roleId": "tinker",
+        "actorId": "1",
+        "actorName": "",
+        "actorAlive": true,
+        "order": 15,
+        "targetMode": "none",
+        "minTargets": 0,
+        "maxTargets": 0,
+        "infoKind": "none",
+        "optional": false,
+        "canKill": true,
+        "canResurrect": false,
+        "note": "Пропущено: fixture",
+        "noteKey": "note.skipped",
+        "targetIds": [],
+        "registrations": {},
+        "given": null,
+        "result": null,
+        "pending": null,
+        "done": true,
+        "skipped": true,
+        "completedAt": null,
+        "noteVars": {
+          "reason": "fixture"
+        }
+      },
+      {
+        "key": "n3-18-chambermaid-3",
+        "kind": "role",
+        "bmr": true,
+        "roleId": "chambermaid",
+        "actorId": "3",
+        "actorName": "",
+        "actorAlive": true,
+        "order": 18,
+        "targetMode": "two",
+        "minTargets": 2,
+        "maxTargets": 2,
+        "infoKind": "number",
+        "optional": false,
+        "canKill": false,
+        "canResurrect": false,
+        "note": "Пропущено: fixture",
+        "noteKey": "note.skipped",
+        "targetIds": [],
+        "registrations": {},
+        "given": null,
+        "result": null,
+        "pending": null,
+        "done": true,
+        "skipped": true,
+        "completedAt": null,
+        "noteVars": {
+          "reason": "fixture"
+        }
+      }
+    ],
+    "currentIndex": 0,
+    "demonChanged": false
+  },
+  "day": {
+    "number": 3,
+    "morning": [
+      {
+        "playerId": "3"
+      }
+    ],
+    "nominations": [],
+    "activeNominationId": null,
+    "execution": null,
+    "ended": false,
+    "open": false
+  },
+  "deaths": [
+    {
+      "id": "death-1-jusu",
+      "playerId": "4",
+      "roleId": "gossip",
+      "cause": "ability",
+      "phase": "night",
+      "number": 2,
+      "at": "2026-11-17T00:00:00.000Z",
+      "impaired": false,
+      "livingBefore": 8,
+      "demon": true,
+      "ability": "po",
+      "bmr": true,
+      "bypassProtection": false
+    },
+    {
+      "id": "death-2-8uck",
+      "playerId": "3",
+      "roleId": "chambermaid",
+      "cause": "ability",
+      "phase": "night",
+      "number": 3,
+      "at": "2026-11-17T00:00:00.000Z",
+      "impaired": false,
+      "livingBefore": 8,
+      "demon": true,
+      "ability": "po",
+      "bmr": true,
+      "bypassProtection": false
+    }
+  ],
+  "executions": [],
+  "effects": [],
+  "corrections": [],
+  "log": [
+    {
+      "id": "log-1-bt3qh",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "setup",
+      "title": "Роли разданы",
+      "detail": "Передайте устройство по кругу. Не обсуждайте роли до конца первой ночи.",
+      "playerId": null,
+      "secret": false
+    },
+    {
+      "id": "log-2-s1741",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 1 занято",
+      "detail": "",
+      "playerId": "1",
+      "secret": true
+    },
+    {
+      "id": "log-3-744nf",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 2 занято",
+      "detail": "",
+      "playerId": "2",
+      "secret": true
+    },
+    {
+      "id": "log-4-jlpun",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 3 занято",
+      "detail": "",
+      "playerId": "3",
+      "secret": true
+    },
+    {
+      "id": "log-5-mk0py",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 4 занято",
+      "detail": "",
+      "playerId": "4",
+      "secret": true
+    },
+    {
+      "id": "log-6-b2yxx",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 5 занято",
+      "detail": "",
+      "playerId": "5",
+      "secret": true
+    },
+    {
+      "id": "log-7-cz9o2",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 6 занято",
+      "detail": "",
+      "playerId": "6",
+      "secret": true
+    },
+    {
+      "id": "log-8-vuksr",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 7 занято",
+      "detail": "",
+      "playerId": "7",
+      "secret": true
+    },
+    {
+      "id": "log-9-klrr9",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Подготовка",
+      "kind": "deal",
+      "title": "Место 8 занято",
+      "detail": "",
+      "playerId": "8",
+      "secret": true
+    },
+    {
+      "id": "log-10-u921v",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 1",
+      "kind": "phase",
+      "title": "Ночь 1",
+      "detail": "Разбудите роли по порядку. Не называйте роли вслух.",
+      "playerId": null,
+      "secret": false
+    },
+    {
+      "id": "log-11-qadq9",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 1",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "minioninfo: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-12-5epog",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 1",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "demoninfo: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-13-nv5vh",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 1",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "sailor: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-14-8dzjo",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 1",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "courtier: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-15-jl29l",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 1",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "chambermaid: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-16-40nuh",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "День 1",
+      "kind": "phase",
+      "title": "Утро 1",
+      "detail": "Ночью никто не погиб.",
+      "playerId": null,
+      "secret": false
+    },
+    {
+      "id": "log-17-ipagp",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "phase",
+      "title": "Ночь 2",
+      "detail": "Город засыпает. Разбудите роли по порядку.",
+      "playerId": null,
+      "secret": false
+    },
+    {
+      "id": "log-18-o66uu",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "По",
+      "detail": "Шаг выполнен.",
+      "playerId": null,
+      "secret": true,
+      "roleId": "po",
+      "phaseCode": "night",
+      "phaseNumber": 2,
+      "noteKey": "note.finished",
+      "noteVars": null
+    },
+    {
+      "id": "log-19-hpfpy",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "death",
+      "title": " погибает",
+      "detail": "Причина: ability. Роль: Сплетница.",
+      "playerId": "4",
+      "secret": true,
+      "consequence": "death"
+    },
+    {
+      "id": "log-20-lze02",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Итог: По",
+      "detail": "Погибли: .",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-21-chra3",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Механик",
+      "detail": "Шаг выполнен.",
+      "playerId": null,
+      "secret": true,
+      "roleId": "tinker",
+      "phaseCode": "night",
+      "phaseNumber": 2,
+      "noteKey": "note.finished",
+      "noteVars": null
+    },
+    {
+      "id": "log-22-kopil",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "death",
+      "title": " возвращается",
+      "detail": "Роль: Сплетница.",
+      "playerId": "4",
+      "secret": true,
+      "consequence": "revived"
+    },
+    {
+      "id": "log-23-io9w2",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Итог: Механик",
+      "detail": "Смертей нет.",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-24-vt1zg",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "sailor: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-25-eyjae",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "courtier: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-26-c37os",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "exorcist: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-27-bzpd4",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "assassin: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-28-tu8wc",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 2",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "chambermaid: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-29-3nngj",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "День 2",
+      "kind": "phase",
+      "title": "Утро 2",
+      "detail": "Погибли: .",
+      "playerId": null,
+      "secret": false
+    },
+    {
+      "id": "log-30-yav1d",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "phase",
+      "title": "Ночь 3",
+      "detail": "Город засыпает. Разбудите роли по порядку.",
+      "playerId": null,
+      "secret": false
+    },
+    {
+      "id": "log-31-ndbfi",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "По",
+      "detail": "Шаг выполнен.",
+      "playerId": null,
+      "secret": true,
+      "roleId": "po",
+      "phaseCode": "night",
+      "phaseNumber": 3,
+      "noteKey": "note.finished",
+      "noteVars": null
+    },
+    {
+      "id": "log-32-53ltr",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "death",
+      "title": " погибает",
+      "detail": "Причина: ability. Роль: Горничная.",
+      "playerId": "3",
+      "secret": true,
+      "consequence": "death"
+    },
+    {
+      "id": "log-33-o4fmg",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Итог: По",
+      "detail": "Погибли: .",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-34-hx7f2",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "death",
+      "title": " возвращается",
+      "detail": "Роль: Горничная.",
+      "playerId": "3",
+      "secret": true,
+      "consequence": "revived"
+    },
+    {
+      "id": "log-35-cmgq4",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Итог: По",
+      "detail": "Смертей нет.",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-36-olyal",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "sailor: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-37-y2h9z",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "courtier: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-38-man8e",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "exorcist: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-39-qi7if",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "assassin: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-40-vqyt0",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "tinker: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-41-ghhkm",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "Ночь 3",
+      "kind": "night",
+      "title": "Шаг пропущен",
+      "detail": "chambermaid: fixture",
+      "playerId": null,
+      "secret": true
+    },
+    {
+      "id": "log-42-knp8g",
+      "at": "2026-11-17T00:00:00.000Z",
+      "phase": "День 3",
+      "kind": "phase",
+      "title": "Утро 3",
+      "detail": "Погибли: .",
+      "playerId": null,
+      "secret": false
+    }
+  ],
+  "notes": "",
+  "winner": null,
+  "reviewOpen": false,
+  "publicRevealed": false,
+  "applied": {
+    "resurrect-1": {
+      "type": "bagUpdate",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"patch\":{\"bluffs\":[\"innkeeper\",\"grandmother\",\"minstrel\"],\"count\":8,\"phase\":\"setup\",\"resetRoster\":true,\"roles\":[\"tinker\",\"courtier\",\"chambermaid\",\"gossip\",\"sailor\",\"exorcist\",\"assassin\",\"po\"],\"script\":{\"edition\":\"bmr\",\"id\":\"bmr\",\"name\":\"Bad Moon Rising\",\"roles\":[\"chambermaid\",\"courtier\",\"exorcist\",\"fool\",\"gambler\",\"gossip\",\"grandmother\",\"innkeeper\",\"minstrel\",\"pacifist\",\"professor\",\"sailor\",\"tealady\",\"goon\",\"lunatic\",\"moonchild\",\"tinker\",\"assassin\",\"devilsadvocate\",\"godfather\",\"mastermind\",\"po\",\"pukka\",\"shabaloth\",\"zombuul\"],\"source\":\"official\"}}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"bagUpdate\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-2": {
+      "type": "dealGame",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"options\":{\"assignment\":{\"1\":\"tinker\",\"2\":\"courtier\",\"3\":\"chambermaid\",\"4\":\"gossip\",\"5\":\"sailor\",\"6\":\"exorcist\",\"7\":\"assassin\",\"8\":\"po\"}}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"dealGame\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-3": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"1\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-4": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"2\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-5": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"3\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-6": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"4\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-7": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"5\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-8": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"6\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-9": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"7\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-10": {
+      "type": "claimSeat",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"playerId\":\"8\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-11": {
+      "type": "autoSecrets",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"options\":{}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"autoSecrets\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-12": {
+      "type": "startNight",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"startNight\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-13": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n1-0-minioninfo-all\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-14": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n1-1.5-demoninfo-all\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-15": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n1-2-sailor-5\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-16": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n1-3-courtier-2\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-17": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n1-8-chambermaid-3\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-18": {
+      "type": "endNight",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endNight\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-19": {
+      "type": "endDay",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endDay\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-20": {
+      "type": "completeNightStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"deathIds\":[\"4\"],\"key\":\"n2-10-po-8\",\"targetIds\":[\"4\"]},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"completeNightStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-21": {
+      "type": "completeNightStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n2-15-tinker-1\",\"resurrectId\":\"4\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"completeNightStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-22": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n2-0-sailor-5\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-23": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n2-1-courtier-2\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-24": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n2-6-exorcist-6\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-25": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n2-11-assassin-7\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-26": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n2-18-chambermaid-3\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-27": {
+      "type": "endNight",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endNight\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-28": {
+      "type": "endDay",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endDay\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-29": {
+      "type": "completeNightStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"deathIds\":[\"3\"],\"key\":\"n3-10-po-8\",\"targetIds\":[\"3\"]},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"completeNightStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-30": {
+      "type": "recordBmrOutcome",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"options\":{\"resurrectId\":\"3\"},\"stepKey\":\"n3-10-po-8\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"recordBmrOutcome\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-31": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n3-0-sailor-5\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-32": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n3-1-courtier-2\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-33": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n3-6-exorcist-6\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-34": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n3-11-assassin-7\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-35": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n3-15-tinker-1\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-36": {
+      "type": "skipStep",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{\"key\":\"n3-18-chambermaid-3\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    },
+    "resurrect-37": {
+      "type": "endNight",
+      "at": "2026-11-17T00:00:00.000Z",
+      "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+      "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endNight\"}",
+      "followUp": null,
+      "result": null,
+      "undoable": true
+    }
+  },
+  "journal": {
+    "base": {
+      "v": 4,
+      "scriptId": "tb",
+      "script": {
+        "id": "tb",
+        "name": "Trouble Brewing",
+        "edition": "tb",
+        "source": "official",
+        "roles": [
+          "washerwoman",
+          "librarian",
+          "investigator",
+          "chef",
+          "empath",
+          "fortuneteller",
+          "undertaker",
+          "monk",
+          "ravenkeeper",
+          "virgin",
+          "slayer",
+          "soldier",
+          "mayor",
+          "butler",
+          "drunk",
+          "recluse",
+          "saint",
+          "poisoner",
+          "spy",
+          "scarletwoman",
+          "baron",
+          "imp"
+        ]
+      },
+      "createdAt": "2026-11-17T13:51:23.260Z",
+      "updatedAt": "2026-11-17T13:51:23.265Z",
+      "phase": "setup",
+      "setup": {
+        "count": 8,
+        "roles": [],
+        "bluffs": [],
+        "drunkShownId": null,
+        "lunaticShownId": null,
+        "lunaticShownExplicit": false,
+        "lunaticBluffs": [],
+        "godfatherOutsider": 1,
+        "grandmotherId": null,
+        "evilTwinGoodId": null,
+        "evilTwinGoodPlayerId": null,
+        "evilTwinPlayerId": null,
+        "herringId": null,
+        "info": {
+          "washerwoman": null,
+          "librarian": null,
+          "investigator": null
+        },
+        "ready": false
+      },
+      "order": ["1", "2", "3", "4", "5", "6", "7", "8"],
+      "players": {
+        "1": {
+          "id": "1",
+          "seat": 1,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "2": {
+          "id": "2",
+          "seat": 2,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "3": {
+          "id": "3",
+          "seat": 3,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "4": {
+          "id": "4",
+          "seat": 4,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "5": {
+          "id": "5",
+          "seat": 5,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "6": {
+          "id": "6",
+          "seat": 6,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "7": {
+          "id": "7",
+          "seat": 7,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        },
+        "8": {
+          "id": "8",
+          "seat": 8,
+          "name": "",
+          "roleId": null,
+          "shownRoleId": null,
+          "team": null,
+          "alive": true,
+          "claimed": false,
+          "reminders": [],
+          "used": {},
+          "voteToken": true,
+          "butlerMasterId": null,
+          "changedFrom": null,
+          "deadAt": null,
+          "notes": ""
+        }
+      },
+      "bluffs": [],
+      "herringId": null,
+      "gossip": null,
+      "juggler": null,
+      "artist": null,
+      "savant": null,
+      "abnormal": [],
+      "lastDay": null,
+      "mastermind": null,
+      "fangguJumped": false,
+      "night": {
+        "number": 0,
+        "queue": [],
+        "currentIndex": 0,
+        "demonChanged": false
+      },
+      "day": {
+        "number": 0,
+        "morning": [],
+        "nominations": [],
+        "activeNominationId": null,
+        "execution": null,
+        "ended": false,
+        "open": false
+      },
+      "deaths": [],
+      "executions": [],
+      "effects": [],
+      "corrections": [],
+      "log": [],
+      "notes": "",
+      "winner": null,
+      "reviewOpen": false,
+      "publicRevealed": false,
+      "applied": {},
+      "storageError": null,
+      "migratedFrom": null
+    },
+    "entries": [
+      {
+        "id": "resurrect-1",
+        "type": "bagUpdate",
+        "payload": {
+          "patch": {
+            "count": 8,
+            "resetRoster": true,
+            "phase": "setup",
+            "script": {
+              "id": "bmr",
+              "name": "Bad Moon Rising",
+              "edition": "bmr",
+              "source": "official",
+              "roles": [
+                "chambermaid",
+                "courtier",
+                "exorcist",
+                "fool",
+                "gambler",
+                "gossip",
+                "grandmother",
+                "innkeeper",
+                "minstrel",
+                "pacifist",
+                "professor",
+                "sailor",
+                "tealady",
+                "goon",
+                "lunatic",
+                "moonchild",
+                "tinker",
+                "assassin",
+                "devilsadvocate",
+                "godfather",
+                "mastermind",
+                "po",
+                "pukka",
+                "shabaloth",
+                "zombuul"
+              ]
+            },
+            "roles": [
+              "tinker",
+              "courtier",
+              "chambermaid",
+              "gossip",
+              "sailor",
+              "exorcist",
+              "assassin",
+              "po"
+            ],
+            "bluffs": ["innkeeper", "grandmother", "minstrel"]
+          }
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"patch\":{\"bluffs\":[\"innkeeper\",\"grandmother\",\"minstrel\"],\"count\":8,\"phase\":\"setup\",\"resetRoster\":true,\"roles\":[\"tinker\",\"courtier\",\"chambermaid\",\"gossip\",\"sailor\",\"exorcist\",\"assassin\",\"po\"],\"script\":{\"edition\":\"bmr\",\"id\":\"bmr\",\"name\":\"Bad Moon Rising\",\"roles\":[\"chambermaid\",\"courtier\",\"exorcist\",\"fool\",\"gambler\",\"gossip\",\"grandmother\",\"innkeeper\",\"minstrel\",\"pacifist\",\"professor\",\"sailor\",\"tealady\",\"goon\",\"lunatic\",\"moonchild\",\"tinker\",\"assassin\",\"devilsadvocate\",\"godfather\",\"mastermind\",\"po\",\"pukka\",\"shabaloth\",\"zombuul\"],\"source\":\"official\"}}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"bagUpdate\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-2",
+        "type": "dealGame",
+        "payload": {
+          "options": {
+            "assignment": {
+              "1": "tinker",
+              "2": "courtier",
+              "3": "chambermaid",
+              "4": "gossip",
+              "5": "sailor",
+              "6": "exorcist",
+              "7": "assassin",
+              "8": "po"
+            }
+          }
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"options\":{\"assignment\":{\"1\":\"tinker\",\"2\":\"courtier\",\"3\":\"chambermaid\",\"4\":\"gossip\",\"5\":\"sailor\",\"6\":\"exorcist\",\"7\":\"assassin\",\"8\":\"po\"}}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"dealGame\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-3",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "1"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"1\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-4",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "2"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"2\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-5",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "3"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"3\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-6",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "4"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"4\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-7",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "5"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"5\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-8",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "6"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"6\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-9",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "7"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"7\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-10",
+        "type": "claimSeat",
+        "payload": {
+          "playerId": "8"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"playerId\":\"8\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"claimSeat\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-11",
+        "type": "autoSecrets",
+        "payload": {
+          "options": {}
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"options\":{}},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"autoSecrets\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-12",
+        "type": "startNight",
+        "payload": {},
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"startNight\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-13",
+        "type": "skipStep",
+        "payload": {
+          "key": "n1-0-minioninfo-all",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n1-0-minioninfo-all\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-14",
+        "type": "skipStep",
+        "payload": {
+          "key": "n1-1.5-demoninfo-all",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n1-1.5-demoninfo-all\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-15",
+        "type": "skipStep",
+        "payload": {
+          "key": "n1-2-sailor-5",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n1-2-sailor-5\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-16",
+        "type": "skipStep",
+        "payload": {
+          "key": "n1-3-courtier-2",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n1-3-courtier-2\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-17",
+        "type": "skipStep",
+        "payload": {
+          "key": "n1-8-chambermaid-3",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n1-8-chambermaid-3\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-18",
+        "type": "endNight",
+        "payload": {},
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endNight\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-19",
+        "type": "endDay",
+        "payload": {},
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endDay\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-20",
+        "type": "completeNightStep",
+        "payload": {
+          "key": "n2-10-po-8",
+          "targetIds": ["4"],
+          "deathIds": ["4"]
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"deathIds\":[\"4\"],\"key\":\"n2-10-po-8\",\"targetIds\":[\"4\"]},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"completeNightStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-21",
+        "type": "completeNightStep",
+        "payload": {
+          "key": "n2-15-tinker-1",
+          "resurrectId": "4"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n2-15-tinker-1\",\"resurrectId\":\"4\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"completeNightStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-22",
+        "type": "skipStep",
+        "payload": {
+          "key": "n2-0-sailor-5",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n2-0-sailor-5\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-23",
+        "type": "skipStep",
+        "payload": {
+          "key": "n2-1-courtier-2",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n2-1-courtier-2\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-24",
+        "type": "skipStep",
+        "payload": {
+          "key": "n2-6-exorcist-6",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n2-6-exorcist-6\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-25",
+        "type": "skipStep",
+        "payload": {
+          "key": "n2-11-assassin-7",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n2-11-assassin-7\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-26",
+        "type": "skipStep",
+        "payload": {
+          "key": "n2-18-chambermaid-3",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n2-18-chambermaid-3\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-27",
+        "type": "endNight",
+        "payload": {},
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endNight\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-28",
+        "type": "endDay",
+        "payload": {},
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endDay\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-29",
+        "type": "completeNightStep",
+        "payload": {
+          "key": "n3-10-po-8",
+          "targetIds": ["3"],
+          "deathIds": ["3"]
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"deathIds\":[\"3\"],\"key\":\"n3-10-po-8\",\"targetIds\":[\"3\"]},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"completeNightStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-30",
+        "type": "recordBmrOutcome",
+        "payload": {
+          "stepKey": "n3-10-po-8",
+          "options": {
+            "resurrectId": "3"
+          }
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"options\":{\"resurrectId\":\"3\"},\"stepKey\":\"n3-10-po-8\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"recordBmrOutcome\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-31",
+        "type": "skipStep",
+        "payload": {
+          "key": "n3-0-sailor-5",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n3-0-sailor-5\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-32",
+        "type": "skipStep",
+        "payload": {
+          "key": "n3-1-courtier-2",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n3-1-courtier-2\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-33",
+        "type": "skipStep",
+        "payload": {
+          "key": "n3-6-exorcist-6",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n3-6-exorcist-6\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-34",
+        "type": "skipStep",
+        "payload": {
+          "key": "n3-11-assassin-7",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n3-11-assassin-7\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-35",
+        "type": "skipStep",
+        "payload": {
+          "key": "n3-15-tinker-1",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n3-15-tinker-1\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-36",
+        "type": "skipStep",
+        "payload": {
+          "key": "n3-18-chambermaid-3",
+          "reason": "fixture"
+        },
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{\"key\":\"n3-18-chambermaid-3\",\"reason\":\"fixture\"},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"skipStep\"}",
+        "undoable": true
+      },
+      {
+        "id": "resurrect-37",
+        "type": "endNight",
+        "payload": {},
+        "at": "2026-11-17T00:00:00.000Z",
+        "rulesetVersion": "tb-bmr-snv-2026-11-17.2",
+        "fingerprint": "{\"payload\":{},\"rulesetVersion\":\"tb-bmr-snv-2026-11-17.2\",\"type\":\"endNight\"}",
+        "undoable": true
+      }
+    ]
+  },
+  "storageError": null,
+  "migratedFrom": null
+}
