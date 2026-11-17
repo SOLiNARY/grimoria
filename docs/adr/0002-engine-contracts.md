@@ -230,11 +230,11 @@ interface WinContext extends CapabilityFacts {
 
 | Step kind | Read-only context fields | Decision | Current owner |
 | --- | --- | --- | --- |
-| Night step, first/other | `targetIds`, `chosenRoleId`, `pendings`, `timing` | `effects`, `suppressed`, `no-effect` | `night.ts`, `bmr.ts`, `sv.ts`, `engine/ability.ts` |
+| Night step, first/other | `targetIds`, `chosenRoleId`, `pendings`, `timing` | `effects`, `attack`, `suppressed`, `no-effect` | `night.ts`, `bmr.ts`, `sv.ts`, `engine/ability.ts` |
 | Day action | `action`, `targetIds`, action facts (`text`, `truth`, `guesses`, `marks`) | `effects`, `record`, `host-choice`, `no-effect` | `day.ts`, `sv.ts` |
 | Death trigger | `deadId`, `deadRoleId`, `cause`, `livingBefore`, `livingMinionIds`, `retainsAbility` | `effects`, `suppressed`, `no-effect` for the wake; `inherit`, `choose-heir` for succession | `deathStep`, `onDeath`, `appendSvConditionalSteps` |
 | Execution contribution | `executedId`, `executedRoleId`, `cause`, `death`, `executionToday`, `livingCount` | `survives`, `dies`, `win`, `effects`, `no-effect` | `executePlayer`, `checkWin` |
-| Information | `step`, `targetIds`, `registrations`, `roleChoices`, `aliveNeighbors`, `executionsToday`, `votesToday`, `activeEffects` | `answer`, `options`, `host-choice`, `note` | `information.ts`, `bmr.ts`, `sv.ts` |
+| Information | `step`, `targetIds`, `registrations`, `roleChoices`, `aliveNeighbors`, `executionsToday`, `votesToday`, `activeEffects` | `answer`, `prepared`, `grimoire`, `options`, `host-choice`, `note` | `information.ts`, `bmr.ts`, `sv.ts` |
 | Registration and host adjudication | `case`, `legalOptions`, `answer` | `legal`, `answer`, `reject` | `host-choice.ts`, `options.registrations` |
 | Transformation | `targetId`, `newRoleId`, `cause` | `replace`, `swap`, `no-effect` | `sv.ts`, `becoming.ts` |
 | Win contribution | `livingCount`, `demons`, `execution`, `death`, `endOfDay`, `twins` | `win`, `suppress`, `no-effect` | `death.ts` (`checkWin`) |
@@ -280,7 +280,15 @@ export type ExecutionDecision =
   | { readonly kind: "no-effect" };
 
 export type InformationDecision =
-  | { readonly kind: "answer"; readonly value: unknown }
+  | {
+      readonly kind: "answer";
+      readonly value: boolean | number | string;
+      readonly possible?: readonly (boolean | number | string)[];
+      readonly legal?: readonly (boolean | number | string)[];
+      readonly subjectId?: string;
+    }
+  | { readonly kind: "prepared"; readonly possible: readonly (boolean | number | string)[] }
+  | { readonly kind: "grimoire" }
   | { readonly kind: "options"; readonly options: readonly string[] }
   | { readonly kind: "host-choice"; readonly case: HostChoiceCase; readonly options: readonly string[]; readonly text?: string }
   | { readonly kind: "note"; readonly key: string; readonly text: string };
@@ -519,6 +527,138 @@ of order with its base.
 
 Slice 1 started with `imp` and `sv-common`, because the architecture test could
 not shrink its exception map until they were clean; that map is now empty.
+
+Slice 2 started in `openspec/changes/tb-night-step-capabilities` with the
+Poisoner and the Monk. As implemented, a `night-step` resolver receives the
+`AbilityContext` of ADR 0001 and returns its `AbilityDecision`: the separate
+`timing` fact of `NightContext` is not added, because `at.number` already
+carries it and no migrated rule reads it. The slice adds one intent,
+`timed-effect`, for a dated effect of the acting ability, and
+`src/core/roles/night-step.ts` as the one lookup that reads a declared step
+from the capability or from the legacy fields.
+
+`openspec/changes/tb-butler-night-step` continues the slice with the Butler.
+It adds the `record-master` intent for the master written on the acting seat
+and the `butler` kind of dated effect. It also fixes what `suppressed` means
+for a dated effect: the coordinator keeps it as a record that never applies
+and ends nothing, so a role returns the same choice on both paths and cannot
+leave a working effect behind a failed ability. The vote check in `day.ts`
+and the effect lookup in `effects.ts` still name the role; they read the
+shared effect and are not night steps.
+
+`openspec/changes/tb-imp-night-step` continues the slice with the Imp. It adds
+one decision, `attack`, which names stage 2 of the resolution order: the role
+gives the chosen player and the title of the attack's log line, and the
+coordinator calls `resolveAttack` with the acting seat as the attacker and the
+host's answer as the redirect. It is a decision and not an intent, because an
+attack can wait for the host before anything is written and keeps its own step
+record. The coordinator now returns an outcome to the step completion
+(`applied`, `needs-redirect` or `attack`) and takes the host's answers as one
+object. The Imp does not read `impaired`: the attack path stops an impaired
+attacker, as it did. The succession in `death.ts` and `becoming.ts` and the
+new Demon's wake in `appendConditionalSteps` still name the role; they are the
+shared succession and are not night steps.
+
+`openspec/changes/tb-empath-information` starts the Trouble Brewing
+information roles with the Empath. Its step moves to the `night-step` arm with
+the shape of its answer and no resolver, and the `answer` decision of the
+`information` arm gains `possible`: every value the answer can take. The role
+returns the same answer whether or not its owner is impaired; the engine shows
+a working ability the value and asks the host for an impaired owner, offering
+the possible values. `possible` is a field of the answer and not the `options`
+decision of the table above, so a role never chooses a decision by reading
+`impaired`. `information.ts` and `night.ts` no longer name the role, and the
+engine copy of the count is removed. The remaining information roles keep
+their branches until their own pull requests.
+
+`openspec/changes/tb-fortuneteller-information` continues with the Fortune
+Teller. The information context gains two facts with the role that first
+reads them: whether a player registers as a Demon to this ability, and who
+the red herring is. The role holds the one sentence of its rule (yes when
+either chosen player is the red herring or registers as a Demon); the engine
+still decides who registers, from the host's registrations the role never
+sees. `fortuneTellerYes` stays exported as a query that resolves the module's
+capability, so the rule has one owner. `setup.ts` still names the role where
+the red herring is validated and chosen; that is setup and not a night step.
+
+`openspec/changes/tb-chef-information` continues with the Chef, the first
+role whose working ability can need the host: a Spy or a Recluse may register
+differently for each pair of one count. The `answer` decision gains `legal`,
+every value a working ability may show under some registration; with more
+than one the engine asks the host. It is a field and not the `host-choice`
+decision of the table above for the reason `possible` is not `options`: the
+role returns one decision and never reads `impaired` to choose. The context
+gains the seat ring and whether a player may register as a team, which the
+engine answers from the registrant's own state. `chefCount` stays exported as
+a query that resolves the module's capability.
+
+`openspec/changes/tb-character-information` continues with the Undertaker and
+the Ravenkeeper, which learn the character of one player and write the same
+record. The `answer` decision gains `subjectId`, the player the answer is
+about, and the engine writes the character record of the step from it. The
+`note` decision is implemented with its text only: the stored record has no
+key, and a key can be added with the first translated note without changing a
+stored byte. The context gains who died by execution today and the characters
+a player may register as. Only the answers move. Both steps stay declared in
+the legacy `nightStep` field, because who wakes is read from the game by the
+`actor` and `extra` hooks and a capability never receives the game state.
+Eighteen modules have such hooks; a wake caused by a death belongs to slice 6,
+and the step appended on the night the Ravenkeeper dies still names the role
+in `appendConditionalSteps`.
+
+`openspec/changes/tb-setup-information` continues with the Washerwoman, the
+Librarian and the Investigator, whose answer the Storyteller prepares before
+the first night. The `information` arm gains the `prepared` decision: the role
+says that its answer is the prepared one and names every character it can
+show, and the engine reads the record of setup under the role's id and writes
+the step. It is a decision and not a fact of the context, so the context
+still exposes no setup secret and a role cannot return the two players as its
+own answer. The three steps move to the `night-step` arm, the first night
+only. The zero stays in the engine, written for any prepared answer as
+before: "zero are in play" is the Librarian's rule, but the removed branch
+answered a prepared zero for all three roles, and giving it to the Librarian
+alone is a change of behavior with its own rule check. `setup.ts` still names
+the three roles where the prepared answer is validated and chosen; that is
+setup and not a night step. The Spy is the last Trouble Brewing role with a
+branch in `infoForStep`.
+
+`openspec/changes/setup-zero-librarian-only` is that change. The `prepared`
+decision gains `orZero`, a declaration that the ability has a zero answer,
+and only the Librarian makes it. The engine still writes the zero record, but
+only for a role that declares it; a zero held for the Washerwoman or the
+Investigator is no prepared answer and the step asks for setup, as the setup
+check already said. `orZero` is a form and not a fact: whether zero are in
+play is still read from setup, and the role is still told nothing. Commands
+recorded under the ruleset versions before `tb-bmr-snv-2026-11-17` keep the
+answer they gave.
+
+`openspec/changes/tb-spy-grimoire` ends the Trouble Brewing part of the slice
+with the Spy. Its step moves to the `night-step` arm, every night, with the
+`grimoire` shape. The `information` arm gains the `grimoire` decision: the
+ability shows the Grimoire itself, so the decision carries no value, no
+possible values and no text, and the role reads no fact. The engine records
+that the Grimoire was shown, the same for an impaired owner, and the step
+completion does not store an answer sent with such a step, as before. A shape
+on the step alone, without the capability, was refused: the engine would keep
+a branch on the shape where it had one on the role, and the Spy would be the
+one moved role that does not answer through `moduleInfoForStep`. With this
+change the Trouble Brewing path of `infoForStep` names no role for an answer,
+`infoKindFor` is removed and a role step takes its shape from its declaration
+only. The Spy's registration is not a night step: its `adjudication`
+capability and the engine code that applies a registration are unchanged.
+
+Slice 3 starts in `openspec/changes/bmr-gambler-pukka-night-step` with the two
+roles of ADR 0001. The Gambler and the Pukka declared their resolver in the
+`ability` field beside a legacy `nightStep`; they now declare both on a
+`night-step` arm, the Gambler for the nights after the first and the Pukka
+for every night. The resolvers move unchanged and no engine file changes. The
+`ability` field and its type are removed from the module contract, so a
+resolver has one form and `nightResolverFor` reads nothing else: a module
+without a `night-step` arm owns no resolver. The step builder still names the
+Gambler for the list of characters to guess, and the Demon set, the
+Exorcist's block, the outcome panel and the delayed death still name the
+Pukka; none of them completes the step.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 

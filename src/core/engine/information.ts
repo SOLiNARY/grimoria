@@ -1,4 +1,4 @@
-import type { GameState, InfoPair, NightStep, Player, RoleId } from "../model/types.ts";
+import type { DeadAt, GameState, InfoPair, NightStep, Player, RoleId } from "../model/types.ts";
 
 type Registrations = Record<string, string>;
 type InfoOptions = { targetIds?: string[]; registrations?: Registrations };
@@ -36,11 +36,15 @@ import { orderedPlayers, playerById, realTeamOf, executionDeathForDay } from "..
 
 import { nightAt, aliveNeighbors } from "./context.ts";
 import { isImpaired } from "./effects.ts";
+import { informationOf, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
+import type { RoleModule } from "../roles/types.ts";
+import type { InformationContext, InformationValue } from "../roles/ability.ts";
 import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
+import { answersZeroForAnyRole } from "./command-versions.ts";
 import { svInfoForStep } from "./sv.ts";
 
 // Registration is an ability (Spy r3118, Recluse r3007): a drunk or poisoned
@@ -115,66 +119,53 @@ export function registersAsOutsider(
   );
 }
 
+/**
+ * The number of evil pairs a Chef would be shown under these registrations.
+ * The rule is the role module's; this query hands it the engine's facts
+ * outside a night step.
+ */
 export function chefCount(state: GameState, registrations: Registrations = {}): number {
-  const ids = state.order;
-  let pairs = 0;
-  for (let i = 0; i < ids.length; i += 1) {
-    const a = playerById(state, ids[i]!);
-    const b = playerById(state, ids[(i + 1) % ids.length]!);
-    if (
-      alignmentOf(state, a, registrations) === "evil" &&
-      alignmentOf(state, b, registrations) === "evil"
-    )
-      pairs += 1;
-  }
-  return pairs;
+  const module = roleModule("chef");
+  const information = informationOf(module);
+  if (!module || !information) return 0;
+  const decision = resolveInformationCapability(
+    module,
+    informationFacts(state, {
+      actorId: "",
+      infoKind: information.infoKind,
+      targetIds: [],
+      registrations,
+      impaired: false,
+      at: nightAt(state),
+    }),
+  );
+  return decision?.kind === "answer" && typeof decision.value === "number" ? decision.value : 0;
 }
 
-// Chef r2510 Example 4 and Recluse r3007: a Spy or Recluse may register
-// differently for each pair of one Chef query. Each pair is then independently
-// evil or not, so every count between the unavoidable minimum and the possible
-// maximum is legal. The host chooses the count; the engine picks no registration.
-function chefRegistrationRange(state: GameState): { min: number; max: number } {
-  const ids = state.order;
-  let min = 0;
-  let max = 0;
-  const canBeEvil = (player: Player | null): boolean =>
-    alignmentOf(state, player) === "evil" ||
-    Boolean(player && player.roleId === "recluse" && registrationApplies(state, player));
-  const canBeGood = (player: Player | null): boolean =>
-    alignmentOf(state, player) === "good" ||
-    Boolean(player && player.roleId === "spy" && registrationApplies(state, player));
-  for (let i = 0; i < ids.length; i += 1) {
-    const a = playerById(state, ids[i]!);
-    const b = playerById(state, ids[(i + 1) % ids.length]!);
-    if (canBeEvil(a) && canBeEvil(b)) max += 1;
-    if (!canBeGood(a) && !canBeGood(b)) min += 1;
-  }
-  return { min, max };
-}
-
-export function empathCount(
-  state: GameState,
-  playerId: string,
-  registrations: Registrations = {},
-): number {
-  return aliveNeighbors(state, playerId)
-    .map((id) => playerById(state, id))
-    .filter((player) => alignmentOf(state, player, registrations) === "evil").length;
-}
-
+/**
+ * Whether a Fortune Teller who chose these players hears yes. The rule is the
+ * role module's; this query hands it the engine's facts outside a night step.
+ */
 export function fortuneTellerYes(
   state: GameState,
   targetIds: string[] | undefined,
   registrations: Registrations = {},
 ): boolean {
-  const herringId = state.setup && state.setup.herringId ? state.setup.herringId : state.herringId;
-  return (targetIds || []).some((id) => {
-    const player = playerById(state, id);
-    if (!player) return false;
-    if (id === herringId) return true;
-    return registersAsDemon(state, player, registrations);
-  });
+  const module = roleModule("fortuneteller");
+  const information = informationOf(module);
+  if (!module || !information) return false;
+  const decision = resolveInformationCapability(
+    module,
+    informationFacts(state, {
+      actorId: "",
+      infoKind: information.infoKind,
+      targetIds: targetIds || [],
+      registrations,
+      impaired: false,
+      at: nightAt(state),
+    }),
+  );
+  return decision?.kind === "answer" && decision.value === true;
 }
 
 export function characterChoices(
@@ -203,6 +194,231 @@ export function characterChoices(
 // ---------------------------------------------------------------------------
 // Night queue
 
+function executedOn(state: GameState, dayNumber: number): InformationContext["executedToday"] {
+  const death = executionDeathForDay(state, dayNumber);
+  return death ? { playerId: death.playerId, roleId: death.roleId } : null;
+}
+
+/** The read-only facts an information capability resolves from. */
+function informationFacts(
+  state: GameState,
+  query: {
+    actorId: string;
+    infoKind: string;
+    targetIds: readonly string[];
+    registrations: Registrations;
+    impaired: boolean;
+    at: DeadAt;
+  },
+): InformationContext {
+  const { registrations } = query;
+  return {
+    actorId: query.actorId,
+    infoKind: query.infoKind,
+    targetIds: query.targetIds,
+    impaired: query.impaired,
+    at: query.at,
+    seatIds: state.order.slice(),
+    aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
+    registeredTeamOf: (playerId) => alignmentOf(state, playerById(state, playerId), registrations),
+    // Recluse r3007 and Spy r3118: a sober and healthy Recluse might register
+    // as evil and a sober and healthy Spy as good, whatever the host has
+    // chosen for this step so far.
+    mayRegisterAs: (playerId, team) => {
+      const player = playerById(state, playerId);
+      if (alignmentOf(state, player) === team) return true;
+      return Boolean(
+        player &&
+        player.roleId === (team === "evil" ? "recluse" : "spy") &&
+        registrationApplies(state, player),
+      );
+    },
+    registersAsDemon: (playerId) =>
+      registersAsDemon(state, playerById(state, playerId), registrations),
+    // The setup secret first, then the top-level field, as before the move.
+    redHerringId:
+      (state.setup && state.setup.herringId ? state.setup.herringId : state.herringId) ?? null,
+    // Undertaker r3115: the death by execution of the day that just ended.
+    executedToday: executedOn(state, query.at.number - 1),
+    // The seat's own character and, for a sober and healthy Spy or Recluse,
+    // the characters it might register as, whatever the acting player's state.
+    mayRegisterAsCharacters: (playerId) => characterChoices(state, playerId),
+    actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
+    hasPlayer: (playerId) => playerById(state, playerId) != null,
+  };
+}
+
+/**
+ * The record of an answer the Storyteller prepared in setup: one of two
+ * players is a particular character. The role names the characters such an
+ * answer can show, and says with `orZero` whether its ability has a zero
+ * answer; `zeroAnswered` is that declaration, or the older behavior a recorded
+ * command keeps. What was prepared, whether anything was, and the zero are
+ * read here from the record kept under the role's id.
+ */
+function preparedInfo(
+  state: GameState,
+  roleId: string,
+  actor: Player | null,
+  impaired: boolean,
+  possible: readonly InformationValue[],
+  zeroAnswered: boolean,
+): InfoResult {
+  const setup = state.setup.info[roleId];
+  // The players a false answer points at until the host chooses: the first
+  // two seats that are not the acting one.
+  const firstOthers = () =>
+    orderedPlayers(state)
+      .filter((player) => !actor || player.id !== actor.id)
+      .map((player) => player.id)
+      .slice(0, 2);
+  if (!setup) {
+    // The night start refuses a Drunk without a prepared false answer, so only
+    // a game saved before that check has none: the host is offered a default.
+    if (actor && actor.roleId === "drunk") {
+      const options = [...possible];
+      return {
+        kind: "one-of-two",
+        missing: false,
+        roleId: (options[0] as RoleId | undefined) || null,
+        pair: firstOthers(),
+        matchIndex: 0,
+        impaired: true,
+        needsChoice: true,
+        options,
+        text: "Пьяница: предложена ложная информация.",
+      };
+    }
+    return { kind: "one-of-two", missing: true, needsChoice: true };
+  }
+  if ("zero" in setup && setup.zero) {
+    // "Or that zero are in play" is the Librarian's answer alone (r1721): the
+    // Washerwoman (r2630) and the Investigator (r2983) always learn a
+    // character. A zero held for a role that does not declare it is no
+    // prepared answer, as the setup check says, so the step asks for setup.
+    if (!zeroAnswered) return { kind: "one-of-two", missing: true, needsChoice: true };
+    // The record of the zero, with the Outsider options and sentences, is
+    // still written here: the role declares the form, not the record.
+    if (impaired) {
+      const options = ALL_ROLES.filter((id) => roleTeam(id) === "outsider");
+      return {
+        kind: "one-of-two",
+        zero: true,
+        roleId: options[0] || null,
+        pair: firstOthers(),
+        matchIndex: 0,
+        impaired,
+        needsChoice: true,
+        // The true zero answer stays legal: a drunk or poisoned player may
+        // still receive true information (Drunk r3165 "may give false").
+        options: [...options, "zero"],
+        text: "Игрок отравлен или пьян: можно показать ложную пару или верный ответ «нет Изгоев».",
+      };
+    }
+    return { kind: "one-of-two", zero: true, text: "В игре нет Изгоев." };
+  }
+  const pairInfo = setup as InfoPair;
+  if (!pairInfo.roleId || !Array.isArray(pairInfo.pair) || pairInfo.pair.length !== 2) {
+    return { kind: "one-of-two", missing: true, needsChoice: true };
+  }
+  return {
+    kind: "one-of-two",
+    roleId: pairInfo.roleId,
+    pair: pairInfo.pair.slice(),
+    // The Storyteller's mark of the real player: a note of setup, not a part
+    // of what the ability learns.
+    matchIndex: pairInfo.matchIndex || 0,
+    impaired,
+    needsChoice: impaired,
+    options: impaired ? [...possible] : [],
+  };
+}
+
+/**
+ * The answer of a role module that owns its information. Null means the module
+ * declares none and the engine keeps its own path.
+ *
+ * The role says what its ability learns and which answers exist. Whether the
+ * ability works is the engine's fact: an impaired owner gets the host's answer
+ * from the values the role says are possible, and the true one stays among
+ * them (Drunk r3165: the information may be false). An answer the Storyteller
+ * prepared in setup is not the role's to compute: the role says so, and the
+ * record is read from setup.
+ */
+export function moduleInfoForStep(
+  state: GameState,
+  module: RoleModule | null | undefined,
+  step: NightStep,
+  options: InfoOptions = {},
+  ports: CommandExecutionContext = systemPorts,
+): InfoResult | null {
+  const information = informationOf(module);
+  if (!module || !information) return null;
+  const actor = step.actorId ? playerById(state, step.actorId) : null;
+  const at = nightAt(state);
+  const impaired = actor ? isImpaired(state, actor.id, at) : false;
+  const decision = resolveInformationCapability(
+    module,
+    informationFacts(state, {
+      actorId: actor ? actor.id : "",
+      infoKind: information.infoKind,
+      targetIds: options.targetIds || step.targetIds || [],
+      registrations: options.registrations || step.registrations || {},
+      impaired,
+      at,
+    }),
+  );
+  const shape = nightStepFor(module, at.number)?.infoKind ?? "none";
+  if (decision?.kind === "note") return { kind: "none", text: decision.text };
+  // The Grimoire is shown, not told: the record has no value, offers nothing
+  // and is the same for an impaired owner.
+  if (decision?.kind === "grimoire") return { kind: "grimoire" };
+  if (decision?.kind === "prepared") {
+    return preparedInfo(
+      state,
+      module.id,
+      actor,
+      impaired,
+      decision.possible,
+      // A command recorded before the zero became the Librarian's alone keeps
+      // its answer, so its journal replays as written.
+      decision.orZero === true || answersZeroForAnyRole(ports.rulesetVersion),
+    );
+  }
+  if (decision?.kind !== "answer") {
+    // A step that learns a character and has no player to read yet keeps its
+    // record: a question with every character. The table shows it only once a
+    // player is chosen, and the completion refuses the step before that.
+    return shape === "character"
+      ? { kind: "character", roleId: null, needsChoice: true, options: ALL_ROLES.slice() }
+      : { kind: "none" };
+  }
+  // A working ability whose answer depends on a registration is the host's
+  // choice among the legal values; an impaired one among every possible value.
+  const legal = decision.legal ?? [];
+  if (shape === "character") {
+    // The record of a character names the player and lists what the player
+    // may be shown as, also when that is one character.
+    const choices = impaired ? [...(decision.possible ?? [])] : [...legal];
+    return {
+      kind: "character",
+      roleId: decision.value as RoleId,
+      playerId: decision.subjectId ?? null,
+      impaired,
+      needsChoice: impaired || choices.length > 1,
+      options: choices,
+    };
+  }
+  const registrationChoice = !impaired && legal.length > 1;
+  return {
+    kind: shape,
+    value: decision.value,
+    impaired,
+    needsChoice: impaired || registrationChoice,
+    options: impaired ? [...(decision.possible ?? [])] : registrationChoice ? [...legal] : [],
+  };
+}
+
 export function infoForStep(
   state: GameState,
   step: NightStep,
@@ -211,10 +427,6 @@ export function infoForStep(
 ): InfoResult {
   if (step.bmr) return bmrInfoForStep(state, step, options, ports);
   if (step.sv) return svInfoForStep(state, step, options);
-  const actor = step.actorId ? playerById(state, step.actorId) : null;
-  const at = nightAt(state);
-  const impaired = actor ? isImpaired(state, actor.id, at) : false;
-  const registrations = options.registrations || step.registrations || {};
   const role = step.roleId;
 
   if (step.kind === "system") {
@@ -231,171 +443,10 @@ export function infoForStep(
     return { kind: "note", text: step.note || "" };
   }
 
-  if (role === "washerwoman" || role === "librarian" || role === "investigator") {
-    const setup = state.setup.info[role];
-    if (!setup) {
-      if (actor && actor.roleId === "drunk") {
-        const team =
-          role === "washerwoman" ? "townsfolk" : role === "librarian" ? "outsider" : "minion";
-        const options = ALL_ROLES.filter((id) => roleTeam(id) === team);
-        const others = orderedPlayers(state)
-          .filter((player) => player.id !== actor.id)
-          .map((player) => player.id);
-        return {
-          kind: "one-of-two",
-          missing: false,
-          roleId: options[0] || null,
-          pair: others.slice(0, 2),
-          matchIndex: 0,
-          impaired: true,
-          needsChoice: true,
-          options,
-          text: "Пьяница: предложена ложная информация.",
-        };
-      }
-      return { kind: "one-of-two", missing: true, needsChoice: true };
-    }
-    if ("zero" in setup && setup.zero) {
-      if (impaired) {
-        const options = ALL_ROLES.filter((id) => roleTeam(id) === "outsider");
-        const others = orderedPlayers(state)
-          .filter((player) => !actor || player.id !== actor.id)
-          .map((player) => player.id);
-        return {
-          kind: "one-of-two",
-          zero: true,
-          roleId: options[0] || null,
-          pair: others.slice(0, 2),
-          matchIndex: 0,
-          impaired,
-          needsChoice: true,
-          // The true zero answer stays legal: a drunk or poisoned player may
-          // still receive true information (Drunk r3165 "may give false").
-          options: [...options, "zero"],
-          text: "Игрок отравлен или пьян: можно показать ложную пару или верный ответ «нет Изгоев».",
-        };
-      }
-      return { kind: "one-of-two", zero: true, text: "В игре нет Изгоев." };
-    }
-    const pairInfo = setup as InfoPair;
-    if (!pairInfo.roleId || !Array.isArray(pairInfo.pair) || pairInfo.pair.length !== 2) {
-      return { kind: "one-of-two", missing: true, needsChoice: true };
-    }
-    return {
-      kind: "one-of-two",
-      roleId: pairInfo.roleId,
-      pair: pairInfo.pair.slice(),
-      matchIndex: pairInfo.matchIndex || 0,
-      impaired,
-      needsChoice: impaired,
-      options: impaired
-        ? ALL_ROLES.filter(
-            (id) =>
-              roleTeam(id) ===
-              (role === "washerwoman" ? "townsfolk" : role === "librarian" ? "outsider" : "minion"),
-          )
-        : [],
-    };
-  }
-
-  if (role === "chef") {
-    const value = chefCount(state, registrations);
-    const range = chefRegistrationRange(state);
-    const registrationChoice = !impaired && range.min < range.max;
-    return {
-      kind: "number",
-      value,
-      impaired,
-      needsChoice: impaired || registrationChoice,
-      options: impaired
-        ? uniqueNumbers(0, orderedPlayers(state).length)
-        : registrationChoice
-          ? uniqueNumbers(range.min, range.max)
-          : [],
-    };
-  }
-
-  if (role === "empath") {
-    const module = roleModule("empath");
-    const decision =
-      module &&
-      resolveInformationCapability(module, {
-        actorId: actor ? actor.id : "",
-        infoKind: "empath",
-        targetIds: options.targetIds || step.targetIds || [],
-        impaired,
-        at,
-        aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
-        registeredTeamOf: (playerId) =>
-          alignmentOf(state, playerById(state, playerId), registrations),
-        actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
-        hasPlayer: (playerId) => playerById(state, playerId) != null,
-      });
-    const value =
-      decision?.kind === "answer" && typeof decision.value === "number"
-        ? decision.value
-        : empathCount(state, actor ? actor.id : "", registrations);
-    return {
-      kind: "number",
-      value,
-      impaired,
-      needsChoice: impaired,
-      options: impaired ? uniqueNumbers(0, 2) : [],
-    };
-  }
-
-  if (role === "fortuneteller") {
-    const value = fortuneTellerYes(state, options.targetIds || step.targetIds, registrations);
-    return {
-      kind: "yes-no",
-      value,
-      impaired,
-      needsChoice: impaired,
-      options: impaired ? [true, false] : [],
-    };
-  }
-
-  if (role === "undertaker") {
-    const death = executionDeathForDay(state, nightAt(state).number - 1);
-    if (!death) return { kind: "none", text: "Сегодня казни со смертью не было." };
-    const choices = characterChoices(state, death.playerId, impaired);
-    return {
-      kind: "character",
-      roleId: death.roleId,
-      playerId: death.playerId,
-      impaired,
-      needsChoice: impaired || choices.length > 1,
-      options: choices,
-    };
-  }
-
-  if (role === "spy") {
-    return { kind: "grimoire" };
-  }
-
-  if (role === "ravenkeeper") {
-    const targetId = (options.targetIds || step.targetIds || [])[0];
-    const target = targetId ? playerById(state, targetId) : null;
-    if (!target)
-      return { kind: "character", roleId: null, needsChoice: true, options: ALL_ROLES.slice() };
-    const choices = characterChoices(state, target.id, impaired);
-    return {
-      kind: "character",
-      roleId: target.roleId,
-      playerId: target.id,
-      impaired,
-      needsChoice: impaired || choices.length > 1,
-      options: choices,
-    };
-  }
-
-  return { kind: "none" };
-}
-
-export function uniqueNumbers(from: number, to: number): number[] {
-  const out: number[] = [];
-  for (let i = from; i <= to; i += 1) out.push(i);
-  return out;
+  // A role answers from its module; a step of a role that owns no answer has
+  // none.
+  const owned = moduleInfoForStep(state, role ? roleModule(role) : null, step, options, ports);
+  return owned ?? { kind: "none" };
 }
 
 // ---------------------------------------------------------------------------

@@ -49,6 +49,12 @@ import { systemPorts } from "../model/ports.ts";
 import { kill, checkWin } from "./death.ts";
 import { isImpaired } from "./effects.ts";
 import { pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
+import {
+  firstNightStepOf,
+  nightResolverFor,
+  nightStepFor,
+  otherNightStepOf,
+} from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 import { LEGACY_RULESET_VERSION } from "./command-versions.ts";
 
@@ -295,9 +301,7 @@ export function buildBmrNightQueue(
       return;
     }
     if (roleId === "grandmother" && night !== 1) return;
-    const declared = roleModule(roleId);
-    const declaration =
-      night === 1 ? (declared?.firstNightStep ?? declared?.nightStep) : declared?.nightStep;
+    const declaration = nightStepFor(roleModule(roleId), night);
     if (!declaration) return;
     const actor = declaration.actor
       ? declaration.actor(state, night)
@@ -313,7 +317,7 @@ export function buildBmrNightQueue(
     if (roleId === "lunatic" && night !== 1) {
       // The Lunatic attacks as the Demon they were shown (Lunatic r3112).
       const mask = state.setup.lunaticShownId;
-      const maskStep = mask ? roleModule(mask)?.nightStep : null;
+      const maskStep = mask ? otherNightStepOf(roleModule(mask)) : null;
       if (maskStep && mask !== "po") {
         if (maskStep.target != null) spec.target = maskStep.target;
         if (maskStep.minTargets != null) spec.minTargets = maskStep.minTargets;
@@ -420,7 +424,7 @@ export function appendBmrConditionalSteps(
   // sheet number; the Grandmother sits before the Chambermaid on every night.
   const sequence = nightSequence(night, "bmr");
   const slot = sequence.indexOf("grandmother");
-  const declaration = roleModule("grandmother")?.nightStep;
+  const declaration = otherNightStepOf(roleModule("grandmother"));
   if (!declaration) return;
   const step = makeBmrStep(state, slot < 0 ? sequence.length : slot, "grandmother", grandmother, {
     ...declaration,
@@ -461,10 +465,18 @@ export function completeBmrStep(
   const at = currentAt(state);
   if (actor) actor.used = actor.used || {};
   const module = role ? roleModule(role) : null;
-  if (module?.ability) {
+  if (module && nightResolverFor(module, at.number)) {
     // A migrated role never falls through to the branches below, so a missing
     // resolution is a visible test failure instead of a silent fallback.
-    applyRoleAbility(state, module, step, targets, at, options.roleId ?? null, ports);
+    applyRoleAbility(
+      state,
+      module,
+      step,
+      targets,
+      at,
+      { chosenRoleId: options.roleId ?? null },
+      ports,
+    );
     return;
   }
   if (role === "po" && actor) actor.used.poNoOne = targets.length === 0;
@@ -1375,8 +1387,8 @@ function restoreResurrectedSteps(state: GameState, player: Player, afterOrder: n
   const declared = roleModule(roleId);
   const declaration =
     night === 1 || roleId === "grandmother"
-      ? (declared?.firstNightStep ?? declared?.nightStep)
-      : declared?.nightStep;
+      ? firstNightStepOf(declared)
+      : otherNightStepOf(declared);
   if (!declaration) return;
   if (declaration.actor) {
     const holder = declaration.actor(state, night);

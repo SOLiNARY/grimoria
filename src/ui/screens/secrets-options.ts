@@ -17,6 +17,18 @@ export function librarianZeroLegal(players: readonly PlayerRole[]): boolean {
 }
 
 /**
+ * Whether the stored answer of an information role is shown as the zero.
+ * "Zero are in play" is the Librarian's answer alone (Librarian r1721). A zero
+ * held for the Washerwoman or the Investigator is no answer, so their editor
+ * keeps the fields the host prepares one with.
+ */
+export function zeroShown(roleId: string, stored: unknown): boolean {
+  return (
+    roleId === "librarian" && typeof stored === "object" && stored !== null && "zero" in stored
+  );
+}
+
+/**
  * The role options for one information editor. A real role offers the
  * characters held by the players of that team; a registering Spy (Townsfolk or
  * Outsider) or Recluse (Minion) also offers the not-in-play characters of that

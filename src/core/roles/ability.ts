@@ -1,4 +1,5 @@
 import type { Alignment, DeadAt, Death, RoleId } from "../model/types.ts";
+import type { NightStepSpec } from "./types.ts";
 
 /** One pending delayed death the actor's ability currently owns. */
 export interface PendingDeathFact {
@@ -31,7 +32,12 @@ export interface AbilityContext {
   actualRoleOf(playerId: string): RoleId | null;
   /** False when the id names no seat. */
   hasPlayer(playerId: string): boolean;
+  /** The seat's name, for a rule note. */
+  nameOf(playerId: string): string;
 }
+
+/** The effect kinds a dated intent may add. A kind arrives with its first migrated role. */
+export type TimedEffectKind = "poison" | "protected" | "butler";
 
 /** An intent the engine applies through a shared mechanic. */
 export type RoleEffect =
@@ -61,7 +67,28 @@ export type RoleEffect =
   /** Release this ability's poisons except the named player. */
   | { readonly kind: "release-poisons"; readonly keepPlayerId?: string }
   /** Resolve one pending death now, through the shared death path. */
-  | { readonly kind: "resolve-death"; readonly pendingId: string };
+  | { readonly kind: "resolve-death"; readonly pendingId: string }
+  /**
+   * A dated effect of the acting ability on one player. The engine mints the
+   * id and stamps the source and the start. `replacesPrevious` first ends the
+   * effects of the same kind this ability already holds. On the `suppressed`
+   * path the engine keeps the effect as a record that never applies and ends
+   * nothing.
+   */
+  | {
+      readonly kind: "timed-effect";
+      readonly effect: TimedEffectKind;
+      readonly playerId: string;
+      /** The first moment the effect no longer applies. */
+      readonly expires: DeadAt;
+      readonly replacesPrevious?: boolean;
+    }
+  /**
+   * The master the acting seat chose, written on that seat. It is the reminder
+   * of the choice, not the restriction, so it is recorded whether or not the
+   * ability works.
+   */
+  | { readonly kind: "record-master"; readonly playerId: string };
 
 export interface AbilityNote {
   readonly key: string;
@@ -78,10 +105,23 @@ export type AbilityDecision =
       readonly result?: Readonly<Record<string, unknown>>;
     }
   /**
+   * The acting ability attacks one player as the Demon. The engine resolves
+   * the attack through the shared attack path, in this order: an impaired
+   * attacker, a dead target, the Monk's protection and the Soldier stop it; a
+   * working Mayor makes the step wait for the host's redirect; a death runs
+   * the Demon succession and the win check. The role does not read `impaired`
+   * for it and cannot name the attacker, the redirect or the cause of death.
+   * The step keeps the attack's own record: the outcome as its result, the
+   * victim or the reason nobody died as its note, and one secret log line
+   * under `title`.
+   */
+  | { readonly kind: "attack"; readonly playerId: string; readonly title: string }
+  /**
    * The ability did nothing because its owner is drunk or poisoned. The engine
    * writes its generic failure note unless the rule supplies its own. A rule
-   * may still suspend its pending deaths, but no kill or new poison is applied
-   * on this path.
+   * may still suspend its pending deaths and record the choice that was made,
+   * but no kill or new poison is applied on this path, and a dated effect is
+   * kept as a record that never applies.
    */
   | {
       readonly kind: "suppressed";
@@ -91,11 +131,6 @@ export type AbilityDecision =
       readonly result?: Readonly<Record<string, unknown>>;
     }
   | { readonly kind: "no-effect" };
-
-/** The optional capability a role module declares. */
-export interface RoleAbility {
-  resolve(context: AbilityContext): AbilityDecision;
-}
 
 /** One heir a Demon may pass the role to. */
 export interface HeirOption {
@@ -201,14 +236,103 @@ export interface InformationContext {
   readonly targetIds: readonly string[];
   readonly impaired: boolean;
   readonly at: DeadAt;
+  /** Every seat in order around the circle, living or dead. */
+  readonly seatIds: readonly string[];
   aliveNeighborIds(playerId: string): readonly string[];
   registeredTeamOf(playerId: string): "good" | "evil" | null;
+  /**
+   * Whether the player may register as this team to this ability: their own
+   * team, or the other one while the Storyteller may still register them so.
+   * The team the host has chosen for this step is `registeredTeamOf`.
+   */
+  mayRegisterAs(playerId: string, team: "good" | "evil"): boolean;
+  /**
+   * Whether the player registers as a Demon to this ability: a Demon, alive
+   * or dead, or a player the host registered as one for this step.
+   */
+  registersAsDemon(playerId: string): boolean;
+  /** The good player chosen in setup as the red herring, if the game has one. */
+  readonly redHerringId: string | null;
+  /**
+   * The player who died by execution today and the character recorded at the
+   * death. Null when no execution caused a death today.
+   */
+  readonly executedToday: {
+    readonly playerId: string;
+    readonly roleId: RoleId | null;
+  } | null;
+  /**
+   * The characters the player may register as to this ability, their own
+   * first: more than one only while the Storyteller may still register them
+   * as another character.
+   */
+  mayRegisterAsCharacters(playerId: string): readonly RoleId[];
   actualRoleOf(playerId: string): RoleId | null;
   hasPlayer(playerId: string): boolean;
 }
 
+/** One value an information answer can take. */
+export type InformationValue = boolean | number | string;
+
 export type InformationDecision =
-  | { readonly kind: "answer"; readonly value: boolean | number | string }
+  /**
+   * What the ability learns. The role gives the same decision whether or not
+   * its owner is drunk or poisoned, and does not read `impaired` for it: the
+   * engine decides who answers. A working ability shows `value`. For one that
+   * does not work the engine asks the host and offers `possible`, every value
+   * the answer can take, the true one included. The role cannot mark the
+   * answer as false, require the host or name the options of one step.
+   *
+   * `legal` is every value a working ability may show when the answer depends
+   * on how a player registers. More than one means the Storyteller chooses
+   * among them, and the engine asks; the role still gives `value`, the answer
+   * under the registrations chosen so far.
+   *
+   * `subjectId` is the player the answer is about, when the ability learns
+   * one player's character.
+   */
+  | {
+      readonly kind: "answer";
+      readonly value: InformationValue;
+      readonly possible?: readonly InformationValue[];
+      readonly legal?: readonly InformationValue[];
+      readonly subjectId?: string;
+    }
+  /**
+   * The answer is the one the Storyteller prepared for this ability before the
+   * first night: that one of two players is a particular character. The engine
+   * reads it from setup and writes the record of the step: the character and
+   * the two players, the zero setup may hold in their place, or a request for
+   * setup while nothing is prepared. The role sees none of it. It names
+   * `possible`, every character the answer can show, and the engine offers
+   * them when the owner is drunk or poisoned.
+   *
+   * `orZero` says the ability itself has a zero answer ("Or that zero are in
+   * play", Librarian r1721), so setup may hold a zero in place of the two
+   * players. Whether zero are in play stays a fact of setup. A zero held for
+   * a role that does not declare it is no prepared answer.
+   */
+  | {
+      readonly kind: "prepared";
+      readonly possible: readonly InformationValue[];
+      readonly orZero?: true;
+    }
+  /**
+   * The ability shows the Grimoire itself. Nothing is computed and nothing is
+   * asked: the engine records that the Grimoire was shown, also for an owner
+   * who is drunk or poisoned, and stores no answer in its place. What a
+   * Storyteller shows an impaired owner is done at the table.
+   */
+  | { readonly kind: "grimoire" }
+  /**
+   * The ability has nothing to learn this time, and the text says why. The
+   * engine stores it as the answer of the step; nobody is asked.
+   */
+  | { readonly kind: "note"; readonly text: string }
+  /**
+   * No answer yet. A step that learns a character and has no player to read
+   * stays a question the Storyteller may fill with any character.
+   */
   | { readonly kind: "no-effect" };
 
 /** Read-only facts for an execution contribution. */
@@ -234,8 +358,23 @@ export type ExecutionDecision =
 /** Host-choice cases a role may own. */
 export type AdjudicationCase = "registration";
 
+/**
+ * The nights a night-step declaration covers. "any" is one shape for every
+ * night the role wakes; "first" and "other" split a role whose first night
+ * differs, and "other" alone is a role that does not act on the first night.
+ */
+export type NightTiming = "first" | "other" | "any";
+
 /** The step-kind arms. An arm is added with its first migrated role. */
 export type RoleCapability =
+  | {
+      readonly kind: "night-step";
+      readonly timing: NightTiming;
+      /** The step the night queue builds for the role. */
+      readonly step: NightStepSpec;
+      /** Resolves the completed step. Absent means the engine keeps its own path. */
+      readonly resolve?: (context: AbilityContext) => AbilityDecision;
+    }
   | {
       readonly kind: "death-trigger";
       readonly onDeath?: (context: DeathContext) => DeathDecision;

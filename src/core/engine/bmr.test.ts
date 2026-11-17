@@ -4212,3 +4212,279 @@ test("the Pukka step offers no host death controls (BMR-O2)", () => {
   const pukka = state.night.queue.find((step) => step.roleId === "pukka")!;
   assert.equal(pukka.canKill, false, "the engine resolves the Pukka's death");
 });
+
+// The Gambler's and the Pukka's steps as the night queue builds them and as
+// their completion leaves them.
+
+function gamblerAndPukka(): GameState {
+  return make(
+    { 1: "gambler", 2: "chambermaid", 3: "sailor", 4: "courtier", 5: "fool", 6: "pukka" },
+    { count: 8 },
+  );
+}
+
+function roleStepOf(state: GameState, roleId: RoleId): NightStep {
+  const step = state.night.queue.find((candidate) => candidate.roleId === roleId);
+  assert.ok(step, roleId + " has no step in " + JSON.stringify(queueRoles(state)));
+  return step;
+}
+
+function queueRoles(state: GameState): string[] {
+  return state.night.queue.map((step) => String(step.roleId || step.system));
+}
+
+/** A step without the fields a completion stamps from the clock. */
+function recordOf(step: NightStep): Record<string, unknown> {
+  const record: Record<string, unknown> = JSON.parse(JSON.stringify(step));
+  delete record.completedAt;
+  return record;
+}
+
+const OPEN_STEP = {
+  kind: "role",
+  bmr: true,
+  actorAlive: true,
+  targetMode: "one-any",
+  minTargets: 1,
+  maxTargets: 1,
+  infoKind: "none",
+  optional: false,
+  canKill: false,
+  canResurrect: false,
+  note: null,
+  targetIds: [],
+  registrations: {},
+  given: null,
+  result: null,
+  pending: null,
+  done: false,
+  skipped: false,
+};
+
+test("the Pukka has a step on every night and the Gambler from the second night (BMR-PUKKA-01, BMR-GAMBLER-01)", () => {
+  const state = gamblerAndPukka();
+  startNight(state);
+  assert.deepEqual(queueRoles(state), [
+    "minioninfo",
+    "demoninfo",
+    "sailor",
+    "courtier",
+    "pukka",
+    "chambermaid",
+  ]);
+  const pukka = {
+    ...OPEN_STEP,
+    roleId: "pukka",
+    actorId: "6",
+    actorName: "P6",
+    noteKey: "note.bmr.pukka",
+  };
+  assert.deepEqual(recordOf(roleStepOf(state, "pukka")), {
+    ...pukka,
+    key: "n1-6-pukka-6",
+    order: 6,
+  });
+
+  for (const night of [2, 3]) {
+    skipRemaining(state);
+    endNightToNext(state);
+    assert.deepEqual(
+      queueRoles(state),
+      ["sailor", "courtier", "gambler", "pukka", "assassin", "chambermaid"],
+      "night " + night,
+    );
+    assert.deepEqual(recordOf(roleStepOf(state, "pukka")), {
+      ...pukka,
+      key: "n" + night + "-8-pukka-6",
+      order: 8,
+    });
+    assert.deepEqual(recordOf(roleStepOf(state, "gambler")), {
+      ...OPEN_STEP,
+      key: "n" + night + "-3-gambler-1",
+      order: 3,
+      roleId: "gambler",
+      actorId: "1",
+      actorName: "P1",
+      noteKey: "note.bmr.gambler",
+      roleChoices: state.script!.roles,
+    });
+  }
+});
+
+test("a living Lunatic shown the Pukka chooses one player, and the Pukka's step then yields a note", () => {
+  const state = make(
+    {
+      1: "lunatic",
+      2: "pukka",
+      3: "chambermaid",
+      4: "courtier",
+      5: "exorcist",
+      6: "gambler",
+      7: "sailor",
+      8: "mastermind",
+    },
+    { count: 8 },
+  );
+  assert.equal(state.setup.lunaticShownId, "pukka");
+  startNight(state);
+  const pukka = {
+    ...OPEN_STEP,
+    roleId: "pukka",
+    actorId: "2",
+    actorName: "P2",
+    infoKind: "note",
+    noteKey: "note.bmr.pukka",
+  };
+  assert.deepEqual(recordOf(roleStepOf(state, "pukka")), {
+    ...pukka,
+    key: "n1-6-pukka-2",
+    order: 6,
+  });
+  skipRemaining(state);
+  endNightToNext(state);
+  assert.deepEqual(recordOf(roleStepOf(state, "pukka")), {
+    ...pukka,
+    key: "n2-8-pukka-2",
+    order: 8,
+  });
+  assert.deepEqual(recordOf(roleStepOf(state, "lunatic")), {
+    ...OPEN_STEP,
+    key: "n2-5-lunatic-1",
+    order: 5,
+    roleId: "lunatic",
+    actorId: "1",
+    actorName: "P1",
+    noteKey: "note.bmr.lunatic",
+  });
+});
+
+test("the Pukka's first-night step records the poisoned player and no death (BMR-PUKKA-01)", () => {
+  const state = gamblerAndPukka();
+  startNight(state);
+  const step = roleStepOf(state, "pukka");
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.deepEqual(recordOf(step), {
+    ...OPEN_STEP,
+    key: "n1-6-pukka-6",
+    order: 6,
+    roleId: "pukka",
+    actorId: "6",
+    actorName: "P6",
+    note: "Шаг выполнен.",
+    noteKey: "note.finished",
+    noteVars: null,
+    targetIds: ["2"],
+    result: { deaths: [], resolved: null, poisonedId: "2" },
+    done: true,
+    impaired: false,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.effects)), [
+    {
+      id: "eff-pukka-poison-6-1",
+      kind: "poison",
+      pukka: true,
+      sourceId: "6",
+      targetId: "2",
+      start: { phase: "night", number: 1 },
+      expires: null,
+      active: true,
+    },
+    {
+      id: "eff-pukka-death-6-1",
+      kind: "pukka-death",
+      sourceId: "6",
+      targetId: "2",
+      start: { phase: "night", number: 1 },
+      resolve: { phase: "night", number: 2 },
+      expires: null,
+      active: true,
+    },
+  ]);
+  assert.deepEqual(state.deaths, []);
+});
+
+test("a Pukka who is drunk on the first night poisons nobody (BMR-PUKKA-03)", () => {
+  const state = gamblerAndPukka();
+  startNight(state);
+  state.effects.push({
+    id: "test-pukka-drunk",
+    kind: "drunk",
+    sourceId: "3",
+    targetId: "6",
+    start: { phase: "night" as const, number: 1 },
+    expires: { phase: "night" as const, number: 2 },
+    active: true,
+  });
+  const step = roleStepOf(state, "pukka");
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.deepEqual(recordOf(step), {
+    ...OPEN_STEP,
+    key: "n1-6-pukka-6",
+    order: 6,
+    roleId: "pukka",
+    actorId: "6",
+    actorName: "P6",
+    note: "Способность не сработала: Пукка отравлен или пьян. Яд на прежней цели приостановлен.",
+    noteKey: "note.pukkaSuspended",
+    noteVars: null,
+    targetIds: ["2"],
+    result: { deaths: [], poisonedId: null, suspended: true },
+    done: true,
+    impaired: true,
+  });
+  assert.equal(state.effects.length, 1, "no poison and no delayed death are added");
+  assert.equal(isImpaired(state, "2"), false);
+});
+
+test("a Gambler who names no character keeps their life and the step is completed (BMR-GAMBLER-01)", () => {
+  const { state, step } = gamblerSecondNight();
+  const logged = state.log.length;
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(state.players["1"].alive, true);
+  assert.deepEqual(state.deaths, []);
+  assert.deepEqual(recordOf(step), {
+    ...OPEN_STEP,
+    key: "n2-3-gambler-1",
+    order: 3,
+    roleId: "gambler",
+    actorId: "1",
+    actorName: "P1",
+    note: "Шаг выполнен.",
+    noteKey: "note.finished",
+    noteVars: null,
+    targetIds: ["2"],
+    done: true,
+    impaired: false,
+    roleChoices: state.script!.roles,
+  });
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => [line.kind, line.title, line.detail]),
+    [["night", roleLabel("gambler"), "Шаг выполнен."]],
+  );
+});
+
+test("a wrong Gambler guess leaves the death on the step's log and no result on the step (BMR-GAMBLER-01)", () => {
+  const { state, step } = gamblerSecondNight();
+  const logged = state.log.length;
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"], roleId: "fool" }).ok, true);
+  assert.equal(step.result, null);
+  assert.equal(step.noteKey, "note.finished");
+  assert.equal(step.impaired, false);
+  assert.deepEqual(
+    state.deaths.map((death) => [
+      death.playerId,
+      death.cause,
+      death.ability,
+      death.bmr,
+      death.number,
+    ]),
+    [["1", "ability", "gambler", true, 2]],
+  );
+  assert.deepEqual(
+    state.log.slice(logged).map((line) => [line.kind, line.playerId ?? null]),
+    [
+      ["death", "1"],
+      ["night", null],
+    ],
+  );
+});

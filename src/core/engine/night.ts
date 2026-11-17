@@ -86,13 +86,14 @@ import {
 
 import { nightAt, addLog, insertStepInto, setStepNote } from "./context.ts";
 import { lifecycleGuard } from "./lifecycle.ts";
-import { idSuffix } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
+import { applyRoleAbility } from "./ability.ts";
+import type { AttackResult } from "./ability.ts";
 import { isImpaired } from "./effects.ts";
 
 import { infoForStep } from "./information.ts";
-import { resolveAttack, checkWin, evilTwinPartnerMissing } from "./death.ts";
+import { checkWin, evilTwinPartnerMissing } from "./death.ts";
 import { secretsErrors, setupErrors } from "./setup.ts";
 import {
   appendBmrConditionalSteps,
@@ -102,6 +103,7 @@ import {
 } from "./bmr.ts";
 import { appendSvConditionalSteps, buildSvNightQueue, completeSvStep } from "./sv.ts";
 import { minionRetainsAbility } from "./retention.ts";
+import { informationOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 
 // Steps kept when their owner dies: the dead actor may still complete them.
@@ -144,22 +146,6 @@ export function targetBounds(step: NightStep): TargetBounds {
   return { min, max: step.bmr || step.sv ? step.maxTargets || 0 : min };
 }
 
-export function infoKindFor(roleId: RoleId | null): string {
-  return (
-    {
-      washerwoman: "one-of-two",
-      librarian: "one-of-two",
-      investigator: "one-of-two",
-      chef: "number",
-      empath: "number",
-      fortuneteller: "yes-no",
-      undertaker: "character",
-      ravenkeeper: "character",
-      spy: "grimoire",
-    }[roleId || ""] || "none"
-  );
-}
-
 export function makeRoleStep(
   state: GameState,
   sequenceIndex: number,
@@ -167,6 +153,7 @@ export function makeRoleStep(
   actor: Player | null,
   extra: Record<string, unknown> = {},
 ): NightStep {
+  const declared = nightStepFor(roleModule(roleId), nightAt(state).number);
   return {
     key: stepKey(state, sequenceIndex, roleId, actor ? actor.id : null),
     kind: "role",
@@ -175,8 +162,9 @@ export function makeRoleStep(
     actorName: actor ? actor.name : "",
     actorAlive: actor ? actor.alive : false,
     order: sequenceIndex,
-    targetMode: roleModule(roleId)?.nightStep?.target ?? "none",
-    infoKind: infoKindFor(roleId),
+    targetMode: declared?.target ?? "none",
+    // A role declares the shape of its answer with its step.
+    infoKind: declared?.infoKind ?? "none",
     targetIds: [],
     redirectId: null,
     registrations: {},
@@ -277,7 +265,7 @@ export function buildNightQueue(
       return;
     }
 
-    const spec = roleModule(roleId)?.nightStep;
+    const spec = nightStepFor(roleModule(roleId), night);
     if (!spec) return;
     const actor = spec.actor
       ? spec.actor(state, night)
@@ -612,187 +600,37 @@ export function completeStep(
 
   const role = step.roleId;
 
-  if (role === "poisoner") {
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-    } else {
-      state.effects.forEach((effect) => {
-        if (effect.kind === "poison" && effect.sourceId === actor.id) effect.active = false;
-      });
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "poison",
-        sourceId: actor.id,
-        targetId: targets[0]!,
-        start: at,
-        expires: { phase: "night", number: at.number + 1 },
-        active: true,
-      });
-      setStepNote(
-        step,
-        "note.poisoned",
-        { name: seatName(state, targets[0]!) },
-        "Отравлен: " + seatName(state, targets[0]!) + ".",
-      );
-    }
-    return finishStep(state, step, options, targets, at, ports);
-  }
-
-  if (role === "monk") {
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-    } else {
-      state.effects.forEach((effect) => {
-        if (effect.kind === "protected" && effect.sourceId === actor.id) effect.active = false;
-      });
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "protected",
-        sourceId: actor.id,
-        targetId: targets[0]!,
-        start: at,
-        expires: { phase: "day", number: at.number },
-        active: true,
-      });
-      setStepNote(
-        step,
-        "note.protected",
-        { name: seatName(state, targets[0]!) },
-        "Защищён этой ночью: " + seatName(state, targets[0]!) + ".",
-      );
-    }
-    return finishStep(state, step, options, targets, at, ports);
-  }
-
-  if (role === "butler") {
-    const impaired = isImpaired(state, actor.id, at);
-    actor.butlerMasterId = targets[0]!;
-    state.effects.push({
-      id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-      kind: "butler",
-      sourceId: actor.id,
-      targetId: targets[0]!,
-      start: at,
-      expires: { phase: "night", number: at.number + 1 },
-      active: !impaired,
-    });
-    if (impaired) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-    } else {
-      setStepNote(
-        step,
-        "note.butlerMaster",
-        { name: seatName(state, targets[0]!) },
-        "Завтра голосует только вместе с: " + seatName(state, targets[0]!) + ".",
-      );
-    }
-    return finishStep(state, step, options, targets, at, ports);
-  }
-
-  if (role === "imp") {
-    const attack = resolveAttack(
+  const module = role ? roleModule(role) : null;
+  if (module && nightResolverFor(module, at.number)) {
+    // A migrated role never falls through to the branches below, so a missing
+    // resolution is a visible test failure instead of a silent fallback.
+    const outcome = applyRoleAbility(
       state,
-      {
-        attackerId: actor.id,
-        targetId: targets[0]!,
-        at,
-        redirectId: options.redirectId || null,
-      },
+      module,
+      step,
+      targets,
+      at,
+      { redirectId: options.redirectId || null },
       ports,
     );
-    if (attack.needsRedirect) {
+    if (outcome.kind === "needs-redirect") {
       return {
         ok: false,
         needsRedirect: true,
-        options: attack.options,
+        options: outcome.options,
         errorCode: "error.43",
         error: "Выберите, умирает Мэр, кто-то вместо него или никто.",
       };
     }
-    step.result = attack;
-    // The redirect is a Storyteller decision: it belongs in the secret journal
-    // even though this branch completes the step itself.
-    if (options.redirectId) {
-      recordHostChoice(
-        state,
-        "mayor-redirect",
-        seatName(state, String(options.redirectId)),
-        actor.id,
-        ports,
-      );
+    if (outcome.kind === "attack") {
+      return finishAttackStep(state, step, options, outcome.attack, outcome.title, ports);
     }
-    if (attack.noDeath) {
-      step.note = attack.reason || "";
-    } else {
-      setStepNote(
-        step,
-        "note.impKilled",
-        { name: seatName(state, attack.deathId || "") },
-        "Погиб: " + seatName(state, attack.deathId || "") + ".",
-      );
-    }
-    step.done = true;
-    step.completedAt = nowIso(ports);
-    step.given = null;
-    addLog(
-      state,
-      {
-        secret: true,
-        kind: "night",
-        title: "Имп атакует",
-        detail: step.note || "",
-        ...(attack.noDeath ? { consequence: "prevented" as const } : {}),
-      },
-      ports,
-    );
-    appendConditionalSteps(state, ports);
-    if (attack.pendingInheritance) {
-      step.pending = attack.pendingInheritance;
-    }
-    checkWin(state, {}, ports);
-    return { ok: true, step, result: step.result };
+    return finishStep(state, step, options, targets, at, ports);
   }
 
-  if (role === "ravenkeeper") {
-    const checked = validateGiven(step, infoForStep(state, step, options), options);
-    if ("rejection" in checked) return checked.rejection;
-    const finished = finishStep(state, step, options, targets, at, ports);
-    recordPending(state, checked.pending, step, ports);
-    return finished;
-  }
-
-  if (role === "undertaker") {
-    const checked = validateGiven(step, infoForStep(state, step, options), options);
-    if ("rejection" in checked) return checked.rejection;
-    const finished = finishStep(state, step, options, targets, at, ports);
-    recordPending(state, checked.pending, step, ports);
-    return finished;
-  }
-
-  if (
-    role === "chef" ||
-    role === "empath" ||
-    role === "fortuneteller" ||
-    role === "washerwoman" ||
-    role === "librarian" ||
-    role === "investigator"
-  ) {
-    const info = infoForStep(state, step, options);
+  // A role that owns its answer is an information step by its declaration.
+  if (informationOf(module)) {
+    const info = infoForStep(state, step, options, ports);
     if (info.missing) {
       return {
         ok: false,
@@ -802,6 +640,12 @@ export function completeStep(
         error: "Секретная информация ещё не настроена.",
       };
     }
+    if (info.kind === "grimoire") {
+      // The Grimoire is shown, not told. No answer can stand in its place, so
+      // one sent with the step is not stored.
+      step.given = info;
+      return finishStep(state, step, options, targets, at, ports);
+    }
     const checked = validateGiven(step, info, options);
     if ("rejection" in checked) return checked.rejection;
     const finished = finishStep(state, step, options, targets, at, ports);
@@ -809,12 +653,65 @@ export function completeStep(
     return finished;
   }
 
-  if (role === "spy") {
-    step.given = { kind: "grimoire" };
-    return finishStep(state, step, options, targets, at, ports);
-  }
-
   return finishStep(state, step, options, targets, at, ports);
+}
+
+/**
+ * Completes a step whose ability was an attack. The attack keeps its own
+ * record, which differs from the shared one: the outcome is the step result,
+ * the note names the victim or the reason nobody died, and the secret log line
+ * carries the title the role gave and a `prevented` mark when nobody died.
+ */
+function finishAttackStep(
+  state: GameState,
+  step: NightStep,
+  options: NightOptions,
+  attack: AttackResult,
+  title: string,
+  ports: CommandExecutionContext,
+) {
+  step.result = attack;
+  // The redirect is a Storyteller decision: it belongs in the secret journal
+  // even though this path completes the step itself.
+  if (options.redirectId) {
+    recordHostChoice(
+      state,
+      "mayor-redirect",
+      seatName(state, String(options.redirectId)),
+      step.actorId || null,
+      ports,
+    );
+  }
+  if (attack.noDeath) {
+    step.note = attack.reason || "";
+  } else {
+    setStepNote(
+      step,
+      "note.impKilled",
+      { name: seatName(state, attack.deathId || "") },
+      "Погиб: " + seatName(state, attack.deathId || "") + ".",
+    );
+  }
+  step.done = true;
+  step.completedAt = nowIso(ports);
+  step.given = null;
+  addLog(
+    state,
+    {
+      secret: true,
+      kind: "night",
+      title,
+      detail: step.note || "",
+      ...(attack.noDeath ? { consequence: "prevented" as const } : {}),
+    },
+    ports,
+  );
+  appendConditionalSteps(state, ports);
+  if (attack.pendingInheritance) {
+    step.pending = attack.pendingInheritance;
+  }
+  checkWin(state, {}, ports);
+  return { ok: true, step, result: step.result };
 }
 
 export function finishStep(
