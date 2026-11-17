@@ -6,6 +6,14 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Move the night steps of the Poisoner, Monk, Butler, Imp, Spy, Gambler and Pukka, and the information answers of the Empath, Fortune Teller, Chef, Undertaker, Ravenkeeper, Washerwoman, Librarian and Investigator, from the engine into their role capabilities, with behavior pinned by tests before each move (#200)
+
+### Fixed
+
+- Answer a prepared "zero are in play" only for the Librarian; a zero held for another role no longer answers its step, and commands recorded under earlier ruleset versions replay unchanged (#200)
+
 ## [0.1.0] - 2026-11-16
 
 ### Added

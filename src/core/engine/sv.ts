@@ -47,6 +47,7 @@ import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, evilTwinPair, kill, setWinner } from "./death.ts";
 import { activeEffects, isImpaired } from "./effects.ts";
 import { vigormortisActive } from "./retention.ts";
+import { firstNightStepOf, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 import { resolveTransformationCapability } from "./ability.ts";
 import { stillWakes } from "../roles/sv-common.ts";
@@ -455,9 +456,7 @@ function requeueForCharacter(
   if (suppressWake && roleTeam(player.roleId) === "demon") return;
   const night = nightAt(state).number;
   const roleId = player.roleId;
-  const declared = roleModule(roleId);
-  const spec =
-    night === 1 ? (declared?.firstNightStep ?? declared?.nightStep) : declared?.nightStep;
+  const spec = nightStepFor(roleModule(roleId), night);
   const index = nightSequence(night, "snv").indexOf(roleId);
   if (!spec || index === -1 || index <= order) return;
   if (!player.alive) return;
@@ -574,9 +573,7 @@ function philosopherAbilityStep(
   // tonight." A first-night ability gained on a later night has no slot in that
   // night's printed order, so it resolves right after the Philosopher's step.
   const spec =
-    night === 1
-      ? (declared?.firstNightStep ?? declared?.nightStep)
-      : (declared?.nightStep ?? (chosenNow ? declared?.firstNightStep : undefined));
+    nightStepFor(declared, night) ?? (chosenNow ? firstNightStepOf(declared) : undefined);
   let index = nightSequence(night, "snv").indexOf(roleId);
   if (index === -1) {
     if (!chosenNow || night === 1) return null;
@@ -607,9 +604,7 @@ export function buildSvNightQueue(state: GameState): NightStep[] {
       if (demon) steps.push(demon);
       return;
     }
-    const declared = roleModule(roleId);
-    const spec =
-      night === 1 ? (declared?.firstNightStep ?? declared?.nightStep) : declared?.nightStep;
+    const spec = nightStepFor(roleModule(roleId), night);
     if (!spec) return;
     // A Demon role can have two holders after a Fang Gu jump or a Pit-Hag
     // change: the dead old Demon and the living new one. The living holder is
