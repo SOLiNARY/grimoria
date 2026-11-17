@@ -735,6 +735,22 @@ a Lunatic shown the Shabaloth attacks as it but regurgitates no one. The
 modules and the contract do not change. Commands recorded under the ruleset
 versions before `tb-bmr-snv-2026-11-17.3` keep the resurrections they marked.
 
+Slice 4 starts in `openspec/changes/snv-demon-night-step` with the four
+Sects & Violets Demons. The Fang Gu, the No Dashii, the Vigormortis and the
+Vortox declare their step and resolver on a `night-step` arm for the nights
+after the first. Their completion had no branch: the host marks the death on
+the outcome of the step, which checks the Demon's health, so each resolver
+returns `no-effect`, as the Tinker's does. `completeSvStep` gains the
+dispatch `completeBmrStep` already has: a role with a resolver goes to the
+coordinator, after the seat's record exists, and never reaches the branches
+below. No contract changes. The retained-ability fact named in the table is
+not added, because no resolver of this change reads it: the queue builder
+keeps the Vigormortis's retained Minions awake as before. `sv.ts` still names
+the four in the Demon set, the outcome, the Fang Gu's jump, the No Dashii's
+and the Vigormortis's poison and the Vortox's false information, and
+`death.ts` names the Vortox for its win at dusk; none of them completes the
+step.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 

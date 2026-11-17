@@ -47,9 +47,9 @@ import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, evilTwinPair, kill, setWinner } from "./death.ts";
 import { activeEffects, isImpaired } from "./effects.ts";
 import { vigormortisActive } from "./retention.ts";
-import { firstNightStepOf, nightStepFor } from "../roles/night-step.ts";
+import { firstNightStepOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
-import { resolveTransformationCapability } from "./ability.ts";
+import { applyRoleAbility, resolveTransformationCapability } from "./ability.ts";
 import { stillWakes } from "../roles/sv-common.ts";
 
 const DEMON_ROLES = new Set(["fanggu", "nodashii", "vigormortis", "vortox"]);
@@ -1135,6 +1135,21 @@ export function completeSvStep(
   const at = currentAt(state);
   const order = Number(step.order) || 0;
   const impaired = isImpaired(state, actor.id, at);
+  const declared = step.roleId ? roleModule(step.roleId) : null;
+  if (declared && nightResolverFor(declared, at.number)) {
+    // A migrated role never falls through to the branches below, so a missing
+    // resolution is a visible test failure instead of a silent fallback.
+    applyRoleAbility(
+      state,
+      declared,
+      step,
+      targets,
+      at,
+      { chosenRoleId: options.roleId ?? null },
+      ports,
+    );
+    return { ok: true };
+  }
 
   if (step.roleId === "philosopher") {
     const roleId = options.roleId || null;

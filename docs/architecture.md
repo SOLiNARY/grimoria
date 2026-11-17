@@ -60,9 +60,13 @@ the migration reviewable role by role.
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
 Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller, the
-Chef and, in Bad Moon Rising, the Gambler, the Pukka, the Sailor, the
+Chef, in Bad Moon Rising, the Gambler, the Pukka, the Sailor, the
 Innkeeper, the Devil's Advocate, the Exorcist, the Tinker, the Po and the
-Shabaloth have moved.
+Shabaloth, and in Sects & Violets the Fang Gu, the No Dashii, the
+Vigormortis and the Vortox have moved. The Sects & Violets step completion
+hands a role that owns a resolver to the coordinator, as the Bad Moon Rising
+one does; the four Demons' resolvers change nothing, because the host marks
+their deaths on the step's outcome.
 `src/core/roles/night-step.ts` is the one lookup the queue builders and the
 step completion use; it reads the capability or the legacy `nightStep` and
 `firstNightStep` fields, and a module declares one form only. A resolver has
