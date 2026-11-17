@@ -147,6 +147,10 @@
   official provenance (82 entries), acceptance (72 matrix roles, 34 test
   files), version (0.1.0) and the ownership ledger.
   `node --test scripts/*.test.ts` reports 127 passed.
+- GREEN: `node scripts/openspec-check.ts` passed (25 specs, 51 active
+  changes), also with the pull request body and the changed files of this
+  change. `openspec validate --changes --strict` passed 51 of 51 and
+  `openspec validate --specs --strict` 25 of 25.
 - GREEN: `node scripts/browser-check.ts` passed, and
   `node scripts/run-scenarios.ts` passed 10 of 10 on the `BASE_PATH=/pocket/`
   test build.
