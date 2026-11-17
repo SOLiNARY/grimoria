@@ -31,6 +31,8 @@ function context(
     mayRegisterAs: (playerId, team) => (team === "evil" ? mayBeEvil : mayBeGood).includes(playerId),
     registersAsDemon: () => false,
     redHerringId: null,
+    executedToday: null,
+    mayRegisterAsCharacters: () => [],
     actualRoleOf: () => null,
     hasPlayer: (playerId) => seats.includes(playerId),
     ...overrides,

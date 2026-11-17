@@ -258,6 +258,20 @@ export interface InformationContext {
   registersAsDemon(playerId: string): boolean;
   /** The good player chosen in setup as the red herring, if the game has one. */
   readonly redHerringId: string | null;
+  /**
+   * The player who died by execution today and the character recorded at the
+   * death. Null when no execution caused a death today.
+   */
+  readonly executedToday: {
+    readonly playerId: string;
+    readonly roleId: RoleId | null;
+  } | null;
+  /**
+   * The characters the player may register as to this ability, their own
+   * first: more than one only while the Storyteller may still register them
+   * as another character.
+   */
+  mayRegisterAsCharacters(playerId: string): readonly RoleId[];
   actualRoleOf(playerId: string): RoleId | null;
   hasPlayer(playerId: string): boolean;
 }
@@ -278,13 +292,26 @@ export type InformationDecision =
    * on how a player registers. More than one means the Storyteller chooses
    * among them, and the engine asks; the role still gives `value`, the answer
    * under the registrations chosen so far.
+   *
+   * `subjectId` is the player the answer is about, when the ability learns
+   * one player's character.
    */
   | {
       readonly kind: "answer";
       readonly value: InformationValue;
       readonly possible?: readonly InformationValue[];
       readonly legal?: readonly InformationValue[];
+      readonly subjectId?: string;
     }
+  /**
+   * The ability has nothing to learn this time, and the text says why. The
+   * engine stores it as the answer of the step; nobody is asked.
+   */
+  | { readonly kind: "note"; readonly text: string }
+  /**
+   * No answer yet. A step that learns a character and has no player to read
+   * stays a question the Storyteller may fill with any character.
+   */
   | { readonly kind: "no-effect" };
 
 /** Read-only facts for an execution contribution. */

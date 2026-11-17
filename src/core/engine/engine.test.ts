@@ -4886,6 +4886,256 @@ for (const scenario of [
   });
 }
 
+// A module that owns a character answer and records what it was shown. The
+// tests below use it, so they do not depend on who died or who was chosen.
+function naming(decision: InformationDecision, seen: InformationContext[] = []): RoleModule {
+  return {
+    id: "undertaker",
+    edition: "tb",
+    nightStep: { infoKind: "character" },
+    capabilities: [
+      {
+        kind: "information",
+        infoKind: "probe",
+        resolve(context) {
+          seen.push(context);
+          return decision;
+        },
+      },
+    ],
+  };
+}
+
+test("a character answer reaches the host with its player and the characters the player may be shown as", () => {
+  const state = nightAfterExecution(UNDERTAKER_ROLES, "2");
+  const step = roleStep(state, "undertaker");
+  const before = canonicalState(state);
+  const legal = ["recluse", "imp"];
+  const possible = ["chef", "recluse", "imp"];
+
+  const info = moduleInfoForStep(
+    state,
+    naming({ kind: "answer", value: "recluse", subjectId: "5", possible, legal }),
+    step,
+  );
+
+  assert.deepEqual(info, {
+    kind: "character",
+    roleId: "recluse",
+    playerId: "5",
+    impaired: false,
+    needsChoice: true,
+    options: ["recluse", "imp"],
+  });
+  assert.notEqual(info?.options, legal, "the host's list is a copy of the module's");
+  assert.deepEqual(canonicalState(state), before, "asking changes nothing");
+
+  assert.deepEqual(
+    moduleInfoForStep(
+      state,
+      naming({ kind: "answer", value: "chef", subjectId: "2", possible, legal: ["chef"] }),
+      step,
+    ),
+    characterAnswer("chef", "2"),
+    "one character is listed and is no choice",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(state, naming({ kind: "answer", value: "chef", possible }), step),
+    {
+      kind: "character",
+      roleId: "chef",
+      playerId: null,
+      impaired: false,
+      needsChoice: false,
+      options: [],
+    },
+    "an answer that names no player and no legal characters invents neither",
+  );
+});
+
+test("an impaired owner of a character answer is offered every character its module names", () => {
+  const state = nightAfterExecution(UNDERTAKER_ROLES, "2");
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const step = roleStep(state, "undertaker");
+  const possible = ["chef", "recluse", "imp"];
+
+  const info = moduleInfoForStep(
+    state,
+    naming({ kind: "answer", value: "recluse", subjectId: "5", possible, legal: ["recluse"] }),
+    step,
+  );
+
+  assert.deepEqual(info, {
+    kind: "character",
+    roleId: "recluse",
+    playerId: "5",
+    impaired: true,
+    needsChoice: true,
+    options: ["chef", "recluse", "imp"],
+  });
+  assert.notEqual(info?.options, possible, "the host's list is a copy of the module's");
+
+  assert.deepEqual(
+    moduleInfoForStep(
+      state,
+      naming({ kind: "answer", value: "chef", subjectId: "2", legal: ["chef", "imp"] }),
+      step,
+    ),
+    {
+      kind: "character",
+      roleId: "chef",
+      playerId: "2",
+      impaired: true,
+      needsChoice: true,
+      options: [],
+    },
+    "the legal characters are not offered as false ones",
+  );
+});
+
+test("a note from an information role is stored as the step's answer and asks nobody", () => {
+  const note = { kind: "note", text: "Нечего узнавать." } as const;
+  const stored = { kind: "none", text: "Нечего узнавать." };
+
+  const healthy = nightAfterExecution(UNDERTAKER_ROLES, "2");
+  assert.deepEqual(
+    moduleInfoForStep(healthy, naming(note), roleStep(healthy, "undertaker")),
+    stored,
+  );
+
+  const poisoned = nightAfterExecution(UNDERTAKER_ROLES, "2");
+  completeRole(poisoned, "poisoner", { targetIds: ["1"] });
+  assert.deepEqual(
+    moduleInfoForStep(poisoned, naming(note), roleStep(poisoned, "undertaker")),
+    stored,
+    "an impaired owner is not asked either",
+  );
+
+  const other = empathNight();
+  assert.deepEqual(
+    moduleInfoForStep(other, answering(note), roleStep(other, "empath")),
+    stored,
+    "a note is the same record for every shape of step",
+  );
+});
+
+test("a character step without an answer stays a question with every character", () => {
+  const placeholder = {
+    kind: "character",
+    roleId: null,
+    needsChoice: true,
+    options: ANY_CHARACTER,
+  };
+
+  const healthy = nightAfterExecution(UNDERTAKER_ROLES, "2");
+  const info = moduleInfoForStep(
+    healthy,
+    naming({ kind: "no-effect" }),
+    roleStep(healthy, "undertaker"),
+  );
+  assert.deepEqual(info, placeholder);
+  assert.notEqual(info?.options, ALL_ROLES, "the host's list is a copy of the catalog");
+
+  const poisoned = nightAfterExecution(UNDERTAKER_ROLES, "2");
+  completeRole(poisoned, "poisoner", { targetIds: ["1"] });
+  assert.deepEqual(
+    moduleInfoForStep(poisoned, naming({ kind: "no-effect" }), roleStep(poisoned, "undertaker")),
+    placeholder,
+    "the record does not say whether the owner is impaired",
+  );
+});
+
+test("an information role is told who died by execution today and nothing about other deaths", () => {
+  const seen: InformationContext[] = [];
+  const module = naming({ kind: "no-effect" }, seen);
+  const told = (state: GameState, roleId: string) => {
+    moduleInfoForStep(state, module, roleStep(state, roleId));
+    return seen.at(-1)!.executedToday;
+  };
+
+  const executed = nightAfterExecution(UNDERTAKER_ROLES, "2");
+  assert.deepEqual(told(executed, "undertaker"), { playerId: "2", roleId: "chef" });
+
+  const first = make(UNDERTAKER_ROLES);
+  assert.equal(startNight(first).ok, true);
+  assert.equal(told(first, "empath"), null, "no day has passed on the first night");
+
+  // The Imp kills at night; a day without an execution follows.
+  const killed = nightOfTheKill(UNDERTAKER_ROLES);
+  assert.equal(told(killed, "empath"), null, "a day without an execution");
+  skipNight(killed);
+  assert.equal(endDay(killed).ok, true);
+  assert.equal(killed.night.number, 3);
+  assert.equal(told(killed, "empath"), null, "a death at night is not an execution");
+
+  // The execution of the first day is not today's on the third night.
+  skipNight(executed);
+  assert.equal(endDay(executed).ok, true);
+  assert.equal(executed.night.number, 3);
+  assert.equal(told(executed, "empath"), null, "an execution of an earlier day");
+});
+
+test("an executed Drunk is on record as the Drunk, not as the Townsfolk the Drunk was shown", () => {
+  const seen: InformationContext[] = [];
+  const state = nightAfterExecution({ ...UNDERTAKER_RECLUSE, 2: "drunk" }, "2", {
+    drunkShownId: "virgin",
+  });
+
+  moduleInfoForStep(state, naming({ kind: "no-effect" }, seen), roleStep(state, "undertaker"));
+
+  assert.deepEqual(seen[0]!.executedToday, { playerId: "2", roleId: "drunk" });
+});
+
+test("an information role is told the characters a player may register as, the real one first", () => {
+  const seats = {
+    1: "spy",
+    2: "imp",
+    3: "recluse",
+    4: "chef",
+    5: "monk",
+    6: "soldier",
+    7: "mayor",
+    8: "poisoner",
+    9: "empath",
+    10: "undertaker",
+    11: "virgin",
+  };
+  const facts = (poisonedId: string | null) => {
+    const state = make(seats, { count: 11 });
+    assert.equal(startNight(state).ok, true);
+    if (poisonedId) completeRole(state, "poisoner", { targetIds: [poisonedId] });
+    const seen: InformationContext[] = [];
+    moduleInfoForStep(
+      state,
+      answering({ kind: "answer", value: false }, seen),
+      roleStep(state, "empath"),
+    );
+    return seen[0]!;
+  };
+
+  const healthy = facts(null);
+  assert.deepEqual(healthy.mayRegisterAsCharacters("3"), RECLUSE_MAY_BE, "a Recluse");
+  assert.deepEqual(healthy.mayRegisterAsCharacters("1"), SPY_MAY_BE, "a Spy");
+  assert.deepEqual(healthy.mayRegisterAsCharacters("4"), ["chef"], "a Townsfolk");
+  assert.deepEqual(healthy.mayRegisterAsCharacters("2"), ["imp"], "the Demon");
+  assert.deepEqual(healthy.mayRegisterAsCharacters("99"), [], "a seat that does not exist");
+
+  // Recluse r3007 and Spy r3118: a drunk or poisoned one has no registration.
+  const recluse = facts("3");
+  assert.deepEqual(recluse.mayRegisterAsCharacters("3"), ["recluse"], "a poisoned Recluse");
+  assert.deepEqual(recluse.mayRegisterAsCharacters("1"), SPY_MAY_BE, "the Spy is not affected");
+  const spy = facts("1");
+  assert.deepEqual(spy.mayRegisterAsCharacters("1"), ["spy"], "a poisoned Spy");
+  assert.deepEqual(spy.mayRegisterAsCharacters("3"), RECLUSE_MAY_BE);
+
+  // The owner's own poisoning does not widen the list: what an impaired owner
+  // is offered is the engine's, from the characters the role says are possible.
+  const owner = facts("9");
+  assert.equal(owner.impaired, true);
+  assert.deepEqual(owner.mayRegisterAsCharacters("4"), ["chef"]);
+  assert.deepEqual(owner.mayRegisterAsCharacters("3"), RECLUSE_MAY_BE);
+});
+
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {
   const state = make({
     1: "monk",

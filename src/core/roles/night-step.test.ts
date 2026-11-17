@@ -211,3 +211,18 @@ test("the migrated Trouble Brewing information roles answer from their modules",
   assert.equal(nightStepFor(chef, 2), undefined, "the Chef learns on the first night only");
   assert.equal(nightResolverFor(chef, 1), undefined, "the step applies nothing");
 });
+
+test("the Trouble Brewing character roles answer from their modules and keep their wake", () => {
+  // The Undertaker and the Ravenkeeper wake on a condition the queue reads
+  // from the game, so their step stays in the legacy field; the answer and its
+  // shape are the module's.
+  for (const id of ["undertaker", "ravenkeeper"] as const) {
+    const module = roleModule(id);
+    assert.ok(informationOf(module), id + " owns its answer");
+    assert.equal(nightStepFor(module, 2)?.infoKind, "character", id);
+    assert.equal(typeof nightStepFor(module, 2)?.actor, "function", id + " keeps its wake");
+    assert.equal(nightResolverFor(module, 2), undefined, "the step applies nothing");
+  }
+  assert.equal(nightStepFor(roleModule("undertaker"), 2)?.target, undefined);
+  assert.equal(nightStepFor(roleModule("ravenkeeper"), 2)?.target, "one-any");
+});

@@ -22,6 +22,8 @@ function context(
     mayRegisterAs: () => false,
     registersAsDemon: () => false,
     redHerringId: null,
+    executedToday: null,
+    mayRegisterAsCharacters: () => [],
     actualRoleOf: () => null,
     hasPlayer: () => true,
     ...overrides,

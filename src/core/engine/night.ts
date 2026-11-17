@@ -156,8 +156,6 @@ export function infoKindFor(roleId: RoleId | null): string {
       washerwoman: "one-of-two",
       librarian: "one-of-two",
       investigator: "one-of-two",
-      undertaker: "character",
-      ravenkeeper: "character",
       spy: "grimoire",
     }[roleId || ""] || "none"
   );
@@ -647,22 +645,6 @@ export function completeStep(
       return finishAttackStep(state, step, options, outcome.attack, outcome.title, ports);
     }
     return finishStep(state, step, options, targets, at, ports);
-  }
-
-  if (role === "ravenkeeper") {
-    const checked = validateGiven(step, infoForStep(state, step, options), options);
-    if ("rejection" in checked) return checked.rejection;
-    const finished = finishStep(state, step, options, targets, at, ports);
-    recordPending(state, checked.pending, step, ports);
-    return finished;
-  }
-
-  if (role === "undertaker") {
-    const checked = validateGiven(step, infoForStep(state, step, options), options);
-    if ("rejection" in checked) return checked.rejection;
-    const finished = finishStep(state, step, options, targets, at, ports);
-    recordPending(state, checked.pending, step, ports);
-    return finished;
   }
 
   // A role that owns its answer is an information step by its declaration;

@@ -18,9 +18,9 @@ generator, then review the diff. `--check` fails on a stale ledger.
 
 | Owner | Roles |
 | --- | --- |
-| Typed capability only | 4 |
-| Typed capability with an engine reference | 11 |
-| Engine branch | 56 |
+| Typed capability only | 5 |
+| Typed capability with an engine reference | 12 |
+| Engine branch | 54 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -77,7 +77,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `poisoner` | tb | capability:night-step | — | TB-POISONER-01 (verified, r1737) | capability |
 | `professor` | bmr | nightStep | night.ts×1, bmr.ts×3 | BMR-PROFESSOR-01 (verified, r1775)<br>BMR-PROFESSOR-02 (verified, r1775)<br>BMR-PROFESSOR-03 (verified, r1775) | engine branch |
 | `pukka` | bmr | nightStep, ability | bmr.ts×3, pukka.ts×1 | BMR-PUKKA-01 (verified, r3074)<br>BMR-PUKKA-02 (verified, r3074)<br>BMR-PUKKA-03 (verified, r3074)<br>BMR-PUKKA-04 (verified, r3074)<br>BMR-PUKKA-05 (verified, r3074)<br>BMR-PUKKA-06 (implemented-unverified, r3074)<br>BMR-PUKKA-07 (verified, r3074) | capability + engine reference |
-| `ravenkeeper` | tb | nightStep | night.ts×5, information.ts×1 | TB-RAVENKEEPER-01 (verified, r3125) | engine branch |
+| `ravenkeeper` | tb | nightStep, capability:information | night.ts×4 | TB-RAVENKEEPER-01 (verified, r3125) | capability + engine reference |
 | `recluse` | tb | capability:adjudication | day.ts×1, setup.ts×3, information.ts×4 | TB-RECLUSE-01 (verified, r3007)<br>TB-RECLUSE-02 (verified, r3007) | capability + engine reference |
 | `sage` | snv | nightStep, deathStep | sv.ts×3 | SNV-SAGE-01 (verified, r3009) | engine branch |
 | `sailor` | bmr | nightStep | effects.ts×1, night.ts×3, bmr.ts×1 | BMR-SAILOR-01 (verified, r1768)<br>BMR-SAILOR-02 (verified, r1768) | engine branch |
@@ -94,7 +94,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `tealady` | bmr | — | effects.ts×2 | BMR-TEALADY-01 (verified, r1777) | engine branch |
 | `tinker` | bmr | nightStep | day.ts×2, bmr.ts×2 | BMR-TINKER-01 (host-choice, r1782) | engine branch |
 | `towncrier` | snv | nightStep | sv.ts×2, host-choice.ts×1 | SNV-TOWNCRIER-01 (verified, r3145) | engine branch |
-| `undertaker` | tb | nightStep | night.ts×1, information.ts×1 | TB-UNDERTAKER-01 (verified, r3115) | engine branch |
+| `undertaker` | tb | nightStep, capability:information | — | TB-UNDERTAKER-01 (verified, r3115) | capability |
 | `vigormortis` | snv | nightStep | sv.ts×2 | SNV-VIGORMORTIS-01 (verified, r3015)<br>SNV-VIGORMORTIS-02 (verified, r3015)<br>SNV-VIGORMORTIS-03 (verified, r3015)<br>SNV-VIGORMORTIS-04 (verified, r3015) | engine branch |
 | `virgin` | tb | — | day.ts×5 | TB-VIRGIN-01 (verified, r1729) | engine branch |
 | `vortox` | snv | nightStep | death.ts×2, sv.ts×2 | SNV-VORTOX-01 (verified, r3017)<br>SNV-VORTOX-02 (host-choice, r3017) | engine branch |
