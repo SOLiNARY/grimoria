@@ -22,8 +22,8 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | Owner | Roles |
 | --- | --- |
 | Typed capability only | 5 |
-| Typed capability with an engine reference | 22 |
-| Engine branch | 44 |
+| Typed capability with an engine reference | 26 |
+| Engine branch | 40 |
 | Declarative shared mechanic | 1 |
 | Missing module | 0 |
 | **Total** | **72** |
@@ -48,7 +48,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `empath` | tb | capability:night-step, capability:information | — | TB-EMPATH-01 (verified, r1724)<br>TB-EMPATH-02 (host-choice, r1724)<br>TB-EMPATH-03 (host-choice, r1724) | capability |
 | `eviltwin` | snv | firstNightStep | model/state.ts×1, death.ts×2, setup.ts×3, sv.ts×3, corrections.ts×1 | SNV-EVILTWIN-01 (verified, r3101)<br>SNV-EVILTWIN-02 (verified, r3101)<br>SNV-EVILTWIN-03 (host-choice, r3101)<br>SNV-EVILTWIN-04 (verified, r3101)<br>SNV-EVILTWIN-05 (host-choice, r3101) | engine branch |
 | `exorcist` | bmr | capability:night-step | bmr.ts×2 | BMR-EXORCIST-01 (verified, r2973)<br>BMR-EXORCIST-02 (verified, r2973) | capability + engine reference |
-| `fanggu` | snv | nightStep | sv.ts×5 | SNV-FANGGU-01 (verified, r2974)<br>SNV-FANGGU-02 (verified, r2974)<br>SNV-FANGGU-03 (verified, r2974)<br>SNV-FANGGU-04 (verified, r2974) | engine branch |
+| `fanggu` | snv | capability:night-step | sv.ts×5 | SNV-FANGGU-01 (verified, r2974)<br>SNV-FANGGU-02 (verified, r2974)<br>SNV-FANGGU-03 (verified, r2974)<br>SNV-FANGGU-04 (verified, r2974) | capability + engine reference |
 | `flowergirl` | snv | nightStep | sv.ts×3, host-choice.ts×1 | SNV-FLOWERGIRL-01 (verified, r2907)<br>SNV-FLOWERGIRL-02 (verified, r2907) | engine branch |
 | `fool` | bmr | — | effects.ts×1, death.ts×1, bmr.ts×1 | BMR-FOOL-01 (verified, r2636) | engine branch |
 | `fortuneteller` | tb | capability:night-step, capability:information | setup.ts×3, information.ts×1 | TB-FORTUNETELLER-01 (verified, r3123) | capability + engine reference |
@@ -71,7 +71,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `monk` | tb | capability:night-step | — | TB-MONK-01 (verified, r3124) | capability |
 | `moonchild` | bmr | nightStep | night.ts×1, day.ts×1, bmr.ts×4 | BMR-MOONCHILD-01 (verified, r1783)<br>BMR-MOONCHILD-02 (verified, r1783)<br>BMR-MOONCHILD-03 (verified, r1783) | engine branch |
 | `mutant` | snv | — | sv.ts×4 | SNV-MUTANT-01 (host-choice, r1755) | engine branch |
-| `nodashii` | snv | nightStep | sv.ts×3 | SNV-NODASHII-01 (verified, r3158)<br>SNV-NODASHII-02 (verified, r3158) | engine branch |
+| `nodashii` | snv | capability:night-step | sv.ts×3 | SNV-NODASHII-01 (verified, r3158)<br>SNV-NODASHII-02 (verified, r3158) | capability + engine reference |
 | `oracle` | snv | nightStep | sv.ts×1 | SNV-ORACLE-01 (verified, r2909) | engine branch |
 | `pacifist` | bmr | capability:execution | day.ts×1 | BMR-PACIFIST-01 (host-choice, r2601) | capability + engine reference |
 | `philosopher` | snv | nightStep | sv.ts×10 | SNV-PHILOSOPHER-01 (verified, r2421)<br>SNV-PHILOSOPHER-02 (verified, r2421) | engine branch |
@@ -98,9 +98,9 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `tinker` | bmr | capability:night-step | day.ts×2, bmr.ts×1 | BMR-TINKER-01 (host-choice, r1782) | capability + engine reference |
 | `towncrier` | snv | nightStep | sv.ts×2, host-choice.ts×1 | SNV-TOWNCRIER-01 (verified, r3145) | engine branch |
 | `undertaker` | tb | nightStep, capability:information | — | TB-UNDERTAKER-01 (verified, r3115) | capability |
-| `vigormortis` | snv | nightStep | sv.ts×2 | SNV-VIGORMORTIS-01 (verified, r3015)<br>SNV-VIGORMORTIS-02 (verified, r3015)<br>SNV-VIGORMORTIS-03 (verified, r3015)<br>SNV-VIGORMORTIS-04 (verified, r3015) | engine branch |
+| `vigormortis` | snv | capability:night-step | sv.ts×2 | SNV-VIGORMORTIS-01 (verified, r3015)<br>SNV-VIGORMORTIS-02 (verified, r3015)<br>SNV-VIGORMORTIS-03 (verified, r3015)<br>SNV-VIGORMORTIS-04 (verified, r3015) | capability + engine reference |
 | `virgin` | tb | — | day.ts×5 | TB-VIRGIN-01 (verified, r1729) | engine branch |
-| `vortox` | snv | nightStep | death.ts×2, sv.ts×2 | SNV-VORTOX-01 (verified, r3017)<br>SNV-VORTOX-02 (host-choice, r3017) | engine branch |
+| `vortox` | snv | capability:night-step | death.ts×2, sv.ts×2 | SNV-VORTOX-01 (verified, r3017)<br>SNV-VORTOX-02 (host-choice, r3017) | capability + engine reference |
 | `washerwoman` | tb | capability:night-step, capability:information | setup.ts×3 | TB-WASHERWOMAN-01 (verified, r2630) | capability + engine reference |
 | `witch` | snv | nightStep | effects.ts×1, day.ts×2, sv.ts×3 | SNV-WITCH-01 (verified, r2682) | engine branch |
 | `zombuul` | bmr | nightStep | effects.ts×2, death.ts×1, bmr.ts×2 | BMR-ZOMBUUL-01 (verified, r3022) | engine branch |
