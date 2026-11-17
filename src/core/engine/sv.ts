@@ -1135,6 +1135,16 @@ export function completeSvStep(
   const at = currentAt(state);
   const order = Number(step.order) || 0;
   const impaired = isImpaired(state, actor.id, at);
+  // Cerenovus r3048: "any Townsfolk or Outsider icon". The command refuses
+  // another character before the ability resolves.
+  if (
+    step.roleId === "cerenovus" &&
+    targets[0] &&
+    options.roleId &&
+    !GOOD_ROLES(state).includes(options.roleId)
+  ) {
+    return { ok: false, errorCode: "error.2", error: "Выберите добрую роль из сценария." };
+  }
   const declared = step.roleId ? roleModule(step.roleId) : null;
   if (declared && nightResolverFor(declared, at.number)) {
     // A migrated role never falls through to the branches below, so a missing
@@ -1393,38 +1403,6 @@ export function completeSvStep(
       expires: { phase: "night", number: at.number + 1 },
       active: true,
     });
-  }
-  if (step.roleId === "cerenovus" && targets[0]) {
-    const target = playerById(state, targets[0]);
-    const roleId = options.roleId || null;
-    if (target && roleId && !GOOD_ROLES(state).includes(roleId)) {
-      return { ok: false, errorCode: "error.2", error: "Выберите добрую роль из сценария." };
-    }
-    if (target && roleId && !impaired) {
-      state.effects.push({
-        id: "eff-madness-cerenovus-" + actor.id + "-" + target.id + "-" + at.number,
-        kind: "madness",
-        madness: "cerenovus",
-        roleId,
-        sourceId: actor.id,
-        targetId: target.id,
-        start: at,
-        // Cerenovus r3048: "During the next day or night ... you can decide to
-        // execute them." The token therefore covers the next day and the night
-        // that follows it, and expires at the next dawn.
-        expires: { phase: "day", number: at.number + 1 },
-        active: true,
-      });
-      setStepNote(
-        step,
-        "note.madness",
-        { name: target.name, role: roleId },
-        target.name +
-          " должен быть «помешан» на роли " +
-          roleLabel(roleId) +
-          " до следующего рассвета.",
-      );
-    }
   }
   if (step.roleId === "sweetheart" && targets[0] && !failedAtDeath(state, actor.id)) {
     state.effects.push({

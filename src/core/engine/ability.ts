@@ -288,6 +288,24 @@ function applyEffect(
       used[module.id + "TargetsNight"] = at.number;
       return null;
     }
+    case "madness": {
+      // A failed ability makes nobody mad, so nothing is kept as a record.
+      if (wasted) return null;
+      // The id, the source, the start and the ability that owns the token
+      // are engine bookkeeping. The key order is the stored token's.
+      state.effects.push({
+        id: "eff-madness-" + module.id + "-" + actorId + "-" + effect.playerId + "-" + at.number,
+        kind: "madness",
+        madness: module.id,
+        roleId: effect.roleId,
+        sourceId: actorId,
+        targetId: effect.playerId,
+        start: at,
+        expires: { phase: effect.expires.phase, number: effect.expires.number },
+        active: true,
+      });
+      return null;
+    }
     case "block-demon": {
       const demon = playerById(state, effect.playerId);
       if (demon) keepDemonAsleep(state, step, demon, effect.note, effect.log, at, ports);

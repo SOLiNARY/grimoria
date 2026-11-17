@@ -1540,6 +1540,68 @@ test("the record of tonight's players keeps the record it replaces as last night
   assert.deepEqual(draws, []);
 });
 
+test("the madness intent writes the token under the module's ability with an id of the seat, the player and the night, and nothing when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const madness = {
+    kind: "madness" as const,
+    playerId: "3",
+    roleId: "artist" as const,
+    expires: { phase: "day" as const, number: 3 },
+  };
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ impaired }) =>
+          impaired
+            ? { kind: "suppressed", effects: [madness] }
+            : { kind: "effects", effects: [madness] },
+      },
+    ],
+  };
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const effects = JSON.stringify(state.effects);
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(JSON.stringify(state.effects), effects, "a failed ability makes nobody mad");
+
+  state.effects.pop();
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(
+    JSON.stringify(state.effects.at(-1)),
+    JSON.stringify({
+      id: "eff-madness-monk-1-3-2",
+      kind: "madness",
+      madness: "monk",
+      roleId: "artist",
+      sourceId: "1",
+      targetId: "3",
+      start: { phase: "night", number: 2 },
+      expires: { phase: "day", number: 3 },
+      active: true,
+    }),
+  );
+  madness.expires.number = 9;
+  assert.deepEqual(state.effects.at(-1)!.expires, { phase: "day", number: 3 }, "a copy is kept");
+  assert.deepEqual(draws, [], "the id draws nothing from the command ports");
+});
+
 // A module whose night step is an attack under its own title. The coordinator
 // tests below use it, so they do not depend on the Imp's wording.
 const attacker: RoleModule = {
