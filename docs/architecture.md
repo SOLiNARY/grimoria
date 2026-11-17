@@ -114,6 +114,15 @@ character and the two players, a request for setup while nothing is prepared,
 or the zero setup may hold in their place. An impaired owner is offered the
 characters the role names. The role is told nothing of what was prepared.
 
+"Or that zero are in play" is the Librarian's answer alone, so the zero is a
+form the role declares: the Librarian's decision carries `orZero`, the other
+two do not. The engine writes the zero record, with its sentence and the
+Outsider options, only for a role that declares it; a zero held for another
+role is no prepared answer and the step asks for setup. Whether zero are in
+play stays the Storyteller's answer in setup. A command recorded under an
+older ruleset version keeps the answer it gave (`command-versions.ts`), so a
+saved journal replays as it was written.
+
 An ability that shows the Grimoire itself has no value to compute. The Spy
 returns the `grimoire` decision and reads no fact. The engine records that
 the Grimoire was shown, the same for an owner who is drunk or poisoned, asks

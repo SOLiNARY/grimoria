@@ -614,6 +614,16 @@ the three roles where the prepared answer is validated and chosen; that is
 setup and not a night step. The Spy is the last Trouble Brewing role with a
 branch in `infoForStep`.
 
+`openspec/changes/setup-zero-librarian-only` is that change. The `prepared`
+decision gains `orZero`, a declaration that the ability has a zero answer,
+and only the Librarian makes it. The engine still writes the zero record, but
+only for a role that declares it; a zero held for the Washerwoman or the
+Investigator is no prepared answer and the step asks for setup, as the setup
+check already said. `orZero` is a form and not a fact: whether zero are in
+play is still read from setup, and the role is still told nothing. Commands
+recorded under the ruleset versions before `tb-bmr-snv-2026-11-17` keep the
+answer they gave.
+
 `openspec/changes/tb-spy-grimoire` ends the Trouble Brewing part of the slice
 with the Spy. Its step moves to the `night-step` arm, every night, with the
 `grimoire` shape. The `information` arm gains the `grimoire` decision: the
