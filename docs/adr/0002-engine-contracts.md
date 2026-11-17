@@ -632,6 +632,15 @@ play is still read from setup, and the role is still told nothing. Commands
 recorded under the ruleset versions before `tb-bmr-snv-2026-11-17` keep the
 answer they gave.
 
+`openspec/changes/tb-new-demon-wake-once` fixes the two defects of the new
+Demon's wake that the Imp's move kept: the wake was queued again on the night
+after a night change, and the wake of a heir the host named waited for the
+next step of the night. The fix is in the shared succession (`chooseDemonHeir`
+queues the conditional steps) and in `endDay` (the flag is carried only while
+the change still owes its wake); no contract changes and the Imp's module is
+untouched. Commands recorded under the ruleset versions before
+`tb-bmr-snv-2026-11-17.1` keep the wakes they queued.
+
 `openspec/changes/tb-spy-grimoire` ends the Trouble Brewing part of the slice
 with the Spy. Its step moves to the `night-step` arm, every night, with the
 `grimoire` shape. The `information` arm gains the `grimoire` decision: the

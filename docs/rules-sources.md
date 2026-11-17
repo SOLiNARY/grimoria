@@ -59,7 +59,9 @@ Fortune Teller, Undertaker, Butler, Spy.
 
 The Scarlet Woman is not a normal wake. The app resolves her inheritance at the
 moment the Demon dies and then inserts a short "Demon changed" confirmation
-step. The Ravenkeeper step is inserted only if the Ravenkeeper died that night.
+step. The new Demon is woken once: the night of a night change, right
+after the host names the heir when several Minions can inherit, and the night
+after a change by day. The Ravenkeeper step is inserted only if the Ravenkeeper died that night.
 The Undertaker step is inserted only if an execution death happened today.
 
 ## Setup and composition

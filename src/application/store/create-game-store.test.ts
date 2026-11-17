@@ -12,11 +12,13 @@ import {
   currentStep,
   dealGame,
   endNight,
+  replay,
   skipStep,
   startNight,
 } from "../../core/engine/index.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
 } from "../../core/engine/command-versions.ts";
 import { createGameStore } from "./create-game-store.ts";
@@ -747,6 +749,64 @@ test("a game saved before the zero became the Librarian's alone continues, and u
   );
   assert.equal(sent.status, "allowed", JSON.stringify(sent));
   assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
+  const continued = canonicalState(game.getSnapshot().state);
+
+  const undone = game.undo();
+  assert.equal(undone.ok, true, undone.ok ? "" : `${undone.errorCode}: ${undone.error}`);
+  assert.equal(game.state.journal.entries.length, recorded);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), loaded);
+
+  const redone = game.redo();
+  assert.equal(redone.ok, true, redone.ok ? "" : `${redone.errorCode}: ${redone.error}`);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), continued);
+});
+
+test("a game saved the day after an Imp self-kill by an older ruleset does not wake the new Demon again, and undo replays its journal (TB-IMP-01)", () => {
+  // The recorded journal of a game whose Imp killed itself on night 2 and whose
+  // new Imp was woken that night, saved at dawn of day 2 by the ruleset that
+  // woke a new Demon again on the next night. The host ends the day with a
+  // command of the current ruleset and takes it back; the undo replays the
+  // whole journal.
+  const fixture = importSavedGame(
+    readFileSync(
+      new URL("../../core/engine/fixtures/legacy-demon-wake-game.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(fixture.ok, true);
+  if (!fixture.ok) return;
+  const entries = fixture.state.journal.entries;
+  const day2 = replay({
+    ...fixture.state.journal,
+    entries: entries.slice(
+      0,
+      entries.findLastIndex((entry) => entry.type === "endDay"),
+    ),
+  });
+  assert.equal(day2.ok, true, JSON.stringify(day2));
+  if (!day2.ok) return;
+  const storage = memoryStorage(JSON.stringify(day2.state));
+  const { game } = store(storage);
+  const loaded = canonicalState(game.getSnapshot().state);
+  const recorded = game.state.journal.entries.length;
+  assert.equal(game.state.phase, "day");
+  assert.equal(game.state.night.demonChanged, true, "the older ruleset left the flag set");
+  assert.equal(
+    game.state.journal.entries.every(
+      (entry) => entry.rulesetVersion === REPEATED_DEMON_WAKE_RULESET_VERSION,
+    ),
+    true,
+  );
+
+  const sent = game.dispatch(command(game, { type: "endDay", payload: {} }));
+  assert.equal(sent.status, "allowed", JSON.stringify(sent));
+  assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
+  assert.equal(game.state.night.number, 3);
+  assert.deepEqual(
+    game.state.night.queue.filter((step) => step.system === "demonchange"),
+    [],
+    "the new Imp was woken on night 2 and is not woken again",
+  );
   const continued = canonicalState(game.getSnapshot().state);
 
   const undone = game.undo();

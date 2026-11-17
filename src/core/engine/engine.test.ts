@@ -78,6 +78,7 @@ import { applyRoleAbility } from "./ability.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
   LEGACY_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
 } from "./command-versions.ts";
 import { moduleInfoForStep } from "./information.ts";
@@ -6782,6 +6783,341 @@ test("the new Demon is woken the night after a daytime Scarlet Woman succession 
   assert.ok(change, "the new Imp is woken after a daytime succession");
   assert.equal(completeStep(state, change.key, {}).ok, true);
   assert.equal(state.night.queue.find((step) => step.key === change.key)!.done, true);
+});
+
+// Imp r3116, How to Run: "If the Imp killed themself at night, choose an alive
+// Minion ... Wake the new Imp, show them the YOU ARE info token, then show them
+// the Imp token." The new Demon is woken once, the night the change happens.
+// The next night it wakes only for its own Imp step.
+
+const wakeSteps = (state: GameState) =>
+  state.night.queue.filter((step) => step.system === "demonchange");
+
+// Ten players, two Minions. The Poisoner (8) and the Scarlet Woman (9) are the
+// Imp's (10) Minions, and only the Empath (3) wakes after the Imp. With
+// `lastAwake` the Empath's seat holds the Virgin, so the Imp's step is the last
+// of the night.
+function heirNight(lastAwake = false): GameState {
+  return attackNight({
+    1: "soldier",
+    2: "mayor",
+    3: lastAwake ? "virgin" : "empath",
+    4: "chef",
+    5: lastAwake ? "investigator" : "virgin",
+    6: "slayer",
+    7: "washerwoman",
+    8: "poisoner",
+    9: "scarletwoman",
+    10: "imp",
+  });
+}
+
+// The Poisoner poisons the Scarlet Woman, so her ability does not take the
+// role, and the Imp kills itself: the host names the heir among both Minions.
+function selfKillWithChoice(state: GameState): NightStep {
+  completeRole(state, "poisoner", { targetIds: ["9"] });
+  const imp = roleStep(state, "imp");
+  completeRole(state, "imp", { targetIds: ["10"] });
+  assert.equal(imp.pending?.kind, "demon-inheritance");
+  return imp;
+}
+
+function finishNight(state: GameState): void {
+  skipNight(state);
+  assert.equal(endDay(state).ok, true);
+}
+
+for (const ending of ["completed", "skipped"] as const) {
+  test(`after an Imp self-kill the new Demon is not woken again the next night when its wake was ${ending} (TB-IMP-01)`, () => {
+    const state = attackNight();
+    completeRole(state, "imp", { targetIds: ["7"] });
+    assert.equal(state.players["6"].roleId, "imp");
+    const [wake] = wakeSteps(state);
+    assert.ok(wake, "the new Imp is woken the night of the change");
+    const ended =
+      ending === "completed" ? completeStep(state, wake.key, {}) : skipStep(state, wake.key, "");
+    assert.equal(ended.ok, true, JSON.stringify(ended));
+    skipNight(state);
+    if (ending === "completed") {
+      // A death today that is not a Demon's changes nothing.
+      state.day.open = true;
+      appoint(state, "1", "3", ["1", "2", "3", "4"]);
+      assert.equal(execute(state, state.day.nominations[0].id).ok, true);
+      assert.equal(state.players["3"].alive, false);
+    }
+    assert.equal(endDay(state).ok, true);
+
+    assert.equal(state.night.number, 3);
+    assert.deepEqual(wakeSteps(state), [], "no second YOU ARE wake the next night");
+    assert.equal(roleStep(state, "imp")?.actorId, "6", "the new Imp wakes for its own step");
+    assert.equal(state.night.demonChanged, false);
+  });
+}
+
+test("the new Demon's wake is queued as soon as the host names the heir, before the next step (TB-IMP-01)", () => {
+  const state = heirNight();
+  const imp = selfKillWithChoice(state);
+  assert.deepEqual(wakeSteps(state), [], "no heir yet, no wake");
+
+  assert.equal(chooseDemonHeir(state, imp.key, "8").ok, true);
+
+  assert.equal(state.players["8"].roleId, "imp");
+  assert.deepEqual(queueMarks(state), [
+    "n2-0-poisoner-8:done",
+    "n2-3-imp-10:done",
+    "n2-3.5-demonchange-all",
+    "n2-5-empath-3",
+  ]);
+  assert.equal(currentStep(state)?.system, "demonchange", "the host wakes the new Imp next");
+});
+
+test("when the Imp's step was the night's last, the night does not end before the named heir is woken (TB-IMP-01)", () => {
+  const state = heirNight(true);
+  const imp = selfKillWithChoice(state);
+  assert.equal(currentStep(state), null, "no other step is left tonight");
+
+  assert.equal(chooseDemonHeir(state, imp.key, "9").ok, true);
+
+  const [wake] = wakeSteps(state);
+  assert.ok(wake, "the wake is queued the same night");
+  assert.equal(endNight(state).ok, false, "the night waits for the wake");
+  assert.equal(completeStep(state, wake.key, {}).ok, true);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  assert.deepEqual(wakeSteps(state), [], "and it is not repeated the next night");
+});
+
+test("a Scarlet Woman who takes the role by day after a night self-kill is woken the next night, once (TB-SCARLETWOMAN-02)", () => {
+  const state = heirNight();
+  const imp = selfKillWithChoice(state);
+  assert.equal(chooseDemonHeir(state, imp.key, "8").ok, true);
+  assert.equal(completeStep(state, wakeSteps(state)[0]!.key, {}).ok, true);
+  skipNight(state);
+
+  // Day 2: the Poisoner who became the Imp is executed with nine alive. Its
+  // poison ended with the role change, so the Scarlet Woman takes the role.
+  state.day.open = true;
+  appoint(state, "1", "8", ["1", "2", "3", "4", "5"]);
+  assert.equal(execute(state, state.day.nominations[0].id).ok, true);
+  assert.equal(state.players["9"].roleId, "imp");
+  assert.equal(endDay(state).ok, true);
+
+  assert.equal(wakeSteps(state).length, 1, "the new Imp of the day is woken once");
+  assert.equal(completeStep(state, wakeSteps(state)[0]!.key, {}).ok, true);
+  finishNight(state);
+  assert.deepEqual(wakeSteps(state), [], "and not again on the night after");
+});
+
+test("a Demon who died on an earlier day does not make a later night change wake twice (TB-IMP-01, TB-SCARLETWOMAN-02)", () => {
+  // Day 1: the Imp is executed and the Scarlet Woman takes the role. Night 2:
+  // she kills herself and the Poisoner, the last Minion, becomes the Imp; the
+  // night's one wake, after the Imp's step, shows him the token.
+  const state = make({
+    1: "soldier",
+    2: "mayor",
+    3: "empath",
+    4: "chef",
+    5: "virgin",
+    6: "slayer",
+    7: "washerwoman",
+    8: "poisoner",
+    9: "scarletwoman",
+    10: "imp",
+  });
+  toDay(state);
+  state.day.open = true;
+  appoint(state, "1", "10", ["1", "2", "3", "4", "5"]);
+  assert.equal(execute(state, state.day.nominations[0].id).ok, true);
+  assert.equal(state.players["9"].roleId, "imp");
+  assert.equal(endDay(state).ok, true);
+
+  completeRole(state, "imp", { targetIds: ["9"] });
+  assert.equal(state.players["8"].roleId, "imp");
+  assert.equal(wakeSteps(state).length, 1);
+  assert.equal(currentStep(state)?.system, "demonchange");
+  assert.equal(completeStep(state, wakeSteps(state)[0]!.key, {}).ok, true);
+  finishNight(state);
+
+  assert.equal(state.night.number, 3);
+  assert.deepEqual(wakeSteps(state), []);
+});
+
+test("a named heir an older ruleset left unwoken is woken on the next night by a command sent now (TB-IMP-01)", () => {
+  // Under the older ruleset a heir named after the night's last step was not
+  // woken that night; the end of the day still owes the wake.
+  const state = heirNight(true);
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const at = "2030-01-01T00:00:00.000Z";
+  let sent = 0;
+  const send = (type: string, payload: Record<string, unknown> = {}, recorded = true) =>
+    applyCommand(
+      state,
+      {
+        id: "c" + ++sent,
+        type,
+        payload,
+        at,
+        ...(recorded ? { rulesetVersion: REPEATED_DEMON_WAKE_RULESET_VERSION } : {}),
+      },
+      runtime,
+    );
+  assert.equal(
+    send("completeNightStep", { key: roleStep(state, "poisoner").key, targetIds: ["9"] }).status,
+    "allowed",
+  );
+  const imp = roleStep(state, "imp");
+  assert.equal(send("completeNightStep", { key: imp.key, targetIds: ["10"] }).status, "allowed");
+  assert.equal(send("chooseDemonHeir", { stepKey: imp.key, heirId: "8" }).status, "allowed");
+  assert.deepEqual(wakeSteps(state), [], "the older ruleset queued no wake");
+  assert.equal(send("endNight").status, "allowed");
+
+  assert.equal(send("endDay", {}, false).status, "allowed");
+
+  assert.deepEqual(
+    wakeSteps(state).map((step) => step.key),
+    ["n3-3.5-demonchange-all"],
+    "the new Imp is woken on the next night",
+  );
+});
+
+// Recorded commands keep their behavior. Until the ruleset of 2026-11-17 the
+// next night woke the new Demon again after a night change, and a named heir
+// was woken only when a later step of the night was completed or skipped.
+for (const version of [
+  LEGACY_RULESET_VERSION,
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
+]) {
+  test(`an Imp self-kill recorded under the ruleset ${version} keeps the wakes it queued, and the journal replays`, () => {
+    assert.notEqual(RULESET_VERSION, version, "commands sent now carry a later ruleset");
+    const state = heirNight();
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const at = "2030-01-01T00:00:00.000Z";
+    let sent = 0;
+    const send = (type: string, payload: Record<string, unknown> = {}, rulesetVersion = version) =>
+      applyCommand(state, { id: "c" + ++sent, type, payload, at, rulesetVersion }, runtime);
+    const allowed = (result: { status: string }) =>
+      assert.equal(result.status, "allowed", JSON.stringify(result));
+
+    allowed(send("completeNightStep", { key: roleStep(state, "poisoner").key, targetIds: ["9"] }));
+    const imp = roleStep(state, "imp");
+    allowed(send("completeNightStep", { key: imp.key, targetIds: ["10"] }));
+
+    const heirNow = structuredClone(state);
+    allowed(
+      applyCommand(
+        heirNow,
+        { id: "now", type: "chooseDemonHeir", payload: { stepKey: imp.key, heirId: "8" }, at },
+        runtime,
+      ),
+    );
+    assert.equal(wakeSteps(heirNow).length, 1, "a command sent now queues the wake at once");
+
+    allowed(send("chooseDemonHeir", { stepKey: imp.key, heirId: "8" }));
+    assert.deepEqual(wakeSteps(state), [], "the recorded choice queued nothing");
+    allowed(send("completeNightStep", { key: roleStep(state, "empath").key }));
+    const [wake] = wakeSteps(state);
+    assert.ok(wake, "the recorded next step queued the wake");
+    allowed(send("completeNightStep", { key: wake.key }));
+    allowed(send("endNight"));
+
+    const dayNow = structuredClone(state);
+    allowed(applyCommand(dayNow, { id: "now", type: "endDay", payload: {}, at }, runtime));
+    assert.deepEqual(wakeSteps(dayNow), [], "a command sent now does not wake the new Imp again");
+
+    allowed(send("endDay"));
+    assert.equal(wakeSteps(state).length, 1, "the recorded end of day woke the new Imp again");
+    assert.equal(wakeSteps(state)[0]!.key, "n3-3.5-demonchange-all");
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    if (!replayed.ok) return;
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  });
+}
+
+test("a journal recorded while the new Demon was woken twice replays and undoes as written (TB-IMP-01, TB-SCARLETWOMAN-02)", () => {
+  // Generated with createGame/applyCommand at ef55689: ten players, the
+  // Poisoner (8) poisons the Scarlet Woman (9) on night 2, the Imp (10) kills
+  // itself and the host names the Poisoner the heir. The wake was queued when
+  // the Empath's step ended, and the end of day 2 queued it again on night 3,
+  // after the new Imp's attack on the Chef. The game is saved at dawn of day 3.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-demon-wake-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.phase, "day");
+  assert.equal(saved.players["8"].roleId, "imp");
+  assert.equal(saved.players["4"].alive, false);
+  assert.deepEqual(queueMarks(saved), [
+    "n3-3-imp-8:done",
+    "n3-3.5-demonchange-all:done",
+    "n3-5-empath-3:done",
+  ]);
+  assert.deepEqual(
+    [...new Set(saved.journal.entries.map((entry) => entry.rulesetVersion))],
+    [REPEATED_DEMON_WAKE_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  // Undo to the dawn of day 2. The recorded end of day queues the second
+  // wake; the same command sent now does not.
+  const entries = saved.journal.entries;
+  const endOfDay2 = entries.findLastIndex((entry) => entry.type === "endDay");
+  const atDay2 = replay({ ...saved.journal, entries: entries.slice(0, endOfDay2) });
+  assert.equal(atDay2.ok, true, JSON.stringify(atDay2));
+  if (!atDay2.ok) return;
+  assert.equal(atDay2.state.phase, "day");
+  const dayNow = structuredClone(atDay2.state);
+  assert.equal(
+    applyCommand(dayNow, { id: "day-now", type: "endDay", payload: {} }).status,
+    "allowed",
+  );
+  assert.deepEqual(wakeSteps(dayNow), [], "a command sent now does not wake the new Imp again");
+  assert.equal(roleStep(dayNow, "imp")?.actorId, "8");
+  const recordedEnd = entries[endOfDay2]!;
+  assert.equal(
+    applyCommand(atDay2.state, { ...recordedEnd, payload: recordedEnd.payload ?? {} }).status,
+    "allowed",
+    "the recorded end of day applies as it did",
+  );
+  assert.deepEqual(
+    wakeSteps(atDay2.state).map((step) => step.key),
+    ["n3-3.5-demonchange-all"],
+  );
+
+  // Undo to the heir question of night 2. The recorded choice queues no wake;
+  // the same choice sent now queues it at once.
+  const choice = entries.findIndex((entry) => entry.type === "chooseDemonHeir");
+  const atChoice = replay({ ...saved.journal, entries: entries.slice(0, choice) });
+  assert.equal(atChoice.ok, true, JSON.stringify(atChoice));
+  if (!atChoice.ok) return;
+  const choiceNow = structuredClone(atChoice.state);
+  const recordedChoice = entries[choice]!;
+  assert.equal(
+    applyCommand(choiceNow, {
+      id: "choice-now",
+      type: "chooseDemonHeir",
+      payload: recordedChoice.payload ?? {},
+    }).status,
+    "allowed",
+  );
+  assert.deepEqual(
+    wakeSteps(choiceNow).map((step) => step.key),
+    ["n2-3.5-demonchange-all"],
+  );
+  assert.equal(
+    applyCommand(atChoice.state, { ...recordedChoice, payload: recordedChoice.payload ?? {} })
+      .status,
+    "allowed",
+  );
+  assert.deepEqual(wakeSteps(atChoice.state), [], "the recorded choice queued nothing");
 });
 
 test("Scarlet Woman does not inherit below the threshold", () => {
