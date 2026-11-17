@@ -60,8 +60,8 @@ the migration reviewable role by role.
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
 Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller, the
-Chef and, in Bad Moon Rising, the Gambler, the Pukka, the Sailor and the
-Innkeeper have moved.
+Chef and, in Bad Moon Rising, the Gambler, the Pukka, the Sailor, the
+Innkeeper, the Devil's Advocate and the Exorcist have moved.
 `src/core/roles/night-step.ts` is the one lookup the queue builders and the
 step completion use; it reads the capability or the legacy `nightStep` and
 `firstNightStep` fields, and a module declares one form only. A resolver has
@@ -73,14 +73,24 @@ roles have moved.
 A resolver that reports a `suppressed` ability may still return the choice
 that was made. The coordinator keeps a dated effect from that path as a record
 that never applies, so a drunk or poisoned Butler's master stays in the
-grimoire and binds no vote.
+grimoire and binds no vote. `record-choice` writes the choice the step
+builder reads for "different to last night" on both paths, under the acting
+role's own record, so a drunk or poisoned Devil's Advocate or Exorcist still
+cannot repeat it the next night.
 
 An arm may name the kinds of dated effect that each use of the ability
 replaces (`endsOnUse`). The coordinator ends the ones this ability gave
 before the resolver reads the owner's health, also when the ability fails
 now: the Sailor's drunkenness, and the Innkeeper's safety and drunkenness.
 `givenBy` in `effects.ts` decides which effects an ability gave; the Goon's
-drunkenness names its chooser as the source but stays the Goon's.
+drunkenness names its chooser as the source but stays the Goon's. The Devil's
+Advocate ends its protection from execution the same way.
+
+The Exorcist keeps the Demon from waking with `block-demon`: the role decides
+that the chosen player is the Demon and writes the note and the log line,
+and `keepDemonAsleep` in `bmr.ts` closes the Demon's step in tonight's queue.
+What a Demon that does not wake still does stays there: the Shabaloth keeps
+its regurgitation and the Pukka's waiting death resolves.
 
 A Demon's kill is the `attack` decision: the role names the chosen player and
 the title of the attack's log line, nothing else. The coordinator runs it
