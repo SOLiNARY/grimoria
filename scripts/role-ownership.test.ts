@@ -167,6 +167,29 @@ test("the Cerenovus resolves on the night-step capability, not in the step compl
   assert.equal(ownerOf(cerenovus, engineLocations("cerenovus")), "capability + engine reference");
 });
 
+test("the Sects & Violets information roles declare their step on the night-step capability and keep their answers in the engine", () => {
+  const facts = roleModules();
+  // The answers in svInfoForStep, the Mathematician's ledger and the
+  // Dreamer's bar on choosing themself, and what each role's other rules
+  // keep: the Evil Twin's pair and win, the day's yes-or-no questions.
+  const expected = {
+    clockmaker: ["sv.ts×1"],
+    dreamer: ["night.ts×1", "sv.ts×1"],
+    eviltwin: ["model/state.ts×1", "death.ts×2", "setup.ts×3", "sv.ts×3", "corrections.ts×1"],
+    flowergirl: ["sv.ts×3", "host-choice.ts×1"],
+    mathematician: ["night.ts×2", "sv.ts×3"],
+    oracle: ["sv.ts×1"],
+    towncrier: ["sv.ts×2", "host-choice.ts×1"],
+  };
+  for (const [id, locations] of Object.entries(expected)) {
+    const module = facts.find((candidate) => candidate.id === id);
+    assert.ok(module, id);
+    assert.deepEqual(module.declares, ["capability:night-step"], id);
+    assert.deepEqual(engineLocations(id), locations, id);
+    assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
+  }
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);
