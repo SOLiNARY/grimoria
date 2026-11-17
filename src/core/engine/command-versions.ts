@@ -13,11 +13,18 @@ export const ANY_ROLE_ZERO_RULESET_VERSION = "tb-bmr-snv-2026-11-16";
  * once, the night of the change (Imp r3116, Scarlet Woman r3117).
  */
 export const REPEATED_DEMON_WAKE_RULESET_VERSION = "tb-bmr-snv-2026-11-17";
-export const RULESET_VERSION = "tb-bmr-snv-2026-11-17.1";
+/**
+ * The last version whose Tinker step took any death the host marked, also
+ * while the Tinker was drunk or poisoned. From the next one only the Tinker
+ * dies there, and only while the ability works (Tinker r1782, States r1039).
+ */
+export const OPEN_TINKER_STEP_RULESET_VERSION = "tb-bmr-snv-2026-11-17.1";
+export const RULESET_VERSION = "tb-bmr-snv-2026-11-17.2";
 export const SUPPORTED_RULESET_VERSIONS = new Set([
   LEGACY_RULESET_VERSION,
   ANY_ROLE_ZERO_RULESET_VERSION,
   REPEATED_DEMON_WAKE_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
   RULESET_VERSION,
 ]);
 
@@ -36,5 +43,18 @@ export function repeatsDemonWake(version: string | undefined): boolean {
     version === LEGACY_RULESET_VERSION ||
     version === ANY_ROLE_ZERO_RULESET_VERSION ||
     version === REPEATED_DEMON_WAKE_RULESET_VERSION
+  );
+}
+
+/**
+ * Whether a command recorded under this version lets the host mark any death
+ * on the Tinker's step, also while the Tinker is drunk or poisoned.
+ */
+export function marksAnyDeathOnTinkerStep(version: string | undefined): boolean {
+  return (
+    version === LEGACY_RULESET_VERSION ||
+    version === ANY_ROLE_ZERO_RULESET_VERSION ||
+    version === REPEATED_DEMON_WAKE_RULESET_VERSION ||
+    version === OPEN_TINKER_STEP_RULESET_VERSION
   );
 }

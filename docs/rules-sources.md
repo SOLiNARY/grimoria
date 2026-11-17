@@ -325,6 +325,9 @@ deaths and resurrections in the night card's outcome panel.
   bookkeeping wake even though the Goon makes the Moonchild drunk.
 - The Lunatic is good and sees the stored Demon. The night-one Demon
   information and every Demon role step name the Lunatic and their last choice.
+- The Tinker's death is the Tinker's ability: by day and on the Tinker's
+  night step the host marks only the Tinker's own death, and a drunk or
+  poisoned Tinker does not die from it.
 
 ### Known limits in this release
 

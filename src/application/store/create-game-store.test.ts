@@ -18,6 +18,7 @@ import {
 } from "../../core/engine/index.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
   REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
 } from "../../core/engine/command-versions.ts";
@@ -807,6 +808,66 @@ test("a game saved the day after an Imp self-kill by an older ruleset does not w
     [],
     "the new Imp was woken on night 2 and is not woken again",
   );
+  const continued = canonicalState(game.getSnapshot().state);
+
+  const undone = game.undo();
+  assert.equal(undone.ok, true, undone.ok ? "" : `${undone.errorCode}: ${undone.error}`);
+  assert.equal(game.state.journal.entries.length, recorded);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), loaded);
+
+  const redone = game.redo();
+  assert.equal(redone.ok, true, redone.ok ? "" : `${redone.errorCode}: ${redone.error}`);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), continued);
+});
+
+test("a game whose older ruleset let a drunk Tinker die on their step refuses that death now, and undo replays its journal (BMR-TINKER-01)", () => {
+  // The recorded journal of a game in which the host marked the Gossip's death
+  // on the Tinker's step of night 2, loaded on night 3 after the Courtier made
+  // the Tinker drunk. The host marks the drunk Tinker's death with a command of
+  // the current ruleset, which refuses it, lets the Tinker live and takes that
+  // back; the undo replays the whole journal.
+  const fixture = importSavedGame(
+    readFileSync(
+      new URL("../../core/engine/fixtures/legacy-tinker-night-game.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(fixture.ok, true);
+  if (!fixture.ok) return;
+  const entries = fixture.state.journal.entries;
+  const tinkerAt = entries.findLastIndex(
+    (entry) =>
+      entry.type === "completeNightStep" &&
+      String((entry.payload as { key?: string } | undefined)?.key).includes("-tinker-"),
+  );
+  const night3 = replay({ ...fixture.state.journal, entries: entries.slice(0, tinkerAt) });
+  assert.equal(night3.ok, true, JSON.stringify(night3));
+  if (!night3.ok) return;
+  const storage = memoryStorage(JSON.stringify(night3.state));
+  const { game } = store(storage);
+  const loaded = canonicalState(game.getSnapshot().state);
+  const recorded = game.state.journal.entries.length;
+  assert.equal(game.state.night.number, 3);
+  assert.equal(game.state.players["4"].alive, false, "the older ruleset let the Gossip die");
+  assert.equal(
+    game.state.journal.entries.every(
+      (entry) => entry.rulesetVersion === OPEN_TINKER_STEP_RULESET_VERSION,
+    ),
+    true,
+  );
+  const key = String((entries[tinkerAt]!.payload as { key: string }).key);
+
+  const marked = game.dispatch(
+    command(game, { type: "completeNightStep", payload: { key, deathIds: ["1"] } }),
+  );
+  assert.equal(marked.status, "rejected", JSON.stringify(marked));
+  assert.equal("errorCode" in marked ? marked.errorCode : null, "error.59");
+  assert.equal(game.state.players["1"].alive, true, "the drunk Tinker does not die");
+  assert.equal(game.state.journal.entries.length, recorded);
+
+  const lives = game.dispatch(command(game, { type: "completeNightStep", payload: { key } }));
+  assert.equal(lives.status, "allowed", JSON.stringify(lives));
+  assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
   const continued = canonicalState(game.getSnapshot().state);
 
   const undone = game.undo();
