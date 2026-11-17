@@ -474,7 +474,7 @@ export function completeBmrStep(
       step,
       targets,
       at,
-      { chosenRoleId: options.roleId ?? null },
+      { chosenRoleId: options.roleId ?? null, drunkId: options.drunkId || null },
       ports,
     );
     return;
@@ -487,80 +487,6 @@ export function completeBmrStep(
     if (state.setup.lunaticShownId === "po" && at.number > 1)
       actor.used.poNoOne = targets.length === 0;
     if (at.number > 1) reportLunaticChoice(state, step, actor, targets);
-    return;
-  }
-  if (role === "sailor" && actor) {
-    // The Storyteller chooses who is drunk: the Sailor or the target. An empty
-    // choice means "nobody", never a silent fallback (Sailor r1768).
-    const drunkId = options.drunkId || null;
-    state.effects.forEach((effect) => {
-      if (effect.kind === "drunk" && effect.sourceId === actor.id && effect.bmr !== "goon")
-        effect.active = false;
-    });
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    if (drunkId) {
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "drunk",
-        sourceId: actor.id,
-        targetId: drunkId,
-        start: at,
-        expires: { phase: "night", number: at.number + 1 },
-        active: true,
-      });
-    }
-    return;
-  }
-  if (role === "innkeeper" && actor && targets.length === 2) {
-    state.effects.forEach((effect) => {
-      if (
-        (effect.kind === "protected" && effect.sourceId === actor.id) ||
-        (effect.kind === "drunk" && effect.sourceId === actor.id && effect.bmr !== "goon")
-      )
-        effect.active = false;
-    });
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    for (const targetId of targets) {
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "protected",
-        bmr: "innkeeper",
-        sourceId: actor.id,
-        targetId,
-        start: at,
-        expires: { phase: "day", number: at.number },
-        active: true,
-      });
-    }
-    // One of the two targets is drunk, chosen by the Storyteller (r1774).
-    const drunkId = options.drunkId || null;
-    if (drunkId) {
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "drunk",
-        sourceId: actor.id,
-        targetId: drunkId,
-        start: at,
-        expires: { phase: "night", number: at.number + 1 },
-        active: true,
-      });
-    }
     return;
   }
   if (role === "devilsadvocate" && actor && targets[0]) {
