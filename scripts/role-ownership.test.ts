@@ -111,6 +111,30 @@ test("the Devil's Advocate and the Exorcist resolve on the night-step capability
   assert.equal(ownerOf(exorcist, engineLocations("exorcist")), "capability + engine reference");
 });
 
+test("the Tinker, the Po and the Shabaloth resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  const tinker = facts.find((candidate) => candidate.id === "tinker");
+  assert.ok(tinker);
+  assert.deepEqual(tinker.declares, ["capability:night-step"]);
+  // The day command and the outcome of the step, where the host marks the
+  // death, still name the role; the completion does not.
+  assert.deepEqual(engineLocations("tinker"), ["day.ts×2", "bmr.ts×1"]);
+  assert.equal(ownerOf(tinker, engineLocations("tinker")), "capability + engine reference");
+  const po = facts.find((candidate) => candidate.id === "po");
+  assert.ok(po);
+  assert.deepEqual(po.declares, ["capability:night-step"]);
+  // The Demon set, the size of the step after a night with no choice, and
+  // the Lunatic who was shown the Po.
+  assert.deepEqual(engineLocations("po"), ["bmr.ts×6"]);
+  assert.equal(ownerOf(po, engineLocations("po")), "capability + engine reference");
+  const shabaloth = facts.find((candidate) => candidate.id === "shabaloth");
+  assert.ok(shabaloth);
+  assert.deepEqual(shabaloth.declares, ["capability:night-step"]);
+  // The Demon set, a Demon kept asleep, and the regurgitation on the outcome.
+  assert.deepEqual(engineLocations("shabaloth"), ["bmr.ts×6"]);
+  assert.equal(ownerOf(shabaloth, engineLocations("shabaloth")), "capability + engine reference");
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);
