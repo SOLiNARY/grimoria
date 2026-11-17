@@ -6,6 +6,8 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-17
+
 ### Changed
 
 - Move the night steps of the Poisoner, Monk, Butler, Imp, Spy, Gambler and Pukka, and the information answers of the Empath, Fortune Teller, Chef, Undertaker, Ravenkeeper, Washerwoman, Librarian and Investigator, from the engine into their role capabilities, with behavior pinned by tests before each move (#200)
@@ -35,5 +37,6 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Add the public and player projections that omit secret roles, bluffs and notes from shared views
 
-[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/hose1021/grimoria/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hose1021/grimoria/releases/tag/v0.1.0
