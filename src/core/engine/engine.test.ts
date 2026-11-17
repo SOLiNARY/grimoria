@@ -6233,6 +6233,48 @@ test("the Spy's own registration sent with its step is journaled before the step
   );
 });
 
+// Kept as found, not a rule: no rule gives the Spy a redirect. The shared end
+// of a step journals one that is sent with any step, and the step keeps none.
+test("a redirect sent with the Spy step is journaled as it was before the move", () => {
+  for (const [redirectId, detail] of [
+    ["3", "P3"],
+    ["none", "—"],
+  ] as const) {
+    const state = spyNight();
+    const step = roleStep(state, "spy");
+    const logged = state.log.length;
+
+    const result = completeStep(state, step.key, { redirectId });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(plain(step.given), GRIMOIRE);
+    assert.equal(step.redirectId, null, "the step keeps no redirect");
+    assert.deepEqual(
+      state.log.slice(logged).map((line) => [line.kind, line.case ?? null, line.detail]),
+      [
+        ["choice", "mayor-redirect", detail],
+        ["night", null, "Шаг выполнен."],
+      ],
+    );
+  }
+});
+
+test("a step of a role that owns no answer has no information", () => {
+  const state = spyNight();
+  const poisoner = roleStep(state, "poisoner");
+  assert.deepEqual(infoForStep(state, poisoner), { kind: "none" });
+  assert.deepEqual(infoForStep(state, poisoner, { targetIds: ["2"] }), { kind: "none" });
+
+  nextNight(state);
+  for (const roleId of ["monk", "imp"] as const) {
+    assert.deepEqual(infoForStep(state, roleStep(state, roleId)), { kind: "none" }, roleId);
+  }
+  assert.deepEqual(
+    infoForStep(state, { ...roleStep(state, "monk"), roleId: null }),
+    { kind: "none" },
+    "nor has a step without a role",
+  );
+});
+
 test("a Spy killed by the Demon loses its step of that night (TB-SPY-01)", () => {
   const state = spyNight(2);
   completeRole(state, "poisoner", { targetIds: ["2"] });
