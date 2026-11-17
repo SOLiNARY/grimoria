@@ -763,6 +763,17 @@ The check that the character is good stays a command check in
 the token's hold after its source dies in `effects.ts`, and the list of
 good characters on the step still name the role.
 
+`openspec/changes/snv-information-night-steps` moves the steps of the
+Sects & Violets information roles whose wake reads no game state: the
+Clockmaker and the Evil Twin on a `first` arm, the Dreamer and the
+Mathematician on an `any` arm, the Flowergirl, the Oracle and the Town
+Crier on an `other` arm. Only the steps move, without a resolver, as the
+Empath's step did before its answer: the answers, with the Vortox's false
+information, stay in `svInfoForStep` for slice 5, and so does the
+Mathematician's removal of the ABNORMAL marks, which a resolver would
+skip. The ledger counts the seven rows as "capability + engine reference";
+their remaining references are those answers.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 
