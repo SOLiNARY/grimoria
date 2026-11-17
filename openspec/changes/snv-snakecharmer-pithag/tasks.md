@@ -103,6 +103,8 @@
   366), so the confirm button ends at 407 px of a 390 px page; it stays
   reachable and the page does not scroll sideways. That predates this
   change, which touches no screen.
-- GREEN: `node scripts/openspec-check.ts` passed. The `openspec` CLI is not
-  installed on this machine, so `openspec validate --changes --strict` runs
-  in CI.
+- GREEN: `node scripts/openspec-check.ts` passed. `openspec validate
+  --changes --strict` and `--specs --strict` with the CLI version CI pins
+  (`@fission-ai/openspec@1.16.1`) passed after the requirements longer than
+  500 characters were split; upstream CI had reported them on
+  hose1021/grimoria#280.

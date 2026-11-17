@@ -104,6 +104,8 @@
   sideways. That predates this change, which touches no screen. The only
   console error on both builds is the offline worker's registration on the
   development server.
-- GREEN: `node scripts/openspec-check.ts` passed. The `openspec` CLI is not
-  installed on this machine, so `openspec validate --changes --strict` runs
-  in CI.
+- GREEN: `node scripts/openspec-check.ts` passed. `openspec validate
+  --changes --strict` and `--specs --strict` with the CLI version CI pins
+  (`@fission-ai/openspec@1.16.1`) passed after the requirements longer than
+  500 characters were split; upstream CI had reported them on
+  hose1021/grimoria#280.
