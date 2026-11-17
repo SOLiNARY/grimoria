@@ -1,5 +1,6 @@
 import type { DeadAt, GameState, NightStep, Player, RoleId } from "../model/types.ts";
 
+import type { AbilityNote } from "../roles/ability.ts";
 import type { TargetMode } from "../roles/types.ts";
 
 type StepSpec = {
@@ -37,7 +38,6 @@ import {
   orderedPlayers,
   playerById,
   realTeamOf,
-  seatName,
 } from "../model/state.ts";
 
 import { applyRoleAbility } from "./ability.ts";
@@ -453,6 +453,49 @@ export function appendBmrConditionalSteps(
   );
 }
 
+/**
+ * Keeps the Demon on one seat from waking tonight (Exorcist r2973: "the Demon,
+ * if chosen, learns who you are then doesn't wake tonight"). Its other
+ * abilities still resolve: the Storyteller may still regurgitate the
+ * Shabaloth's last target (Shabaloth r1790), and the Pukka's waiting death
+ * happens now and is reported on the blocking step.
+ */
+export function keepDemonAsleep(
+  state: GameState,
+  step: NightStep,
+  demon: Player,
+  note: AbilityNote,
+  log: { readonly title: string; readonly detail: string },
+  at: DeadAt,
+  ports: CommandExecutionContext,
+): void {
+  const demonStep = state.night.queue.find(
+    (candidate) =>
+      candidate.kind === "role" && candidate.roleId === demon.roleId && !candidate.done,
+  );
+  if (demonStep) {
+    if (demon.roleId === "shabaloth") {
+      demonStep.canKill = false;
+      demonStep.canResurrect = true;
+      demonStep.blocked = true;
+      demonStep.targetMode = "none";
+      demonStep.minTargets = 0;
+      demonStep.maxTargets = 0;
+    } else {
+      demonStep.done = true;
+      demonStep.skipped = true;
+    }
+    setStepNote(demonStep, note.key, note.vars || null, note.text);
+  }
+  addLog(state, { secret: true, kind: "night", title: log.title, detail: log.detail }, ports);
+  if (demon.roleId === "pukka") {
+    const pending =
+      pukkaPendings(state, demon.id).find((candidate) => !candidate.resumeOnHealthy) || null;
+    const resolved = resolvePukkaDeath(state, pending, at, {}, ports);
+    if (resolved) step.result = { ...step.result, pukkaDeath: resolved };
+  }
+}
+
 export function completeBmrStep(
   state: GameState,
   step: NightStep,
@@ -487,33 +530,6 @@ export function completeBmrStep(
     if (state.setup.lunaticShownId === "po" && at.number > 1)
       actor.used.poNoOne = targets.length === 0;
     if (at.number > 1) reportLunaticChoice(state, step, actor, targets);
-    return;
-  }
-  if (role === "devilsadvocate" && actor && targets[0]) {
-    actor.used.devilsadvocateTarget = targets[0];
-    actor.used.devilsadvocateTargetNight = at.number;
-    state.effects.forEach((effect) => {
-      if (effect.kind === "devilsadvocate" && effect.sourceId === actor.id) effect.active = false;
-    });
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    state.effects.push({
-      id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-      kind: "devilsadvocate",
-      sourceId: actor.id,
-      targetId: targets[0],
-      start: at,
-      day: at.number,
-      expires: { phase: "night", number: at.number + 1 },
-      active: true,
-    });
     return;
   }
   if (role === "courtier" && actor) {
@@ -629,70 +645,6 @@ export function completeBmrStep(
   }
   if (role === "tinker" && actor) {
     // The host decides whether the Tinker dies; the outcome controls record it.
-    return;
-  }
-  if (role === "exorcist" && actor) {
-    const targetId = targets[0];
-    // The choice is recorded even while impaired: "different to last night" is
-    // about the choice, not about whether the ability worked (Exorcist r2973).
-    actor.used.exorcistTarget = targetId || null;
-    actor.used.exorcistTargetNight = targetId ? at.number : null;
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    const target = targetId ? playerById(state, targetId) : null;
-    if (target && roleTeam(target.roleId || "") === "demon") {
-      const demonStep = state.night.queue.find(
-        (candidate) =>
-          candidate.kind === "role" && candidate.roleId === target.roleId && !candidate.done,
-      );
-      if (demonStep) {
-        if (target.roleId === "shabaloth") {
-          // The Demon does not wake, but its other abilities still resolve: the
-          // Storyteller may still regurgitate last night's target
-          // (Exorcist r2973, Shabaloth r1790).
-          demonStep.canKill = false;
-          demonStep.canResurrect = true;
-          demonStep.blocked = true;
-          demonStep.targetMode = "none";
-          demonStep.minTargets = 0;
-          demonStep.maxTargets = 0;
-        } else {
-          demonStep.done = true;
-          demonStep.skipped = true;
-        }
-        setStepNote(
-          demonStep,
-          "note.exorcistBlocked",
-          { name: actor.name || seatName(state, actor.id) },
-          "Экзорцист (" +
-            (actor.name || seatName(state, actor.id)) +
-            ") выбрал Демона. Демон узнаёт Экзорциста и не просыпается.",
-        );
-      }
-      addLog(
-        state,
-        {
-          secret: true,
-          kind: "night",
-          title: "Экзорцист выбрал Демона",
-          detail: target.name + " узнаёт Экзорциста и не действует этой ночью.",
-        },
-        ports,
-      );
-      if (target.roleId === "pukka") {
-        const pending =
-          pukkaPendings(state, target.id).find((candidate) => !candidate.resumeOnHealthy) || null;
-        const resolved = resolvePukkaDeath(state, pending, at, {}, ports);
-        if (resolved) step.result = { ...step.result, pukkaDeath: resolved };
-      }
-    }
     return;
   }
   if (role === "shabaloth" && actor) {

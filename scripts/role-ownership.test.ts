@@ -91,6 +91,26 @@ test("the Sailor and the Innkeeper resolve on the night-step capability, not in 
   assert.equal(ownerOf(innkeeper, engineLocations("innkeeper")), "capability + engine reference");
 });
 
+test("the Devil's Advocate and the Exorcist resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  const advocate = facts.find((candidate) => candidate.id === "devilsadvocate");
+  assert.ok(advocate);
+  assert.deepEqual(advocate.declares, ["capability:night-step"]);
+  // The execution check, the living-target check and the step builder's
+  // "different to last night" still name the role; the completion does not.
+  assert.deepEqual(engineLocations("devilsadvocate"), ["effects.ts×2", "night.ts×1", "bmr.ts×1"]);
+  assert.equal(
+    ownerOf(advocate, engineLocations("devilsadvocate")),
+    "capability + engine reference",
+  );
+  const exorcist = facts.find((candidate) => candidate.id === "exorcist");
+  assert.ok(exorcist);
+  assert.deepEqual(exorcist.declares, ["capability:night-step"]);
+  // The step builder's "different to last night" and the note of the step.
+  assert.deepEqual(engineLocations("exorcist"), ["bmr.ts×2"]);
+  assert.equal(ownerOf(exorcist, engineLocations("exorcist")), "capability + engine reference");
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);

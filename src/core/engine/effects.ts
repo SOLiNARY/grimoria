@@ -113,6 +113,13 @@ export function butlerMaster(
 export const SAFE_EFFECT = { kind: "protected", bmr: "innkeeper" } as const;
 
 /**
+ * How the engine stores the Devil's Advocate's protection: its own kind, with
+ * the day whose execution it covers (Devil's Advocate r2594: "if executed
+ * tomorrow, they don't die"). The execution check reads both.
+ */
+export const SURVIVES_EXECUTION_EFFECT = { kind: "devilsadvocate", withDay: true } as const;
+
+/**
  * Whether the ability of the seat named as the source gave the effect. The
  * Goon's drunkenness names its chooser as the source but is the Goon's own
  * (Goon r2977).
@@ -194,7 +201,7 @@ export function bmrCannotDie(
   if (cause === "execution") {
     const advocate = state.effects.find(
       (effect) =>
-        effect.kind === "devilsadvocate" &&
+        effect.kind === SURVIVES_EXECUTION_EFFECT.kind &&
         effect.targetId === playerId &&
         effectActive(state, effect, at) &&
         effect.day === at.number,
