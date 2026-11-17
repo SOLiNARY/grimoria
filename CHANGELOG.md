@@ -10,6 +10,9 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Wake a new Demon once, the night it takes the role: a named heir is woken right after the host's choice, and the next night no longer repeats the YOU ARE wake; saved games keep the wakes they recorded
 - Let a Pukka poisoned by its own poison choose a sober Goon: the Pukka is drunk until dusk and the Goon turns evil, where the choice was refused as an effect cycle
+- Ask the host for the Mayor's fate: choosing the Mayor as the Demon's target from a seat leaves the redirect unanswered and the step blocked, where the tap answered "the Mayor dies"
+- Ask for the Demon's heir first: after an Imp self-kill with several Minions alive, the dock and the centre of the table name the heir question and offer the Minions, and no control of the next step is shown until the host names one
+- Label a registration as one: the count of a healthy Chef beside a Spy is labelled a registration, not false information
 
 ## [0.1.0] - 2026-11-16
 

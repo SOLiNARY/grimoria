@@ -317,7 +317,27 @@ function PlayerInfoCard({ view }: { view: TableView }) {
 function StepSheet({ view }: { view: TableView }) {
   const { state, drafts, ports, actions } = view;
   const t = ports.strings.t;
-  const step = tableProjection(state).step;
+  const projection = tableProjection(state);
+  if (projection.pendingDemonChange) {
+    // The heir is the only question until the host answers it: the sheet
+    // offers no control of the step that waits behind it.
+    return (
+      <ShellDialog
+        open
+        onClose={actions.closeOverlay}
+        title={t("pendingHeir")}
+        description={t("pendingHeirText")}
+        closeLabel={t("close")}
+        footer={<></>}
+        bare
+      >
+        <div className="grid gap-3 rounded-md border border-edge-2 bg-crypt-2 p-4 shadow-lg">
+          <NightCard view={view} flat />
+        </div>
+      </ShellDialog>
+    );
+  }
+  const step = projection.step;
   if (!step) return null;
   const context = stepContext(state, drafts, step);
   const guide = guideForStep(t, ports.guidance.for, state, step);

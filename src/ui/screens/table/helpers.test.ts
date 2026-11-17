@@ -6,6 +6,7 @@ import {
   dealGame,
   endDay,
   endNight,
+  infoForStep,
   previewCommand,
   skipStep,
   startNight,
@@ -22,6 +23,7 @@ import {
   dayHelpForms,
   defaultCorrectionValue,
   displayName,
+  givenLabelKey,
   infoText,
   jugglerGuessingDay,
   logConsequence,
@@ -474,6 +476,70 @@ test("logConsequence reads the engine consequence and keeps an old-save fallback
   assert.equal(logConsequence({ kind: "winner" }), null);
   assert.equal(logConsequence({ kind: "death" }), "death");
   assert.equal(logConsequence({ kind: "phase" }), "applied");
+});
+
+// Night 1 of a five-player game: the Chef sits next to the Spy, who sits next
+// to the Imp, so the Spy may register as good or evil.
+function chefBesideSpy() {
+  const game = createGame(5);
+  const assignment: Record<string, string> = {
+    "1": "chef",
+    "2": "spy",
+    "3": "imp",
+    "4": "empath",
+    "5": "soldier",
+  };
+  for (const player of Object.values(game.players)) {
+    player.claimed = true;
+    player.name = "Player " + player.seat;
+  }
+  game.setup.count = 5;
+  game.setup.roles = [...new Set(Object.values(assignment))];
+  game.setup.bluffs = [];
+  dealGame(game, { assignment });
+  autoSecrets(game);
+  game.phase = "seat";
+  startNight(game);
+  let step = currentStep(game);
+  while (step && step.roleId !== "chef") {
+    skipStep(game, step.key, "test");
+    step = currentStep(game);
+  }
+  assert.equal(step?.roleId, "chef");
+  return { game, step: step! };
+}
+
+test("the host's answer is labelled by why the host gives it (TB-CHEF-02, SYS-EFFECTS-01)", () => {
+  // Chef r2510, Example 4: a healthy Chef beside a Spy gets a count the
+  // Storyteller picks among the registrations, which is not false information.
+  const healthy = chefBesideSpy();
+  const counted = infoForStep(healthy.game, healthy.step);
+  assert.equal(counted.needsChoice, true, JSON.stringify(counted));
+  assert.equal(counted.impaired, false);
+  assert.equal(givenLabelKey(counted), "registration");
+
+  // A drunk or poisoned actor's answer may be false.
+  assert.equal(givenLabelKey({ ...counted, impaired: true }), "falseInfo");
+  assert.equal(givenLabelKey({ kind: "character", impaired: true }), "falseInfo");
+  assert.equal(givenLabelKey({ kind: "yes-no", impaired: true, needsChoice: true }), "falseInfo");
+  // An impaired actor's answer stays false information when its source is
+  // missing too.
+  assert.equal(
+    givenLabelKey({ kind: "yes-no", impaired: true, needsChoice: true, hostAnswer: true }),
+    "falseInfo",
+  );
+  // A healthy Undertaker's or Ravenkeeper's character is a registration.
+  assert.equal(givenLabelKey({ kind: "character", impaired: false }), "registration");
+  // The Vortox makes a healthy Townsfolk's answer false (sv.ts).
+  assert.equal(
+    givenLabelKey({ kind: "number", impaired: false, needsChoice: true, falsifiedSuffix: true }),
+    "falseInfo",
+  );
+  // A missing data source is the Storyteller's answer.
+  assert.equal(
+    givenLabelKey({ kind: "yes-no", impaired: false, needsChoice: true, hostAnswer: true }),
+    "ui.hostAnswer",
+  );
 });
 
 test("an Imp attack on a healthy Soldier previews a prevented death", () => {
