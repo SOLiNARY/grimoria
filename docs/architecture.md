@@ -168,6 +168,15 @@ cannot read an ambient clock, and interleaved games cannot share a sequence.
 is gone. Direct engine calls outside a command use the immutable `systemPorts`
 default; a store command always passes its own ports.
 
+The ports also carry the command's ruleset version. A fix that would change
+what a recorded command did adds a version to `command-versions.ts`, and the
+engine branches on it where the fix applies, so a recorded command keeps its
+behavior and a saved journal replays and undoes as it was written. Two fixes
+do so: the zero answered for any role (`answersZeroForAnyRole`) and the new
+Demon's wake, repeated on the next night and late after a named heir
+(`repeatsDemonWake`). A direct read outside a command has no version and
+follows the rule.
+
 ## Store transaction
 
 ```text
