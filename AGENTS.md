@@ -209,7 +209,7 @@ src/entry/       composition root (main.ts), store, two DOM screens (help, demo)
   `{ ok: false, error }`; validators return `{ ok: false, errors: [{ code, message }] }`.
   Expected invalid input returns a result; exceptions are for programming errors.
 - Each supported role has one module in `src/core/roles/<role-id>/`: `role.ts`
-  (id, edition, optional `nightStep`/`firstNightStep`/`deathStep`/`ability`
+  (id, edition, optional `nightStep`/`firstNightStep`/`deathStep`
   and typed `capabilities`) and `rule.md` (rule identifiers, matrix revision,
   asserting tests).
   `src/core/roles/registry.ts` is complete by construction; the type checker

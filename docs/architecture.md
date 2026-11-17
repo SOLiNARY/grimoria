@@ -50,19 +50,22 @@ applies each intent through the shared mechanic and writes the shared impairment
 note. A resolver never receives the game state, so it cannot write unrelated
 state, set a winner or bypass an invariant.
 
-`src/core/roles/registry.ts` stays the single statically checked map, and
-`RoleModule.ability` is optional. A migrated role no longer falls through to an
-edition-specific branch. The Gambler and Pukka are migrated; the remaining role
-branches stay in `bmr.ts`, `sv.ts` and `night.ts` until their own reviewed
-slice, which keeps the migration reviewable role by role.
+`src/core/roles/registry.ts` stays the single statically checked map. A
+migrated role no longer falls through to an edition-specific branch. The
+Gambler and the Pukka were the first two; the remaining role branches stay in
+`bmr.ts`, `sv.ts` and `night.ts` until their own reviewed slice, which keeps
+the migration reviewable role by role.
 
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
 Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller and
 the Chef have moved.
-`src/core/roles/night-step.ts` is the one lookup the queue builders and the step completion use; it reads the
-capability or the legacy `nightStep`, `firstNightStep` and `ability` fields,
-and a module declares one form only. `docs/role-ownership.md` lists which
+`src/core/roles/night-step.ts` is the one lookup the queue builders and the
+step completion use; it reads the capability or the legacy `nightStep` and
+`firstNightStep` fields, and a module declares one form only. A resolver has
+one form: the `resolve` of a `night-step` capability. The `ability` field of
+ADR 0001 is removed, and the Gambler and the Pukka declare their resolver on
+the capability like every later role. `docs/role-ownership.md` lists which
 roles have moved.
 
 A resolver that reports a `suppressed` ability may still return the choice
