@@ -10,6 +10,7 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Move the night steps of the Sailor, Innkeeper, Devil's Advocate, Exorcist, Tinker, Po and Shabaloth from the engine into their role capabilities, with behavior pinned by tests before each move; the night-step contract gains the `endsOnUse` and `givenBy` arm fields, the `drunk`, `safe` and `survives-execution` timed effects, and the `record-choice`, `record-choices`, `record-no-one` and `block-demon` intents (#200)
 - Move the night steps of the four Sects & Violets Demons (Fang Gu, No Dashii, Vigormortis and Vortox) from legacy fields to their role capabilities, with behavior pinned by tests before the move; the Sects & Violets step completion now hands a role that owns a resolver to the shared capability coordinator, as the Bad Moon Rising one does (#200)
+- Move the Cerenovus's night step to its role capability, with behavior pinned by tests before the move; the night-step contract gains the `madness` intent, which writes the madness token with the id saved games already hold (#200)
 
 ### Fixed
 
