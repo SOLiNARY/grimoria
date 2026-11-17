@@ -114,6 +114,12 @@ export const noOneOnAnotherSeat: RoleEffect = {
   // @ts-expect-error -- a role cannot name the seat the record is written on
   actorId: "3",
 };
+export const foreignChoices: RoleEffect = {
+  kind: "record-choices",
+  playerIds: ["2", "4"],
+  // @ts-expect-error -- a role cannot name the record it writes
+  roleId: "shabaloth",
+};
 export const choicesOnAnotherSeat: RoleEffect = {
   kind: "record-choices",
   playerIds: ["2", "4"],
