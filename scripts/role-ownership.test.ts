@@ -74,6 +74,23 @@ test("the Gambler and the Pukka declare their resolver on the night-step capabil
   assert.equal(ownerOf(pukka, engineLocations("pukka")), "capability + engine reference");
 });
 
+test("the Sailor and the Innkeeper resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  const sailor = facts.find((candidate) => candidate.id === "sailor");
+  assert.ok(sailor);
+  assert.deepEqual(sailor.declares, ["capability:night-step"]);
+  // "You can't die" in the death path and the check of the drunk answer
+  // still name the role; bmr.ts does not.
+  assert.deepEqual(engineLocations("sailor"), ["effects.ts×1", "night.ts×3"]);
+  assert.equal(ownerOf(sailor, engineLocations("sailor")), "capability + engine reference");
+  const innkeeper = facts.find((candidate) => candidate.id === "innkeeper");
+  assert.ok(innkeeper);
+  assert.deepEqual(innkeeper.declares, ["capability:night-step"]);
+  // The marker of the protection and the check of the drunk answer.
+  assert.deepEqual(engineLocations("innkeeper"), ["effects.ts×2", "night.ts×1"]);
+  assert.equal(ownerOf(innkeeper, engineLocations("innkeeper")), "capability + engine reference");
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);
