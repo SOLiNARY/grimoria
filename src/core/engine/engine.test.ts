@@ -78,6 +78,7 @@ import { applyRoleAbility } from "./ability.ts";
 import { bmrCannotDie } from "./effects.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
+  ANY_STEP_RESURRECTS_RULESET_VERSION,
   LEGACY_RULESET_VERSION,
   OPEN_TINKER_STEP_RULESET_VERSION,
   REPEATED_DEMON_WAKE_RULESET_VERSION,
@@ -10108,6 +10109,206 @@ test("a journal recorded while the Tinker's step took any death replays and undo
   });
   assert.equal(otherRecorded.status, "allowed", "the recorded death applies as it did");
   assert.equal(atNight2.state.players["4"].alive, false);
+});
+
+// Night 2 of the Tinker's game after the Po (6) killed the Gossip (4) on its
+// step, sent through the command surface.
+function resurrectionNight(runtime: ReturnType<typeof createRuntime>) {
+  const state = tinkerNight();
+  const po = roleStep(state, "po").key;
+  const tinker = roleStep(state, "tinker").key;
+  const killed = applyCommand(
+    state,
+    {
+      id: "po-kills",
+      type: "completeNightStep",
+      payload: { key: po, targetIds: ["4"], deathIds: ["4"] },
+    },
+    runtime,
+  );
+  assert.equal(killed.status, "allowed", JSON.stringify(killed));
+  assert.equal(state.players["4"].alive, false, "the Po killed the Gossip");
+  return { state, po, tinker };
+}
+
+test("a night step whose ability does not resurrect brings no one back (BMR-PROFESSOR-01, BMR-SHABALOTH-01)", () => {
+  // Professor r1775: "choose a dead player: if they are a Townsfolk, they are
+  // resurrected." Shabaloth r1790: "A dead player you chose last night might
+  // be regurgitated." No other Bad Moon Rising ability brings a player back,
+  // so a step whose ability does not resurrect refuses a resurrection, with
+  // the completion or with a later outcome, and nothing changes.
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const { state, po, tinker } = resurrectionNight(runtime);
+  const step = state.night.queue.find((entry) => entry.key === tinker)!;
+  assert.equal(step.canResurrect, false);
+  const before = canonicalState(state);
+  for (const payload of [
+    { key: tinker, resurrectId: "4" },
+    { key: tinker, deathIds: ["1"], resurrectId: "4" },
+  ]) {
+    const command = {
+      id: "tinker-resurrects-" + (payload.deathIds ? "and-dies" : "alone"),
+      type: "completeNightStep",
+      payload,
+    };
+    const preview = previewCommand(state, command, runtime);
+    assert.equal(preview.status, "rejected", JSON.stringify(preview));
+    assert.equal(rejectionCode(preview), "error.51", command.id);
+    const refused = applyCommand(state, command, runtime);
+    assert.equal(refused.status, "rejected", JSON.stringify(refused));
+    assert.equal(rejectionCode(refused), "error.51", command.id);
+    assert.deepEqual(canonicalState(state), before, command.id + ": nothing changes");
+  }
+
+  const lives = applyCommand(
+    state,
+    { id: "tinker-lives", type: "completeNightStep", payload: { key: tinker } },
+    runtime,
+  );
+  assert.equal(lives.status, "allowed", JSON.stringify(lives));
+  for (const [label, stepKey] of [
+    ["the Tinker's step", tinker],
+    ["the Po's step", po],
+  ] as const) {
+    const outcome = applyCommand(
+      state,
+      {
+        id: "outcome-" + stepKey,
+        type: "recordBmrOutcome",
+        payload: { stepKey, options: { resurrectId: "4" } },
+      },
+      runtime,
+    );
+    assert.equal(outcome.status, "rejected", label + " " + JSON.stringify(outcome));
+    assert.equal(rejectionCode(outcome), "error.51", label);
+  }
+  assert.equal(state.players["4"].alive, false, "the Gossip stays dead");
+  assert.equal(state.players["1"].alive, true, "the Tinker lives");
+  assert.deepEqual(
+    state.deaths.map((death) => [death.playerId, death.cause, death.ability]),
+    [["4", "ability", "po"]],
+  );
+});
+
+// Recorded commands keep their behavior. Until the ruleset after
+// tb-bmr-snv-2026-11-17.2 every Bad Moon Rising step took any resurrection the
+// host marked.
+for (const version of [
+  LEGACY_RULESET_VERSION,
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
+  ANY_STEP_RESURRECTS_RULESET_VERSION,
+]) {
+  test(`a resurrection recorded under the ruleset ${version} on a step that cannot resurrect still brings the player back, and the journal replays (BMR-PROFESSOR-01, BMR-SHABALOTH-01)`, () => {
+    assert.notEqual(RULESET_VERSION, version, "commands sent now carry a later ruleset");
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const { state, po, tinker } = resurrectionNight(runtime);
+    const at = "2030-01-01T00:00:00.000Z";
+    let sent = 0;
+    const send = (type: string, payload: Record<string, unknown>) =>
+      applyCommand(
+        state,
+        { id: "c" + ++sent, type, payload, at, rulesetVersion: version },
+        runtime,
+      );
+
+    const now = structuredClone(state);
+    const refused = applyCommand(
+      now,
+      { id: "now", type: "completeNightStep", payload: { key: tinker, resurrectId: "4" }, at },
+      runtime,
+    );
+    assert.equal(refused.status, "rejected", "a command sent now is refused");
+
+    const recorded = send("completeNightStep", { key: tinker, resurrectId: "4" });
+    assert.equal(recorded.status, "allowed", JSON.stringify(recorded));
+    assert.equal(state.players["4"].alive, true, "the Gossip came back on the Tinker's step");
+    const again = send("completeNightStep", {
+      key: roleStep(state, "assassin").key,
+      targetIds: ["4"],
+      deathIds: ["4"],
+    });
+    assert.equal(again.status, "allowed", JSON.stringify(again));
+    assert.equal(state.players["4"].alive, false, "the Assassin killed the Gossip");
+    const outcome = send("recordBmrOutcome", { stepKey: po, options: { resurrectId: "4" } });
+    assert.equal(outcome.status, "allowed", JSON.stringify(outcome));
+    assert.equal(state.players["4"].alive, true, "the Gossip came back on the Po's step");
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    if (!replayed.ok) return;
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  });
+}
+
+test("a journal recorded while any night step resurrected replays and undoes as written (BMR-PROFESSOR-01, BMR-SHABALOTH-01)", () => {
+  // Generated with createGame/applyCommand at f10e1ac: eight players. On night
+  // 2 the Po (8) kills the Gossip (4) and the host brings the Gossip back on the
+  // Tinker's (1) step. On night 3 the Po kills the Chambermaid (3) and the host
+  // brings her back with a later outcome of the Po's step. The game is saved
+  // at dawn of day 3.
+  const imported = importGame(
+    readFileSync(
+      new URL("./fixtures/legacy-night-resurrection-game.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.phase, "day");
+  assert.equal(saved.day.number, 3);
+  assert.deepEqual(
+    saved.deaths.map((death) => [death.playerId, death.number, death.ability]),
+    [
+      ["4", 2, "po"],
+      ["3", 3, "po"],
+    ],
+  );
+  assert.equal(saved.players["4"].alive, true);
+  assert.equal(saved.players["3"].alive, true);
+  assert.deepEqual(
+    [...new Set(saved.journal.entries.map((entry) => entry.rulesetVersion))],
+    [ANY_STEP_RESURRECTS_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  const entries = saved.journal.entries;
+  const tinkerAt = entries.findIndex(
+    (entry) =>
+      entry.type === "completeNightStep" &&
+      (entry.payload as { resurrectId?: string } | undefined)?.resurrectId === "4",
+  );
+  const outcomeAt = entries.findIndex((entry) => entry.type === "recordBmrOutcome");
+  assert.ok(tinkerAt > 0 && outcomeAt > tinkerAt);
+
+  // Undo to each resurrection. The recorded command brings the player back;
+  // the same command sent now is refused.
+  for (const [label, index, playerId] of [
+    ["the Tinker's step of night 2", tinkerAt, "4"],
+    ["the Po's outcome of night 3", outcomeAt, "3"],
+  ] as const) {
+    const before = replay({ ...saved.journal, entries: entries.slice(0, index) });
+    assert.equal(before.ok, true, JSON.stringify(before));
+    if (!before.ok) return;
+    assert.equal(before.state.players[playerId].alive, false, label);
+    const entry = entries[index]!;
+    const now = applyCommand(structuredClone(before.state), {
+      id: "now-" + index,
+      type: entry.type,
+      payload: entry.payload ?? {},
+    });
+    assert.equal(now.status, "rejected", label + " " + JSON.stringify(now));
+    assert.equal(rejectionCode(now), "error.51", label);
+    const recorded = applyCommand(before.state, { ...entry, payload: entry.payload ?? {} });
+    assert.equal(recorded.status, "allowed", label + ": the recorded command applies as it did");
+    assert.equal(before.state.players[playerId].alive, true, label);
+  }
 });
 
 test("the Klutz public choice runs through the command surface", () => {

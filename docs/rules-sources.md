@@ -328,6 +328,9 @@ deaths and resurrections in the night card's outcome panel.
 - The Tinker's death is the Tinker's ability: by day and on the Tinker's
   night step the host marks only the Tinker's own death, and a drunk or
   poisoned Tinker does not die from it.
+- Only the Professor and the Shabaloth bring a dead player back at night, so
+  the outcome of any other night step, the Lunatic's included, resurrects no
+  one.
 
 ### Known limits in this release
 
