@@ -7,6 +7,7 @@ import type {
   RoleCapability,
   RoleEffect,
 } from "./ability.ts";
+import type { RoleModule } from "./types.ts";
 
 // A resolver reads facts. The game state and the players map are not reachable,
 // so a role cannot mutate unrelated state from its ability.
@@ -67,6 +68,15 @@ type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
 type NightStepFacts = Parameters<NonNullable<NightStepArm["resolve"]>>[0];
 // @ts-expect-error -- the night-step context exposes no game state
 export type NightStepStateAccess = NightStepFacts["state"];
+
+// A resolver is declared on a `night-step` capability and nowhere else: the
+// module has no resolver field of its own.
+export const resolverBesideCapabilities: RoleModule = {
+  id: "gambler",
+  edition: "bmr",
+  // @ts-expect-error -- a module declares no resolver outside a capability
+  ability: { resolve: () => ({ kind: "no-effect" }) },
+};
 
 // An attack names the chosen player and the title of its log line. The engine
 // derives the attacker from the acting seat, takes the Mayor's redirect from

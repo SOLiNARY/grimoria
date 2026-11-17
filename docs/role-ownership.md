@@ -49,7 +49,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `flowergirl` | snv | nightStep | sv.ts×3, host-choice.ts×1 | SNV-FLOWERGIRL-01 (verified, r2907)<br>SNV-FLOWERGIRL-02 (verified, r2907) | engine branch |
 | `fool` | bmr | — | effects.ts×1, death.ts×1, bmr.ts×1 | BMR-FOOL-01 (verified, r2636) | engine branch |
 | `fortuneteller` | tb | capability:night-step, capability:information | setup.ts×3, information.ts×1 | TB-FORTUNETELLER-01 (verified, r3123) | capability + engine reference |
-| `gambler` | bmr | nightStep, ability | bmr.ts×1 | BMR-GAMBLER-01 (verified, r3073)<br>BMR-GAMBLER-02 (verified, r3073) | capability + engine reference |
+| `gambler` | bmr | capability:night-step | bmr.ts×1 | BMR-GAMBLER-01 (verified, r3073)<br>BMR-GAMBLER-02 (verified, r3073) | capability + engine reference |
 | `godfather` | bmr | nightStep, firstNightStep | bmr.ts×2 | BMR-GODFATHER-01 (verified, r2394)<br>BMR-GODFATHER-02 (verified, r2394)<br>BMR-GODFATHER-03 (verified, r2394) | engine branch |
 | `goon` | bmr | — | bmr.ts×8 | BMR-GOON-01 (verified, r2977) | engine branch |
 | `gossip` | bmr | nightStep | day.ts×1 | BMR-GOSSIP-01 (verified, r1773) | engine branch |
@@ -76,7 +76,7 @@ generator, then review the diff. `--check` fails on a stale ledger.
 | `po` | bmr | nightStep | bmr.ts×7 | BMR-PO-01 (verified, r3104) | engine branch |
 | `poisoner` | tb | capability:night-step | — | TB-POISONER-01 (verified, r1737) | capability |
 | `professor` | bmr | nightStep | night.ts×1, bmr.ts×3 | BMR-PROFESSOR-01 (verified, r1775)<br>BMR-PROFESSOR-02 (verified, r1775)<br>BMR-PROFESSOR-03 (verified, r1775) | engine branch |
-| `pukka` | bmr | nightStep, ability | bmr.ts×3, pukka.ts×1 | BMR-PUKKA-01 (verified, r3074)<br>BMR-PUKKA-02 (verified, r3074)<br>BMR-PUKKA-03 (verified, r3074)<br>BMR-PUKKA-04 (verified, r3074)<br>BMR-PUKKA-05 (verified, r3074)<br>BMR-PUKKA-06 (implemented-unverified, r3074)<br>BMR-PUKKA-07 (verified, r3074) | capability + engine reference |
+| `pukka` | bmr | capability:night-step | bmr.ts×3, pukka.ts×1 | BMR-PUKKA-01 (verified, r3074)<br>BMR-PUKKA-02 (verified, r3074)<br>BMR-PUKKA-03 (verified, r3074)<br>BMR-PUKKA-04 (verified, r3074)<br>BMR-PUKKA-05 (verified, r3074)<br>BMR-PUKKA-06 (implemented-unverified, r3074)<br>BMR-PUKKA-07 (verified, r3074) | capability + engine reference |
 | `ravenkeeper` | tb | nightStep, capability:information | night.ts×4 | TB-RAVENKEEPER-01 (verified, r3125) | capability + engine reference |
 | `recluse` | tb | capability:adjudication | day.ts×1, setup.ts×3, information.ts×4 | TB-RECLUSE-01 (verified, r3007)<br>TB-RECLUSE-02 (verified, r3007) | capability + engine reference |
 | `sage` | snv | nightStep, deathStep | sv.ts×3 | SNV-SAGE-01 (verified, r3009) | engine branch |

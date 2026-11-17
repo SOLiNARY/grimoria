@@ -3,8 +3,9 @@ import type { NightStepSpec, RoleModule } from "./types.ts";
 
 // One lookup for a role's night step. A migrated module declares a
 // `night-step` capability; a module that has not moved yet keeps the legacy
-// `nightStep`, `firstNightStep` and `ability` fields. A module uses one form,
-// never both, so the engine reads every declaration through these functions.
+// `nightStep` and `firstNightStep` fields. A module uses one form, never
+// both, so the engine reads every declaration through these functions. A
+// resolver has one form only: the `resolve` of a `night-step` capability.
 
 type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
 type InformationArm = Extract<RoleCapability, { kind: "information" }>;
@@ -48,13 +49,12 @@ export function nightStepFor(module: Declared, night: number): NightStepSpec | u
 
 /**
  * The resolver for a step completed on one night. Undefined means the module
- * owns no resolution for that night and the engine keeps its own path.
+ * owns no resolution for that night and the engine keeps its own path: a
+ * module without a `night-step` capability never owns one.
  */
 export function nightResolverFor(module: Declared, night: number): NightStepResolver | undefined {
   if (!module) return undefined;
-  if (hasArms(module)) return armFor(module, night === 1 ? "first" : "other")?.resolve;
-  const ability = module.ability;
-  return ability ? (context) => ability.resolve(context) : undefined;
+  return armFor(module, night === 1 ? "first" : "other")?.resolve;
 }
 
 /**

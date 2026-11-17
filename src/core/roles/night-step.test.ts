@@ -96,15 +96,27 @@ test("an arm for other nights declares nothing on the first night", () => {
   assert.ok(nightResolverFor(module, 2));
 });
 
-test("a module without a night-step arm resolves through its legacy ability", () => {
+test("a module without a night-step arm owns no resolver", () => {
   const legacy: RoleModule = {
-    id: "gambler",
+    id: "sailor",
     edition: "bmr",
     nightStep: { target: "one-any" },
-    ability: { resolve: kill },
+    firstNightStep: { target: "one-any" },
   };
-  assert.equal(nightResolverFor(legacy, 1)?.(FACTS).kind, "effects");
-  assert.equal(nightResolverFor(legacy, 2)?.(FACTS).kind, "effects");
+  assert.equal(nightResolverFor(legacy, 1), undefined);
+  assert.equal(nightResolverFor(legacy, 2), undefined);
+  for (const id of SUPPORTED_ROLE_IDS) {
+    const module = roleModule(id)!;
+    if (nightArms(module).length) continue;
+    assert.equal(nightResolverFor(module, 1), undefined, id + " resolves without an arm");
+    assert.equal(nightResolverFor(module, 2), undefined, id + " resolves without an arm");
+  }
+});
+
+test("no module keeps the removed resolver field", () => {
+  for (const id of SUPPORTED_ROLE_IDS) {
+    assert.equal("ability" in roleModule(id)!, false, id + " declares an ability field");
+  }
 });
 
 test("an arm without a resolver leaves the completed step to the engine", () => {
@@ -129,7 +141,6 @@ test("a module declares its night step once: a night-step arm or the legacy fiel
     if (!nightArms(module).length) continue;
     assert.equal(module.nightStep, undefined, id + " keeps a legacy nightStep beside its arm");
     assert.equal(module.firstNightStep, undefined, id + " keeps a legacy firstNightStep");
-    assert.equal(module.ability, undefined, id + " keeps a legacy ability beside its arm");
   }
 });
 
@@ -167,6 +178,18 @@ test("the migrated Trouble Brewing roles resolve from their modules", () => {
   assert.ok(nightResolverFor(roleModule("butler"), 2));
   assert.ok(nightResolverFor(roleModule("imp"), 2));
   assert.equal(nightResolverFor(roleModule("imp"), 1), undefined, "the Imp sleeps on night 1");
+});
+
+test("the migrated Bad Moon Rising roles resolve from their modules", () => {
+  const gambler = roleModule("gambler");
+  assert.ok(nightResolverFor(gambler, 2));
+  assert.equal(nightResolverFor(gambler, 1), undefined, "the Gambler sleeps on night 1");
+  assert.equal(nightStepFor(gambler, 1), undefined);
+  assert.equal(nightStepFor(gambler, 2)?.canKill, false, "the engine resolves the death");
+  const pukka = roleModule("pukka");
+  assert.ok(nightResolverFor(pukka, 1), "the Pukka acts on the first night");
+  assert.ok(nightResolverFor(pukka, 2));
+  assert.deepEqual(nightStepFor(pukka, 1), nightStepFor(pukka, 2));
 });
 
 test("the lookup finds the information a module's step yields", () => {

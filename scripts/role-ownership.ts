@@ -70,7 +70,6 @@ export function roleModules(): ModuleFacts[] {
     if (/\bfirstNightStep\s*:/.test(source)) declares.push("firstNightStep");
     if (/\bdeathStep\s*:/.test(source)) declares.push("deathStep");
     if (/\bonDeath\s*:/.test(source)) declares.push("onDeath");
-    if (/\bability\s*:\s*\{/.test(source)) declares.push("ability");
     for (const kind of capabilityKinds(source)) declares.push("capability:" + kind);
     facts.push({ id: declaration[1]!, edition, declares });
   }
@@ -157,9 +156,7 @@ export function engineLocations(roleId: string): string[] {
 
 export function ownerOf(facts: ModuleFacts | undefined, locations: string[]): string {
   if (!facts) return "missing module";
-  const capability = facts.declares.some(
-    (item) => item === "ability" || item.startsWith("capability:"),
-  );
+  const capability = facts.declares.some((item) => item.startsWith("capability:"));
   if (capability && locations.length) return "capability + engine reference";
   if (capability) return "capability";
   if (locations.length) return "engine branch";

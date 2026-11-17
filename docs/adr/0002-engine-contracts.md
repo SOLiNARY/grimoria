@@ -629,6 +629,18 @@ change the Trouble Brewing path of `infoForStep` names no role for an answer,
 only. The Spy's registration is not a night step: its `adjudication`
 capability and the engine code that applies a registration are unchanged.
 
+Slice 3 starts in `openspec/changes/bmr-gambler-pukka-night-step` with the two
+roles of ADR 0001. The Gambler and the Pukka declared their resolver in the
+`ability` field beside a legacy `nightStep`; they now declare both on a
+`night-step` arm, the Gambler for the nights after the first and the Pukka
+for every night. The resolvers move unchanged and no engine file changes. The
+`ability` field and its type are removed from the module contract, so a
+resolver has one form and `nightResolverFor` reads nothing else: a module
+without a `night-step` arm owns no resolver. The step builder still names the
+Gambler for the list of characters to guess, and the Demon set, the
+Exorcist's block, the outcome panel and the delayed death still name the
+Pukka; none of them completes the step.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 
