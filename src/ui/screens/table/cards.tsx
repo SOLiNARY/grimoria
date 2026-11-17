@@ -19,6 +19,7 @@ import type { ArtistAnswer, NightStep, SavantTruth } from "../../../core/model/t
 import {
   applyGiven,
   causeText,
+  dayHelpForms,
   displayName,
   guideForStep,
   infoText,
@@ -58,7 +59,6 @@ import {
   TARGET,
   TARGET_GRID,
   TARGET_ON,
-  WARNING,
 } from "./styles.ts";
 
 type PendingOption = { id: string; name: string; roleId: string };
@@ -81,7 +81,7 @@ export function MainCard({ view }: { view: TableView }) {
   return <DealCard view={view} />;
 }
 
-export function NightCard({ view }: { view: TableView }) {
+export function NightCard({ view, flat = false }: { view: TableView; flat?: boolean }) {
   const { state, ports, actions } = view;
   const t = ports.strings.t;
   const { step, progress, pendingDemonChange } = tableProjection(state);
@@ -137,10 +137,18 @@ export function NightCard({ view }: { view: TableView }) {
     );
   }
 
-  return <StepCard view={view} step={step} />;
+  return <StepCard view={view} step={step} flat={flat} />;
 }
 
-function StepCard({ view, step }: { view: TableView; step: NightStep }) {
+function StepCard({
+  view,
+  step,
+  flat = false,
+}: {
+  view: TableView;
+  step: NightStep;
+  flat?: boolean;
+}) {
   const { state, drafts, ports, actions } = view;
   const t = ports.strings.t;
   const guide = guideForStep(t, ports.guidance.for, state, step);
@@ -176,32 +184,41 @@ function StepCard({ view, step }: { view: TableView; step: NightStep }) {
   }, [ports.prefs.write, draftKey, storedDraftText]);
 
   return (
-    <section className={`host-card is-night ${NIGHT_CARD}`} data-step={key} data-step-sheet>
+    <section
+      className={`host-card is-night ${flat ? "" : NIGHT_CARD}`}
+      data-step={key}
+      data-step-sheet
+    >
       {manualWarning(view)}
-      <div className="flex items-center justify-between gap-2">
-        <p className="label">{t("ui.activeRole")}</p>
-        <span className="text-[9px] uppercase tracking-[.12em] text-brass">
-          {actor ? displayName(actor, t) : ""}
-        </span>
-      </div>
-      <div className="mt-2 flex items-center gap-2.5 rounded-sm border border-edge-2 bg-crypt-3 p-2">
+      <div className="flex items-center gap-2.5 rounded-sm border border-edge bg-crypt-3 p-2.5">
         {role ? (
           <img
-            className="size-11 shrink-0 rounded-sm border border-edge-2 bg-crypt object-contain p-1"
+            className="size-12 shrink-0 rounded-sm border border-edge-2 bg-crypt object-contain p-1"
             src={ports.roles.image(role)}
             alt=""
           />
         ) : null}
-        <div className="min-w-0">
-          <b className="block truncate font-role text-[18px] leading-tight text-parchment">
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[.08em] text-brass">
+            {actor ? displayName(actor, t) : t("ui.activeRole")}
+          </p>
+          <b className="block truncate font-role text-[20px] leading-tight text-parchment">
             {stepTitle(step, ports.roles.byId, t)}
           </b>
-          <small className="mt-0.5 block truncate text-[10px] text-muted">
+          <small className="mt-0.5 block truncate text-[12px] text-muted">
             {role ? ports.strings.teamText(role.team) : ""}
             {step.targetMode !== "none" ? ` · ${t("chooseTarget")}` : ""}
           </small>
         </div>
+        {actor ? (
+          <span className="shrink-0 rounded-sm border border-success/40 bg-success/10 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[.06em] text-success">
+            {t("ui.activeSeat")}
+          </span>
+        ) : null}
       </div>
+      {role?.ability ? (
+        <p className="m-0 mt-2 text-[13px] leading-relaxed text-muted">{role.ability}</p>
+      ) : null}
       {step.deadTonight ? <p className={`${ALERT} text-danger`}>{t("ui.deadWake")}</p> : null}
       {derived.actorImpaired ? <p className={`${ALERT} text-danger`}>{t("ui.impaired")}</p> : null}
 
@@ -265,11 +282,25 @@ function StepCard({ view, step }: { view: TableView; step: NightStep }) {
         {guideRow(t("check"), guide.check)}
       </details>
 
-      {step.targetMode !== "none" ? (
-        <div className="mt-3 rounded-sm border border-edge bg-crypt-3 p-2.5 text-[11px] text-muted">
-          <b className="text-text">{t("ui.chooseTargetOnTable")}</b>
-          {selected.length ? <span>: {targetNames(selected, state, t)}</span> : null}
-          {deadImpTarget ? <p className={`${WARNING} mt-1`}>{t("ui.deadTarget")}</p> : null}
+      {step.targetMode !== "none" && selected.length ? (
+        <div className="mt-3 rounded-sm border border-edge bg-crypt-3 p-2.5" data-chosen-target>
+          <div className="flex items-center justify-between gap-2">
+            <span className="label">{t("ui.target")}</span>
+            <span className="rounded-sm border border-edge-2 px-1.5 py-0.5 text-[11px] tabular-nums text-muted">
+              {t("ui.targetChosen", { count: selected.length })}
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between gap-2 text-[14px] font-semibold text-text">
+            <span className="truncate">{targetNames(selected, state, t)}</span>
+            <span className="shrink-0 text-success" aria-hidden="true">
+              ✓
+            </span>
+          </div>
+          {deadImpTarget ? (
+            <p className="m-0 mt-1 text-[12px] leading-tight text-table-secondary">
+              {t("ui.deadTarget")}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -819,6 +850,7 @@ export function DayCard({
       : null;
   const artist = !manual ? artistProjection(state) : null;
   const savant = !manual ? savantProjection(state) : null;
+  const forms = dayHelpForms(state);
   const canExecute =
     Boolean(drafts.executeTarget) &&
     Boolean(playerById(state, drafts.executeTarget)) &&
@@ -900,7 +932,7 @@ export function DayCard({
         </div>
       ) : null}
 
-      {!manual && virgin && !day.execution && !day.ended ? (
+      {forms.includes("virgin") && virgin ? (
         <form
           className="my-2.5 grid gap-1.5 rounded-sm border border-edge p-2.5"
           data-virgin-form
@@ -949,17 +981,15 @@ export function DayCard({
         </div>
       ) : null}
 
-      {slayer ? <SlayerPanel view={view} slayerId={slayer.id} /> : null}
-      {artist && !artist.used && !day.execution && !day.ended ? (
+      {forms.includes("slayer") && slayer ? <SlayerPanel view={view} slayerId={slayer.id} /> : null}
+      {forms.includes("artist") && artist ? (
         <ArtistPanel view={view} artistId={artist.playerId} />
       ) : null}
-      {savant && !savant.visitedToday && !day.execution && !day.ended ? (
-        <SavantPanel view={view} savant={savant} />
-      ) : null}
-      {manual ? null : <GossipPanel view={view} />}
-      {manual ? null : <JugglerPanel view={view} />}
-      {manual ? null : <MoonchildPanel view={view} />}
-      {manual ? null : mastermindPanel(view)}
+      {forms.includes("savant") && savant ? <SavantPanel view={view} savant={savant} /> : null}
+      {forms.includes("gossip") ? <GossipPanel view={view} /> : null}
+      {forms.includes("juggler") ? <JugglerPanel view={view} /> : null}
+      {forms.includes("moonchild") ? <MoonchildPanel view={view} /> : null}
+      {forms.includes("mastermind") ? mastermindPanel(view) : null}
     </section>
   );
 }
