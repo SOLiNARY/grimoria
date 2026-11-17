@@ -608,6 +608,21 @@ export function infoPayload(info: StepInfo | null | undefined): Record<string, u
   return info ? Object.fromEntries(Object.entries(info)) : null;
 }
 
+/**
+ * The locale key that names the host's answer on an information step, from
+ * why the host gives it and not from the answer's shape. A drunk or poisoned
+ * actor, or a Vortox, makes it false information; a missing data source makes
+ * it the Storyteller's answer; otherwise a working ability offers several
+ * answers only because a Spy, a Recluse or another player may register either
+ * way (Chef r2510, Example 4), so it is a registration.
+ */
+export function givenLabelKey(info: StepInfo): "falseInfo" | "registration" | "ui.hostAnswer" {
+  if (info.impaired) return "falseInfo";
+  if (info.hostAnswer) return "ui.hostAnswer";
+  if (info.falsifiedSuffix) return "falseInfo";
+  return "registration";
+}
+
 export function applyGiven(
   info: StepInfo | null | undefined,
   raw: string,

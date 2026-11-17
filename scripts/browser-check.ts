@@ -1357,18 +1357,16 @@ async function setupZeroIsTheLibrariansAlone() {
   );
 }
 
-// Issue #200, Imp r3116: after a night self-kill the host names the new Imp,
-// who is woken once that night ("Wake the new Imp, show them the YOU ARE info
-// token") and not again the next night, when it wakes only for its own step.
-async function newDemonWakesOnce() {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const result = await page.evaluate(async () => {
+// Night 2 of a ten-player game with a Poisoner, a Scarlet Woman and the Imp.
+// Two Minions, so the host names the heir; only seat 3 (the Empath, or the
+// Fortune Teller, who takes targets) wakes after the Imp.
+async function seedImpHeirNight2(third: "empath" | "fortuneteller" = "empath") {
+  const result = await page.evaluate(async (third) => {
     const { model, engine, store } = await window.PG_MODULES();
-    // Two Minions, so the host names the heir; only the Empath wakes after the Imp.
     const assignment: Record<string, string> = {
       1: "soldier",
       2: "mayor",
-      3: "empath",
+      3: third,
       4: "chef",
       5: "virgin",
       6: "slayer",
@@ -1402,8 +1400,16 @@ async function newDemonWakesOnce() {
     store.replaceState(game);
     dispatchEvent(new PopStateEvent("popstate"));
     return { ok: true };
-  });
+  }, third);
   assert.equal(result.ok, true, JSON.stringify(result));
+}
+
+// Issue #200, Imp r3116: after a night self-kill the host names the new Imp,
+// who is woken once that night ("Wake the new Imp, show them the YOU ARE info
+// token") and not again the next night, when it wakes only for its own step.
+async function newDemonWakesOnce() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedImpHeirNight2();
   await page.waitForTimeout(100);
   await route("/table");
   const current = () =>
@@ -1431,12 +1437,11 @@ async function newDemonWakesOnce() {
   assert.equal(await current(), "imp:10");
   await confirmWith("10");
 
-  // The host names the Poisoner as the new Imp, from the step sheet.
-  await page.locator('[data-act="complete"]').click();
-  await page.waitForSelector("[data-heir]");
+  // The host names the Poisoner as the new Imp, from the dock.
+  await page.waitForSelector("[data-dock-heir] [data-heir]");
   await overflow();
   await page.screenshot({ path: join(screenshots, "demon-wake-heir-390.png") });
-  await page.locator('[data-heir][data-id="8"]').click();
+  await page.locator('[data-dock-heir] [data-heir][data-id="8"]').click();
   await page.waitForTimeout(100);
   assert.equal(await current(), "demonchange", "the new Imp is woken next, before the Empath");
   assert.equal(await wakes(), 1);
@@ -1587,6 +1592,263 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
   );
   await overflow();
   await page.screenshot({ path: join(screenshots, "pukka-goon-done-390.png") });
+}
+
+// Mayor r2995: "If you die at night, another player might die instead." The
+// Storyteller decides, so the table asks and never answers (AGENTS.md): a seat
+// tap on the Mayor leaves the redirect unanswered and the step blocked.
+async function mayorRedirectIsAsked() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedMayorNight2();
+  await route("/table");
+  const stepRole = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const step = engine.currentStep(store.state);
+      return step && (step.roleId || step.system);
+    });
+  assert.equal(await stepRole(), "poisoner");
+  await page.locator('[data-target][data-id="2"]').click();
+  await page.waitForTimeout(150);
+  await completeStep();
+  await page.waitForTimeout(200);
+  assert.equal(await stepRole(), "imp");
+
+  await page.locator('[data-target][data-id="1"]').click();
+  await page.waitForTimeout(150);
+  assert.equal(
+    await page.locator('[data-table-dock] [data-blocker-reason="redirect"]').count(),
+    1,
+    "the dock asks for the Mayor's fate",
+  );
+  await page.locator('[data-act="complete"]').click();
+  const select = page.locator("select[data-redirect]");
+  assert.equal(await select.count(), 1, "a healthy Mayor offers a redirection");
+  assert.equal(await select.inputValue(), "", "the seat tap leaves the Mayor's fate unanswered");
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').isDisabled(),
+    true,
+    "the step waits for the host's answer",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "mayor-redirect-asked-390.png") });
+
+  await select.selectOption("none");
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('[data-act="step-confirm"]').isDisabled(), false);
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(150);
+  const after = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return { mayorAlive: store.state.players["1"].alive, deaths: store.state.deaths.length };
+  });
+  assert.deepEqual(after, { mayorAlive: false, deaths: 1 }, "the host let the Mayor die");
+}
+
+// Imp r3116: "If the Imp killed themself at night, choose an alive Minion [...]
+// Wake the new Imp". The heir is the night's question until the host answers:
+// the dock and the table show it at once and offer no control of the step
+// that waits behind it.
+async function heirQuestionLeadsTheNight() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedImpHeirNight2("fortuneteller");
+  await page.waitForTimeout(100);
+  await route("/table");
+  const current = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const step = engine.currentStep(store.state);
+      if (!step) return null;
+      return step.system ? step.system : step.roleId + ":" + step.actorId;
+    });
+  for (const targetId of ["9", "10"]) {
+    await page.locator(`[data-target][data-id="${targetId}"]`).click();
+    await completeStep();
+    await page.waitForTimeout(100);
+  }
+  assert.equal(
+    await current(),
+    "fortuneteller:3",
+    "the engine's next step is the Fortune Teller's",
+  );
+
+  const heirLabel = /Choose the Demon heir|Выберите наследника Демона|Demonun varisini seç/;
+  assert.match(await page.locator("[data-dock-step]").innerText(), heirLabel);
+  assert.match(await page.locator("[data-hub-step]").innerText(), heirLabel);
+  assert.deepEqual(
+    await page
+      .locator("[data-dock-heir] [data-heir]")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id"))),
+    ["8", "9"],
+    "the dock offers both Minions",
+  );
+  for (const act of ["complete", "skip", "reset-step", "end-night"]) {
+    assert.equal(
+      await page.locator(`[data-table-dock] [data-act="${act}"]`).count(),
+      0,
+      `the dock offers no ${act} while the heir is unnamed`,
+    );
+  }
+  assert.equal(
+    await page.locator("[data-target]").count(),
+    0,
+    "no seat is a target of the Fortune Teller",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "heir-question-dock-390.png") });
+  // A seat tap opens the player's correction, as on a step without targets,
+  // and chooses no target for the Fortune Teller.
+  await page.locator('[data-seat-open="4"]').click();
+  await page.waitForSelector('[data-correct="player"]');
+  assert.equal(
+    await page.locator('[data-correct="player"]').inputValue(),
+    "4",
+    "the seat tap opens that player's correction",
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[data-correct="player"]', { state: "detached" });
+
+  await page.locator('[data-dock-heir] [data-heir][data-id="8"]').click();
+  await page.waitForTimeout(100);
+  assert.equal(await current(), "demonchange", "the named heir is woken next");
+  assert.equal(await page.locator("[data-dock-heir]").count(), 0);
+  assert.equal(await page.locator('[data-table-dock] [data-act="complete"]').count(), 1);
+  const roles = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return { heir: store.state.players["8"].roleId, other: store.state.players["9"].roleId };
+  });
+  assert.deepEqual(roles, { heir: "imp", other: "scarletwoman" });
+
+  // The wake done, the Fortune Teller's step opens with no target chosen.
+  await completeStep();
+  await page.waitForTimeout(100);
+  assert.equal(await current(), "fortuneteller:3");
+  assert.equal(
+    await page.locator('[data-target][aria-pressed="true"]').count(),
+    0,
+    "the earlier seat tap chose no target",
+  );
+}
+
+// Imp r3116: the heir comes first even in a step sheet that was open when
+// another window recorded the Imp's self-kill. The sheet adopts the saved game
+// and asks only for the heir; it offers no control of the step behind it.
+async function heirQuestionLeadsAnOpenSheet() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedImpHeirNight2("fortuneteller");
+  await page.waitForTimeout(100);
+  await route("/table");
+  await page.locator('[data-table-dock] [data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+
+  const other = await context.newPage();
+  await other.goto(url);
+  await other.waitForSelector(".host");
+  const recorded = await other.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const statuses: string[] = [];
+    for (const targetId of ["9", "10"]) {
+      const step = engine.currentStep(store.state);
+      if (!step) return { statuses, pending: false };
+      statuses.push(
+        store.dispatch({
+          type: "completeNightStep",
+          payload: { key: step.key, targetIds: [targetId] },
+        }).status,
+      );
+    }
+    return { statuses, pending: Boolean(engine.demonChangePending(store.state)) };
+  });
+  await other.close();
+  assert.deepEqual(recorded, { statuses: ["allowed", "allowed"], pending: true });
+
+  // The host's window adopts the other window's save with the sheet open.
+  await page.waitForFunction(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    return Boolean(engine.demonChangePending(store.state));
+  });
+  await page.waitForSelector('[role="dialog"] [data-heir]');
+  assert.deepEqual(
+    await page
+      .locator('[role="dialog"] [data-heir]')
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id"))),
+    ["8", "9"],
+    "the open sheet offers both Minions",
+  );
+  for (const act of ["step-skip", "step-confirm"]) {
+    assert.equal(
+      await page.locator(`[data-act="${act}"]`).count(),
+      0,
+      `the open sheet offers no ${act} while the heir is unnamed`,
+    );
+  }
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "heir-question-sheet-390.png") });
+
+  await page.locator('[role="dialog"] [data-heir][data-id="8"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    return store.state.players["8"].roleId === "imp";
+  });
+  // The sheet goes on with the new Imp's wake; close it for the next check.
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[data-act="step-confirm"]', { state: "detached" });
+}
+
+// Chef r2510, Example 4: beside a Spy the Chef's count is one the Storyteller
+// picks among the registrations. It is a registration, not false information.
+async function chefRegistrationIsLabelled() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const result = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "chef",
+      2: "spy",
+      3: "imp",
+      4: "empath",
+      5: "soldier",
+    };
+    const game = model.createGame(5);
+    Object.keys(assignment).forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 5;
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "chef")
+      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true, step: engine.currentStep(game)?.roleId };
+  });
+  assert.deepEqual(result, { ok: true, step: "chef" });
+  await page.waitForTimeout(100);
+  await route("/table");
+  await page.locator('[data-act="complete"]').click();
+  const select = page.locator("select[data-given]");
+  await select.waitFor();
+  // The label is upper-cased by CSS; read its text, not its rendering.
+  const label = (
+    (await page.locator("label:has(select[data-given]) > .label").textContent()) ?? ""
+  ).trim();
+  assert.match(
+    label,
+    /^(Registration|Регистрация|Qeydəalma)$/,
+    "the Chef's count is a registration",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "chef-registration-label-390.png") });
+  await page.keyboard.press("Escape");
 }
 
 async function currentScriptRoleCorrections() {
@@ -3149,8 +3411,13 @@ async function fullChecks() {
   await page.locator('[data-act="complete"]').click();
   assert.equal(
     await page.locator("select[data-redirect]").inputValue(),
-    "none",
-    "retargeting the Imp must reset the stored Mayor redirection",
+    "",
+    "retargeting the Imp must reset the stored Mayor redirection to unanswered",
+  );
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').isDisabled(),
+    true,
+    "the reset redirection blocks the step until the host answers again",
   );
   await page.keyboard.press("Escape");
 
@@ -5546,6 +5813,10 @@ async function fullChecks() {
   await setupZeroIsTheLibrariansAlone();
   await newDemonWakesOnce();
   await pukkaChoosesGoonWhileSelfPoisoned();
+  await mayorRedirectIsAsked();
+  await heirQuestionLeadsTheNight();
+  await heirQuestionLeadsAnOpenSheet();
+  await chefRegistrationIsLabelled();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
@@ -5565,6 +5836,10 @@ try {
       "setup-zero": setupZeroIsTheLibrariansAlone,
       "demon-wake": newDemonWakesOnce,
       "pukka-goon": pukkaChoosesGoonWhileSelfPoisoned,
+      "mayor-redirect": mayorRedirectIsAsked,
+      "heir-question": heirQuestionLeadsTheNight,
+      "heir-sheet": heirQuestionLeadsAnOpenSheet,
+      "chef-label": chefRegistrationIsLabelled,
     }[focused];
     if (!check) throw new Error("Unknown browser check: " + focused);
     await page.goto(url);

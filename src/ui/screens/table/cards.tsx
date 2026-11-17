@@ -21,6 +21,7 @@ import {
   causeText,
   dayHelpForms,
   displayName,
+  givenLabelKey,
   guideForStep,
   infoText,
   jugglerGuessingDay,
@@ -81,43 +82,50 @@ export function MainCard({ view }: { view: TableView }) {
   return <DealCard view={view} />;
 }
 
+/**
+ * The Minions the host may name as the new Demon. Imp r3116: "choose an alive
+ * Minion"; the table offers them and never picks one.
+ */
+export function HeirChoice({ view, pending }: { view: TableView; pending: NightStep }) {
+  const { ports, actions } = view;
+  const options = (pending.pending?.options || []) as PendingOption[];
+  return (
+    <div className={TARGET_GRID}>
+      {options.map((option) => (
+        <button
+          key={option.id}
+          className={TARGET}
+          type="button"
+          data-heir={pending.key}
+          data-id={option.id}
+          onClick={() =>
+            actions.run({
+              type: "chooseDemonHeir",
+              payload: { stepKey: pending.key, heirId: option.id },
+            })
+          }
+        >
+          {option.name}
+          <small className="mt-0.5 block text-[12px] text-muted">
+            {roleNameOf(option.roleId, ports.roles.byId)}
+          </small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function NightCard({ view, flat = false }: { view: TableView; flat?: boolean }) {
-  const { state, ports, actions } = view;
+  const { state, ports } = view;
   const t = ports.strings.t;
   const { step, progress, pendingDemonChange } = tableProjection(state);
-  const pending = pendingDemonChange as {
-    key: string;
-    pending?: { options?: PendingOption[] };
-  } | null;
 
-  if (pending) {
-    const options = pending.pending ? pending.pending.options || [] : [];
+  if (pendingDemonChange) {
     return (
       <section className={`host-card is-night ${NIGHT_CARD}`}>
         <p className="label">{t("pendingHeir")}</p>
         <h1 className={CARD_TITLE}>{t("pendingHeirText")}</h1>
-        <div className={TARGET_GRID}>
-          {options.map((option) => (
-            <button
-              key={option.id}
-              className={TARGET}
-              type="button"
-              data-heir={pending.key}
-              data-id={option.id}
-              onClick={() =>
-                actions.run({
-                  type: "chooseDemonHeir",
-                  payload: { stepKey: pending.key, heirId: option.id },
-                })
-              }
-            >
-              {option.name}
-              <small className="mt-0.5 block text-[12px] text-muted">
-                {roleNameOf(option.roleId, ports.roles.byId)}
-              </small>
-            </button>
-          ))}
-        </div>
+        <HeirChoice view={view} pending={pendingDemonChange} />
       </section>
     );
   }
@@ -595,15 +603,11 @@ function GivenSelect({
         : ALL_ROLES;
   }
   if (!options.length) return null;
-  // A character answer for a healthy Undertaker or Ravenkeeper is a
-  // registration decision, and a missing data source is a plain host answer;
-  // only a false-information decision gets the false-information label.
-  const label =
-    kind === "role" && !info.impaired
-      ? t("registration")
-      : info.hostAnswer && !info.impaired
-        ? t("ui.hostAnswer")
-        : t("falseInfo");
+  // A healthy answer that depends on a registration (the Undertaker's
+  // character, the Chef's count) is a registration decision, and a missing
+  // data source is a plain host answer; only a false-information decision
+  // gets the false-information label.
+  const label = t(givenLabelKey(info));
   return (
     <label className={FIELD_BOX}>
       <span className="label">{label}</span>
