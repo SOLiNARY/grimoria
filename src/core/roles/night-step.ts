@@ -7,7 +7,7 @@ import type { NightStepSpec, RoleModule } from "./types.ts";
 // both, so the engine reads every declaration through these functions. A
 // resolver has one form only: the `resolve` of a `night-step` capability.
 
-type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
+export type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
 type InformationArm = Extract<RoleCapability, { kind: "information" }>;
 type Declared = RoleModule | null | undefined;
 
@@ -53,8 +53,13 @@ export function nightStepFor(module: Declared, night: number): NightStepSpec | u
  * module without a `night-step` capability never owns one.
  */
 export function nightResolverFor(module: Declared, night: number): NightStepResolver | undefined {
+  return nightArmFor(module, night)?.resolve;
+}
+
+/** The `night-step` capability that covers one night, if the module has moved. */
+export function nightArmFor(module: Declared, night: number): NightStepArm | undefined {
   if (!module) return undefined;
-  return armFor(module, night === 1 ? "first" : "other")?.resolve;
+  return armFor(module, night === 1 ? "first" : "other");
 }
 
 /**

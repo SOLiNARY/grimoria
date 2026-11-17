@@ -85,7 +85,7 @@ import { moduleInfoForStep } from "./information.ts";
 import type { InformationContext, InformationDecision } from "../roles/ability.ts";
 import type { RoleModule } from "../roles/types.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
-import type { GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
+import type { DeadAt, GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
 
 type StepOptions = {
   targetIds?: string[];
@@ -1129,6 +1129,185 @@ test("a suppressed ability keeps its dated effect as a record that never applies
   assert.equal(isImpaired(state, "4"), false, "the record poisons no one");
   assert.equal(step.noteKey, "note.abilityFailed");
   assert.deepEqual(draws, ["id:4"]);
+});
+
+/** A night-two game whose Monk step a synthetic module completes. */
+function monkNightTwo(): { state: GameState; step: NightStep; at: DeadAt } {
+  const state = make(NIGHT_ROLES);
+  startNight(state);
+  nextNight(state);
+  return { state, step: roleStep(state, "monk"), at: { phase: "night", number: 2 } };
+}
+
+/** A module that names the effects its use ends and reports the health it saw. */
+function endingModule(seen: boolean[]): RoleModule {
+  return {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        endsOnUse: ["drunk"],
+        resolve: ({ impaired }) => {
+          seen.push(impaired);
+          return { kind: "suppressed" };
+        },
+      },
+    ],
+  };
+}
+
+test("a night step ends the effects its arm names before the resolver reads the owner's health", () => {
+  const { state, step, at } = monkNightTwo();
+  state.effects.push(
+    // The ability's own drunkenness on its owner, still working tonight.
+    {
+      id: "own-self",
+      kind: "drunk",
+      sourceId: "1",
+      targetId: "1",
+      start: at,
+      expires: { phase: "night", number: 3 },
+      active: true,
+    },
+    {
+      id: "own-other",
+      kind: "drunk",
+      sourceId: "1",
+      targetId: "3",
+      start: { phase: "night", number: 1 },
+      expires: { phase: "night", number: 2 },
+      active: true,
+    },
+    {
+      id: "own-protection",
+      kind: "protected",
+      sourceId: "1",
+      targetId: "3",
+      start: at,
+      expires: { phase: "day", number: 2 },
+      active: true,
+    },
+    {
+      id: "foreign",
+      kind: "drunk",
+      sourceId: "6",
+      targetId: "4",
+      start: at,
+      expires: { phase: "night", number: 3 },
+      active: true,
+    },
+  );
+  assert.equal(isImpaired(state, "1", at), true, "the owner starts drunk by their own ability");
+  const seen: boolean[] = [];
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, endingModule(seen), step, ["3"], at, {}, ports);
+
+  assert.deepEqual(seen, [false], "the owner's own drunkenness ended before the resolver ran");
+  assert.deepEqual(
+    state.effects.map((effect) => [effect.id, effect.active]),
+    [
+      ["own-self", false],
+      ["own-other", false],
+      ["own-protection", true],
+      ["foreign", true],
+    ],
+    "only the named kind of this ability ends, also on the suppressed path",
+  );
+  assert.equal(step.noteKey, "note.abilityFailed");
+  assert.deepEqual(draws, []);
+});
+
+test("a night step that ends its own drunkenness keeps the Goon's drunkenness on the chooser (BMR-GOON-01)", () => {
+  const { state, step, at } = monkNightTwo();
+  state.effects.push({
+    id: "goon",
+    kind: "drunk",
+    bmr: "goon",
+    sourceId: "1",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+    permanent: true,
+  });
+  const seen: boolean[] = [];
+
+  applyRoleAbility(state, endingModule(seen), step, ["3"], at, {}, recordingPorts().ports);
+
+  assert.deepEqual(seen, [true]);
+  assert.equal(state.effects[0]!.active, true);
+});
+
+test("the safe and drunk dated effects are stored as the Innkeeper's protection and a drunk effect", () => {
+  const { state, step, at } = monkNightTwo();
+  const facts: Array<string | null> = [];
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ drunkId }) => {
+          facts.push(drunkId);
+          return {
+            kind: "effects",
+            effects: [
+              {
+                kind: "timed-effect",
+                effect: "safe",
+                playerId: "3",
+                expires: { phase: "day", number: 2 },
+              },
+              {
+                kind: "timed-effect",
+                effect: "drunk",
+                playerId: drunkId!,
+                expires: { phase: "night", number: 3 },
+              },
+            ],
+          };
+        },
+      },
+    ],
+  };
+  const { ports, draws } = recordingPorts();
+  const before = state.effects.length;
+
+  applyRoleAbility(state, module, step, ["3"], at, { drunkId: "4" }, ports);
+
+  assert.deepEqual(facts, ["4"], "the host's drunk answer reaches the resolver");
+  // The stored text, so the key order of a record is pinned too.
+  assert.deepEqual(
+    state.effects.slice(before).map((effect) => JSON.stringify(effect)),
+    [
+      JSON.stringify({
+        id: "eff-" + (before + 1) + "-k100",
+        kind: "protected",
+        bmr: "innkeeper",
+        sourceId: "1",
+        targetId: "3",
+        start: at,
+        expires: { phase: "day", number: 2 },
+        active: true,
+      }),
+      JSON.stringify({
+        id: "eff-" + (before + 2) + "-k200",
+        kind: "drunk",
+        sourceId: "1",
+        targetId: "4",
+        start: at,
+        expires: { phase: "night", number: 3 },
+        active: true,
+      }),
+    ],
+  );
+  assert.deepEqual(draws, ["id:4", "id:4"]);
 });
 
 // A module whose night step is an attack under its own title. The coordinator
