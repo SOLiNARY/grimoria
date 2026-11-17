@@ -113,6 +113,19 @@ export type RoleEffect =
    */
   | { readonly kind: "record-choice"; readonly playerId: string | null }
   /**
+   * Whether the acting seat chose no one tonight. The step builder reads it
+   * for the size of the next night's step, which depends on the choice, not
+   * on whether the ability worked.
+   */
+  | { readonly kind: "record-no-one"; readonly noOne: boolean }
+  /**
+   * The players the acting seat chose tonight. The engine keeps the record it
+   * replaces as last night's choice, which the outcome reads for a player
+   * chosen last night, and writes both on the acting seat under the acting
+   * role.
+   */
+  | { readonly kind: "record-choices"; readonly playerIds: readonly string[] }
+  /**
    * The Demon on this seat does not wake tonight; its other abilities still
    * resolve. The engine finds the Demon's step in tonight's queue and writes
    * `note` on it, and adds `log` as a secret log line. The role names a seat

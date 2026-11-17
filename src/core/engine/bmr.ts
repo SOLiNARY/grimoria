@@ -522,7 +522,6 @@ export function completeBmrStep(
     );
     return;
   }
-  if (role === "po" && actor) actor.used.poNoOne = targets.length === 0;
   if (role === "lunatic" && actor) {
     // The first night is not a night where the pretended Po chose no one
     // (Po r3104), and the Lunatic's own choice is only a report. First-night
@@ -640,25 +639,6 @@ export function completeBmrStep(
         : target?.team === "good" || target?.team == null;
     if (target && target.alive && wasGood) {
       kill(state, target.id, "ability", at, { ability: "moonchild", bmr: true }, ports);
-    }
-    return;
-  }
-  if (role === "tinker" && actor) {
-    // The host decides whether the Tinker dies; the outcome controls record it.
-    return;
-  }
-  if (role === "shabaloth" && actor) {
-    // The chosen targets persist even when both survive, so next night's
-    // regurgitation has a legal source (Shabaloth r1790). The previous night's
-    // choice stays available for the outcome validation, which runs after this
-    // step is completed.
-    if (targets.length && !isImpaired(state, actor.id, at)) {
-      actor.used.shabalothPreviousTargets = Array.isArray(actor.used.shabalothTargets)
-        ? actor.used.shabalothTargets.slice()
-        : [];
-      actor.used.shabalothPreviousNight = actor.used.shabalothTargetsNight;
-      actor.used.shabalothTargets = targets.slice(0, 2);
-      actor.used.shabalothTargetsNight = at.number;
     }
     return;
   }
