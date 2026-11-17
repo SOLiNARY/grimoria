@@ -1248,6 +1248,115 @@ async function lunaticSetupControls() {
   await page.keyboard.press("Escape");
 }
 
+// Issue #200: "Or that zero are in play" is the Librarian's answer alone
+// (Librarian r1721). A zero held for the Washerwoman is no prepared answer: the
+// step asks for setup instead of telling her about Outsiders, and the secrets
+// screen keeps the fields the host repairs it with.
+async function setupZeroIsTheLibrariansAlone() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(15);
+  await route("/table");
+  const stepRole = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      return engine.currentStep(store.state)?.roleId ?? null;
+    });
+  for (let guard = 0; guard < 12 && (await stepRole()) !== "washerwoman"; guard += 1) {
+    await page.locator('[data-act="skip"]:visible').first().click();
+    await page.waitForTimeout(60);
+  }
+  assert.equal(await stepRole(), "washerwoman", "the Washerwoman's step is open");
+
+  // The table offers the zero for the Librarian only, so this record needs a
+  // command sent after the night began, an import or an older save.
+  const stored = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return (["washerwoman", "librarian"] as const).map(
+      (roleId) => store.dispatch({ type: "setSetupInfoZero", payload: { roleId } }).status,
+    );
+  });
+  assert.deepEqual(stored, ["allowed", "allowed"]);
+  await page.waitForTimeout(100);
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').isEnabled(),
+    false,
+    "a Washerwoman step that holds a zero cannot be completed",
+  );
+  // What the table reads for the step: no answer is prepared, in any language.
+  assert.deepEqual(
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const step = engine.currentStep(store.state);
+      return step ? engine.infoForStep(store.state, step, {}) : null;
+    }),
+    { kind: "one-of-two", missing: true, needsChoice: true },
+    "the Washerwoman is not told that no Outsiders are in play",
+  );
+  assert.ok(
+    (await page.locator('[data-blocker-reason="secrets"]').count()) > 0,
+    "the step names the missing setup as what blocks it",
+  );
+  const offered = await page
+    .locator("select[data-given]:visible option")
+    .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
+  assert.ok(!offered.includes("zero"), "the zero is not offered for the Washerwoman");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "setup-zero-washerwoman-step-390.png") });
+
+  await page.locator('a[href$="secrets"]:visible').first().click();
+  await page.waitForFunction(() => document.body.dataset.route === "secrets");
+  await page.waitForTimeout(60);
+  assert.equal(
+    await page.locator('[data-info-role="washerwoman"]').isVisible(),
+    true,
+    "the Washerwoman's editor keeps the character select",
+  );
+  assert.equal(await page.locator('[data-player="pair-a-washerwoman"]').isVisible(), true);
+  assert.equal(await page.locator('[data-player="pair-b-washerwoman"]').isVisible(), true);
+  assert.equal(
+    await page.locator('[data-info-zero="washerwoman"]').count(),
+    0,
+    "the zero is not a choice of the Washerwoman's editor",
+  );
+  // The Librarian's stored zero is shown as the zero and stays editable.
+  assert.equal(await page.locator('[data-info-zero="librarian"]').isChecked(), true);
+  assert.equal(await page.locator('[data-info-role="librarian"]').count(), 0);
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "setup-zero-secrets-390.png"), fullPage: true });
+
+  await page.locator('[data-info-role="washerwoman"]').selectOption("chef");
+  await page.locator('[data-player="pair-a-washerwoman"]').selectOption("4");
+  await page.locator('[data-player="pair-b-washerwoman"]').selectOption("5");
+  await route("/table");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').isEnabled(),
+    true,
+    "the step completes once a character and two players are prepared",
+  );
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(100);
+  assert.deepEqual(
+    await page.evaluate(async () => {
+      const { state } = (await window.PG_MODULES()).store;
+      const step = state.night.queue.find((entry) => entry.roleId === "washerwoman");
+      const given = step?.given as { pair?: string[]; roleId?: string; zero?: boolean } | null;
+      return {
+        done: step?.done,
+        roleId: given?.roleId,
+        pair: [...(given?.pair ?? [])].sort(),
+        zero: given?.zero ?? false,
+      };
+    }),
+    { done: true, roleId: "chef", pair: ["4", "5"], zero: false },
+    "the Washerwoman learns the prepared character and players",
+  );
+}
+
 async function currentScriptRoleCorrections() {
   for (const { edition, width } of [
     { edition: "bmr", width: 390 },
@@ -5041,6 +5150,7 @@ async function fullChecks() {
   await madnessExecutionFromTable();
   await playerBubbleVoting();
   await lunaticSetupControls();
+  await setupZeroIsTheLibrariansAlone();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
@@ -5057,6 +5167,7 @@ try {
       "madness-execution": madnessExecutionFromTable,
       "player-voting": playerBubbleVoting,
       "lunatic-setup": lunaticSetupControls,
+      "setup-zero": setupZeroIsTheLibrariansAlone,
     }[focused];
     if (!check) throw new Error("Unknown browser check: " + focused);
     await page.goto(url);

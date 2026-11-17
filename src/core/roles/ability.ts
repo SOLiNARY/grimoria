@@ -306,8 +306,17 @@ export type InformationDecision =
    * setup while nothing is prepared. The role sees none of it. It names
    * `possible`, every character the answer can show, and the engine offers
    * them when the owner is drunk or poisoned.
+   *
+   * `orZero` says the ability itself has a zero answer ("Or that zero are in
+   * play", Librarian r1721), so setup may hold a zero in place of the two
+   * players. Whether zero are in play stays a fact of setup. A zero held for
+   * a role that does not declare it is no prepared answer.
    */
-  | { readonly kind: "prepared"; readonly possible: readonly InformationValue[] }
+  | {
+      readonly kind: "prepared";
+      readonly possible: readonly InformationValue[];
+      readonly orZero?: true;
+    }
   /**
    * The ability shows the Grimoire itself. Nothing is computed and nothing is
    * asked: the engine records that the Grimoire was shown, also for an owner

@@ -68,6 +68,14 @@ test("the Washerwoman reads no fact, so its decision is the same whether or not 
   assert.deepEqual(
     Object.keys(decision),
     ["kind", "possible"],
-    "the character, the two players and the zero are the setup's",
+    "the character and the two players are the setup's",
   );
+});
+
+test("the Washerwoman declares no zero, so a Washerwoman always learns a character (TB-WASHERWOMAN-01)", () => {
+  // Washerwoman r2630: "You start knowing that 1 of 2 players is a particular
+  // Townsfolk." The ability has no zero form.
+  const decision = resolve();
+  assert.equal(decision.kind, "prepared");
+  assert.equal("orZero" in decision, false);
 });

@@ -20,12 +20,15 @@ export const role = {
       // marks an Outsider and one other player. That choice is the answer, so
       // the module does not compute one: it says the answer is the prepared one
       // and that it names an Outsider, the Drunk among them. A drunk or
-      // poisoned Librarian may be shown any Outsider. The zero is prepared in
-      // setup like the pair, and the engine still writes its record.
+      // poisoned Librarian may be shown any Outsider. "(Or that zero are in
+      // play.)" is a form of this ability alone, so the module declares it:
+      // setup may hold a zero in place of the two players. Whether zero are in
+      // play stays the Storyteller's answer, and the engine writes its record.
       resolve() {
         return {
           kind: "prepared",
           possible: ALL_ROLES.filter((id) => roleTeam(id) === "outsider"),
+          orZero: true,
         };
       },
     },

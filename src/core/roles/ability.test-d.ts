@@ -209,6 +209,25 @@ export const selfMissingAnswer: PreparedAnswer = {
 };
 // @ts-expect-error -- a prepared answer always names what it can show
 export const silentPreparedAnswer: PreparedAnswer = { kind: "prepared" };
+// The zero is a form of the ability (Librarian r1721): a role may say that its
+// answer can be a zero, and nothing more about it.
+export const preparedOrZero: PreparedAnswer = {
+  kind: "prepared",
+  possible: ["saint"],
+  orZero: true,
+};
+export const preparedNeverZero: PreparedAnswer = {
+  kind: "prepared",
+  possible: ["chef"],
+  // @ts-expect-error -- a role whose ability has no zero leaves the declaration out
+  orZero: false,
+};
+export const computedOrZero: Extract<InformationDecision, { kind: "answer" }> = {
+  kind: "answer",
+  value: 0,
+  // @ts-expect-error -- only a prepared answer can be a zero held in setup
+  orZero: true,
+};
 
 // The Grimoire is shown, not told: the decision has nothing a role could fill
 // in, change for an impaired owner or hand to the host.

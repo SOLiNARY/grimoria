@@ -33,7 +33,7 @@ test("the Librarian module declares a step for the first night only, with the on
 });
 
 test("the Librarian shows the answer prepared in setup and names every Outsider as possible (TB-LIBRARIAN-01, SYS-EFFECTS-01)", () => {
-  assert.deepEqual(resolve(), { kind: "prepared", possible: OUTSIDERS });
+  assert.deepEqual(resolve(), { kind: "prepared", possible: OUTSIDERS, orZero: true });
   assert.deepEqual(
     OUTSIDERS,
     ALL_ROLES.filter((id) => roleTeam(id) === "outsider"),
@@ -53,7 +53,14 @@ test("the Librarian reads no fact, so its decision is the same whether or not it
   assert.deepEqual(read, [], "no fact is read, `impaired` included");
   assert.deepEqual(
     Object.keys(decision),
-    ["kind", "possible"],
-    "the character, the two players and the zero are the setup's",
+    ["kind", "possible", "orZero"],
+    "the character, the two players and whether zero are in play are the setup's",
   );
+});
+
+test("the Librarian declares that its answer may be a zero (TB-LIBRARIAN-01)", () => {
+  // Librarian r1721: "(Or that zero are in play.)"
+  const decision = resolve();
+  assert.equal(decision.kind, "prepared");
+  assert.equal(decision.kind === "prepared" ? decision.orZero : undefined, true);
 });
