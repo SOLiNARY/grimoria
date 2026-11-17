@@ -686,6 +686,20 @@ is the Goon's, so `givenBy` in `effects.ts` keeps it; `replacesPrevious`
 uses the same predicate. Who may be drunk, and that a working ability needs
 the answer, stays the command check in `night.ts`.
 
+`openspec/changes/bmr-advocate-exorcist-night-step` moves the Devil's
+Advocate and the Exorcist, the two roles that choose a player "different to
+last night". The choice is about the choosing, not about whether the ability
+worked, so a new `record-choice` intent writes it on the `effects` and the
+`suppressed` path alike, under the acting role's own record that the step
+builder reads. The dated effects gain `survives-execution`, stored as the
+protection the execution check already reads, with the day it covers; the
+Devil's Advocate's two arms (its first-night step shows another note) end
+last night's protection with `endsOnUse`. A new `block-demon` intent keeps the
+chosen Demon from waking. "The Demon, if chosen" is the Exorcist's rule, so
+the resolver decides it and writes what the host reads; what a Demon that does
+not wake still does is the Demon's, so the Shabaloth's regurgitation and the
+Pukka's waiting death stay in `keepDemonAsleep` in `bmr.ts`.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 
