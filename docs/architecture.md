@@ -63,7 +63,7 @@ Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller, the
 Chef, in Bad Moon Rising, the Gambler, the Pukka, the Sailor, the
 Innkeeper, the Devil's Advocate, the Exorcist, the Tinker, the Po and the
 Shabaloth, and in Sects & Violets the Fang Gu, the No Dashii, the
-Vigormortis and the Vortox have moved. The Sects & Violets step completion
+Vigormortis, the Vortox and the Cerenovus have moved. The Sects & Violets step completion
 hands a role that owns a resolver to the coordinator, as the Bad Moon Rising
 one does; the four Demons' resolvers change nothing, because the host marks
 their deaths on the step's outcome.
@@ -85,7 +85,9 @@ cannot repeat it the next night. `record-no-one` writes whether the seat
 chose no one, which sizes the Po's next step, also for a drunk or poisoned
 Po. `record-choices` writes the players chosen tonight and keeps the record
 it replaces as last night's, which the outcome reads for the Shabaloth's
-regurgitation.
+regurgitation. `madness` writes the Cerenovus's token with the id the
+day's review and saved games already hold, and nothing for a failed
+ability.
 
 An arm may name the kinds of dated effect that each use of the ability
 replaces (`endsOnUse`). The coordinator ends the ones this ability gave

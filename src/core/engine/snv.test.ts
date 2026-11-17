@@ -4232,3 +4232,219 @@ test("a Snake Charmer who becomes the Demon on the first night does not wake as 
     order: 6,
   });
 });
+
+// The Cerenovus's step as the queue builds it and as its completion leaves
+// it: the madness token with its id, the note, the log line, each draw from
+// the command ports and the seat's record.
+
+const SV_GOOD_ROLES = [
+  "artist",
+  "clockmaker",
+  "dreamer",
+  "flowergirl",
+  "juggler",
+  "mathematician",
+  "oracle",
+  "philosopher",
+  "sage",
+  "savant",
+  "seamstress",
+  "snakecharmer",
+  "towncrier",
+  "barber",
+  "klutz",
+  "mutant",
+  "sweetheart",
+];
+
+const SV_CERENOVUS_OPEN_STEP = {
+  ...SV_DEMON_OPEN_STEP,
+  roleId: "cerenovus",
+  actorId: "7",
+  actorName: "P7",
+  infoKind: "note",
+  canKill: false,
+  roleChoices: SV_GOOD_ROLES,
+};
+
+const SV_CERENOVUS_GIVEN = {
+  kind: "note",
+  text: "Выберите игрока и добрую роль: завтра он должен быть «помешан» на этой роли.",
+  textKey: "note.sv.cerenovus",
+};
+
+/** Completes the Cerenovus's step with recording ports and returns what it left. */
+function runCerenovus(state: GameState, options: { targetIds: string[]; roleId?: string }) {
+  const step = svSkipTo(state, "cerenovus");
+  const logged = state.log.length;
+  const { ports, draws } = svRecordingPorts();
+  const result = completeStep(state, step.key, options, ports);
+  return {
+    result,
+    step: svRecordOf(step),
+    madness: JSON.parse(
+      JSON.stringify(state.effects.filter((effect) => effect.kind === "madness")),
+    ),
+    log: JSON.parse(JSON.stringify(state.log.slice(logged))),
+    draws,
+    used: JSON.parse(JSON.stringify(state.players["7"].used ?? null)),
+  };
+}
+
+test("the Cerenovus has a step on every night, choosing one player and a good character (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "cerenovus")), {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n1-5-cerenovus-7",
+    order: 5,
+  });
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "cerenovus")), {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n2-3-cerenovus-7",
+    order: 3,
+  });
+});
+
+test("the Cerenovus makes the chosen player mad about a good character until the next dawn, each night anew (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  const first = runCerenovus(state, { targetIds: ["2"], roleId: "artist" });
+  assert.equal(first.result.ok, true);
+  assert.deepEqual(first.step, {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n1-5-cerenovus-7",
+    order: 5,
+    given: SV_CERENOVUS_GIVEN,
+    targetIds: ["2"],
+    registrations: {},
+    impaired: false,
+    note: "P2 должен быть «помешан» на роли Художник до следующего рассвета.",
+    noteKey: "note.madness",
+    noteVars: { name: "P2", role: "artist" },
+    done: true,
+  });
+  const firstToken = {
+    id: "eff-madness-cerenovus-7-2-1",
+    kind: "madness",
+    madness: "cerenovus",
+    roleId: "artist",
+    sourceId: "7",
+    targetId: "2",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "day", number: 2 },
+    active: true,
+  };
+  assert.deepEqual(first.madness, [firstToken]);
+  assert.deepEqual(first.draws, ["clock", "id:5", "clock"]);
+  assert.deepEqual(first.used, {});
+  assert.deepEqual(first.log, [
+    {
+      id: "log-" + state.log.length + "-k1000",
+      at: "2030-01-01T00:00:02.000Z",
+      phase: "Ночь 1",
+      kind: "night",
+      title: "Цереновус",
+      detail: "P2 должен быть «помешан» на роли Художник до следующего рассвета.",
+      playerId: null,
+      secret: true,
+      roleId: "cerenovus",
+      phaseCode: "night",
+      phaseNumber: 1,
+      noteKey: "note.madness",
+      noteVars: { name: "P2", role: "artist" },
+    },
+  ]);
+  svSkipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  // The day's review of the first token is the Storyteller's, not the step's.
+  reviewMadness(state);
+  assert.equal(endDay(state).ok, true);
+  const second = runCerenovus(state, { targetIds: ["3"], roleId: "sage" });
+  assert.equal(second.result.ok, true);
+  assert.equal(second.step.note, "P3 должен быть «помешан» на роли Мудрец до следующего рассвета.");
+  assert.deepEqual(second.step.noteVars, { name: "P3", role: "sage" });
+  assert.deepEqual(
+    second.madness.map((effect: { id: string; active: boolean; expires: unknown }) => [
+      effect.id,
+      effect.active,
+      effect.expires,
+    ]),
+    [
+      ["eff-madness-cerenovus-7-2-1", true, { phase: "day", number: 2 }],
+      ["eff-madness-cerenovus-7-3-2", true, { phase: "day", number: 3 }],
+    ],
+    "tonight's token does not end last night's, which has expired at dawn",
+  );
+});
+
+test("a Cerenovus who names no character makes nobody mad, and one who names an evil character is refused (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  const step = svSkipTo(state, "cerenovus");
+  const before = canonicalState(state);
+  const refused = applyCommand(state, {
+    id: "cerenovus-evil",
+    type: "completeStep",
+    payload: { key: step.key, options: { targetIds: ["2"], roleId: "nodashii" } },
+  });
+  assert.equal(refused.status, "rejected");
+  assert.equal(refused.errorCode, "error.2");
+  assert.deepEqual(canonicalState(state), before, "the refused command changes nothing");
+  const none = runCerenovus(state, { targetIds: ["2"] });
+  assert.equal(none.result.ok, true);
+  assert.equal(none.step.note, "Шаг выполнен.");
+  assert.equal(none.step.noteKey, "note.finished");
+  assert.deepEqual(none.madness, []);
+  assert.deepEqual(none.draws, ["clock", "id:5", "clock"]);
+});
+
+test("a poisoned Cerenovus makes nobody mad and gets the shared note, not a failure note (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  state.effects.push({
+    id: "fixture-poison-7",
+    kind: "poison",
+    sourceId: "8",
+    targetId: "7",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "night", number: 2 },
+    active: true,
+  });
+  const run = runCerenovus(state, { targetIds: ["2"], roleId: "artist" });
+  assert.equal(run.result.ok, true);
+  assert.equal(run.step.impaired, true);
+  assert.equal(run.step.note, "Шаг выполнен.");
+  assert.equal(run.step.noteKey, "note.finished");
+  assert.deepEqual(run.madness, []);
+  assert.deepEqual(run.used, {});
+  assert.deepEqual(run.draws, ["clock", "id:5", "clock"]);
+});
+
+test("a Cerenovus the Vigormortis killed keeps waking and makes a player mad (SNV-CERENOVUS-01, SNV-VIGORMORTIS-01)", () => {
+  const state = svDemonGame("vigormortis");
+  startNight(state);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  const vigormortis = svSkipTo(state, "vigormortis");
+  assert.equal(completeStep(state, vigormortis.key, { targetIds: ["7"] }).ok, true);
+  assert.equal(recordSvOutcome(state, vigormortis.key, { deathIds: ["7"] }).ok, true);
+  assert.equal(state.players["7"].alive, false);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "cerenovus")), {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n3-3-cerenovus-7",
+    order: 3,
+    actorAlive: false,
+  });
+  const run = runCerenovus(state, { targetIds: ["3"], roleId: "artist" });
+  assert.equal(run.result.ok, true);
+  assert.equal(run.step.noteKey, "note.madness");
+  assert.deepEqual(
+    run.madness.map((effect: { id: string }) => effect.id),
+    ["eff-madness-cerenovus-7-3-3"],
+  );
+});

@@ -126,6 +126,19 @@ export type RoleEffect =
    */
   | { readonly kind: "record-choices"; readonly playerIds: readonly string[] }
   /**
+   * The chosen player is mad about being a character until `expires`, the
+   * first moment the madness no longer applies. The engine writes the
+   * madness token under the acting ability, with an id made of the ability,
+   * the acting seat, the player and the night, and the Storyteller reviews
+   * it on each day it applies. On the `suppressed` path nothing is written.
+   */
+  | {
+      readonly kind: "madness";
+      readonly playerId: string;
+      readonly roleId: RoleId;
+      readonly expires: DeadAt;
+    }
+  /**
    * The Demon on this seat does not wake tonight; its other abilities still
    * resolve. The engine finds the Demon's step in tonight's queue and writes
    * `note` on it, and adds `log` as a secret log line. The role names a seat

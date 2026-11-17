@@ -751,6 +751,18 @@ and the Vigormortis's poison and the Vortox's false information, and
 `death.ts` names the Vortox for its win at dusk; none of them completes the
 step.
 
+`openspec/changes/snv-cerenovus-night-step` continues slice 4 with the
+Cerenovus, whose completion wrote the madness token. A dated `timed-effect`
+cannot be that token: its id comes from the command ports, it carries no
+character, and a failed use keeps an inactive record. A new `madness`
+intent names the player, the character and the end; the engine writes the
+token under the acting ability with the id the branch wrote, so saved games
+and the day's review keep it, and writes nothing on the `suppressed` path.
+The check that the character is good stays a command check in
+`completeSvStep`, before the step resolves. The day's review in `day.ts`,
+the token's hold after its source dies in `effects.ts`, and the list of
+good characters on the step still name the role.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 

@@ -156,6 +156,17 @@ test("the four Sects & Violets Demons resolve on the night-step capability, not 
   }
 });
 
+test("the Cerenovus resolves on the night-step capability, not in the step completion", () => {
+  const cerenovus = roleModules().find((candidate) => candidate.id === "cerenovus");
+  assert.ok(cerenovus);
+  assert.deepEqual(cerenovus.declares, ["capability:night-step"]);
+  // The madness review in effects.ts and day.ts, and in sv.ts the list of
+  // good characters on the step, the console note and the command check of
+  // the character named.
+  assert.deepEqual(engineLocations("cerenovus"), ["effects.ts×1", "day.ts×1", "sv.ts×3"]);
+  assert.equal(ownerOf(cerenovus, engineLocations("cerenovus")), "capability + engine reference");
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);

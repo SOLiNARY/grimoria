@@ -100,6 +100,41 @@ export const choiceOnAnotherSeat: RoleEffect = {
   actorId: "3",
 };
 
+// A madness token is the acting ability's: the engine mints its id, stamps its
+// source and start, and decides whether it applies.
+export const forgedMadness: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot choose the token id
+  id: "eff-madness-cerenovus-1-2-1",
+};
+export const foreignMadness: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot name another ability as the token's owner
+  madness: "mutant",
+};
+export const selfActivatedMadness: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot switch the token on
+  active: true,
+};
+export const madnessFromAnotherSeat: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot name the seat the madness comes from
+  sourceId: "3",
+};
+
 // The Po's and the Shabaloth's records are written the same way: on the acting
 // seat, under the acting role. Last night's players are the engine's to keep.
 export const foreignNoOne: RoleEffect = {
