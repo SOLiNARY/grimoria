@@ -61,7 +61,8 @@ A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
 Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller, the
 Chef and, in Bad Moon Rising, the Gambler, the Pukka, the Sailor, the
-Innkeeper, the Devil's Advocate and the Exorcist have moved.
+Innkeeper, the Devil's Advocate, the Exorcist, the Tinker, the Po and the
+Shabaloth have moved.
 `src/core/roles/night-step.ts` is the one lookup the queue builders and the
 step completion use; it reads the capability or the legacy `nightStep` and
 `firstNightStep` fields, and a module declares one form only. A resolver has
@@ -76,7 +77,11 @@ that never applies, so a drunk or poisoned Butler's master stays in the
 grimoire and binds no vote. `record-choice` writes the choice the step
 builder reads for "different to last night" on both paths, under the acting
 role's own record, so a drunk or poisoned Devil's Advocate or Exorcist still
-cannot repeat it the next night.
+cannot repeat it the next night. `record-no-one` writes whether the seat
+chose no one, which sizes the Po's next step, also for a drunk or poisoned
+Po. `record-choices` writes the players chosen tonight and keeps the record
+it replaces as last night's, which the outcome reads for the Shabaloth's
+regurgitation.
 
 An arm may name the kinds of dated effect that each use of the ability
 replaces (`endsOnUse`). The coordinator ends the ones this ability gave
