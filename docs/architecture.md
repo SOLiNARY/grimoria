@@ -91,11 +91,25 @@ on how a Spy or a Recluse registers. With more than one the engine asks the
 host and offers them, and journals the answer as a registration ambiguity.
 The role reads the game only through the facts of the information context:
 the seats around the circle, the living neighbours, the team a player
-registers as and may register as, whether a player registers as a Demon and
-who the red herring is. The engine applies the host's registrations and the
-registrant's own state behind those facts, so a role never sees them. The
-Empath, the Fortune Teller and the Chef are on this path; the other
-information roles keep their branches in `infoForStep` until their own slice.
+registers as and may register as, whether a player registers as a Demon, who
+the red herring is, who died by execution today and the characters a player
+may register as. The engine applies the host's registrations and the
+registrant's own state behind those facts, so a role never sees them.
+
+An answer about one player names that player. For a step that declares the
+`character` shape the engine writes the record: the character, the player and
+the characters the host may show, which it lists also when there is one. A
+role with nothing to learn returns a note, which the engine stores as the
+answer of the step, or no answer; a character step without an answer stays a
+question with every character until a player is chosen.
+
+The Empath, the Fortune Teller, the Chef, the Undertaker and the Ravenkeeper
+are on this path; the other information roles keep their branches in
+`infoForStep` until their own slice. The Undertaker and the Ravenkeeper still
+declare their step in the legacy `nightStep` field: who wakes after an
+execution or after a death at night is read from the game by the step's
+hooks, and a capability never receives the game state. The step appended on
+the night the Ravenkeeper dies still names the role in `night.ts`.
 
 [ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
 capability for each step kind, one coordinator order (attack, protection and
