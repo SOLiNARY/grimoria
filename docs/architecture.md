@@ -111,15 +111,22 @@ character and the two players, a request for setup while nothing is prepared,
 or the zero setup may hold in their place. An impaired owner is offered the
 characters the role names. The role is told nothing of what was prepared.
 
+An ability that shows the Grimoire itself has no value to compute. The Spy
+returns the `grimoire` decision and reads no fact. The engine records that
+the Grimoire was shown, the same for an owner who is drunk or poisoned, asks
+nobody, and does not store an answer sent with the step. What a Storyteller
+shows an impaired Spy is done at the table; the step keeps the mark that its
+owner was impaired.
+
 The Empath, the Fortune Teller, the Chef, the Undertaker, the Ravenkeeper, the
-Washerwoman, the Librarian and the Investigator are on this path. The Spy
-keeps its branch in `infoForStep`, and the information roles of Bad Moon
-Rising and Sects and Violets keep theirs in `bmr.ts` and `sv.ts`, until their
-own slices. The Undertaker and the Ravenkeeper still declare their step in
-the legacy `nightStep` field: who wakes after an execution or after a death at
-night is read from the game by the step's hooks, and a capability never
-receives the game state. The step appended on the night the Ravenkeeper dies
-still names the role in `night.ts`.
+Washerwoman, the Librarian, the Investigator and the Spy are on this path, and
+`infoForStep` names no Trouble Brewing role for an answer. The information
+roles of Bad Moon Rising and Sects and Violets keep theirs in `bmr.ts` and
+`sv.ts`, until their own slices. The Undertaker and the Ravenkeeper still
+declare their step in the legacy `nightStep` field: who wakes after an
+execution or after a death at night is read from the game by the step's hooks,
+and a capability never receives the game state. The step appended on the night
+the Ravenkeeper dies still names the role in `night.ts`.
 
 [ADR 0002](adr/0002-engine-contracts.md) defines the stage-2 contract: a typed
 capability for each step kind, one coordinator order (attack, protection and

@@ -233,7 +233,7 @@ interface WinContext extends CapabilityFacts {
 | Day action | `action`, `targetIds`, action facts (`text`, `truth`, `guesses`, `marks`) | `effects`, `record`, `host-choice`, `no-effect` | `day.ts`, `sv.ts` |
 | Death trigger | `deadId`, `deadRoleId`, `cause`, `livingBefore`, `livingMinionIds`, `retainsAbility` | `effects`, `suppressed`, `no-effect` for the wake; `inherit`, `choose-heir` for succession | `deathStep`, `onDeath`, `appendSvConditionalSteps` |
 | Execution contribution | `executedId`, `executedRoleId`, `cause`, `death`, `executionToday`, `livingCount` | `survives`, `dies`, `win`, `effects`, `no-effect` | `executePlayer`, `checkWin` |
-| Information | `step`, `targetIds`, `registrations`, `roleChoices`, `aliveNeighbors`, `executionsToday`, `votesToday`, `activeEffects` | `answer`, `prepared`, `options`, `host-choice`, `note` | `information.ts`, `bmr.ts`, `sv.ts` |
+| Information | `step`, `targetIds`, `registrations`, `roleChoices`, `aliveNeighbors`, `executionsToday`, `votesToday`, `activeEffects` | `answer`, `prepared`, `grimoire`, `options`, `host-choice`, `note` | `information.ts`, `bmr.ts`, `sv.ts` |
 | Registration and host adjudication | `case`, `legalOptions`, `answer` | `legal`, `answer`, `reject` | `host-choice.ts`, `options.registrations` |
 | Transformation | `targetId`, `newRoleId`, `cause` | `replace`, `swap`, `no-effect` | `sv.ts`, `becoming.ts` |
 | Win contribution | `livingCount`, `demons`, `execution`, `death`, `endOfDay`, `twins` | `win`, `suppress`, `no-effect` | `death.ts` (`checkWin`) |
@@ -287,6 +287,7 @@ export type InformationDecision =
       readonly subjectId?: string;
     }
   | { readonly kind: "prepared"; readonly possible: readonly (boolean | number | string)[] }
+  | { readonly kind: "grimoire" }
   | { readonly kind: "options"; readonly options: readonly string[] }
   | { readonly kind: "host-choice"; readonly case: HostChoiceCase; readonly options: readonly string[]; readonly text?: string }
   | { readonly kind: "note"; readonly key: string; readonly text: string };
@@ -612,6 +613,21 @@ alone is a change of behavior with its own rule check. `setup.ts` still names
 the three roles where the prepared answer is validated and chosen; that is
 setup and not a night step. The Spy is the last Trouble Brewing role with a
 branch in `infoForStep`.
+
+`openspec/changes/tb-spy-grimoire` ends the Trouble Brewing part of the slice
+with the Spy. Its step moves to the `night-step` arm, every night, with the
+`grimoire` shape. The `information` arm gains the `grimoire` decision: the
+ability shows the Grimoire itself, so the decision carries no value, no
+possible values and no text, and the role reads no fact. The engine records
+that the Grimoire was shown, the same for an impaired owner, and the step
+completion does not store an answer sent with such a step, as before. A shape
+on the step alone, without the capability, was refused: the engine would keep
+a branch on the shape where it had one on the role, and the Spy would be the
+one moved role that does not answer through `moduleInfoForStep`. With this
+change the Trouble Brewing path of `infoForStep` names no role for an answer,
+`infoKindFor` is removed and a role step takes its shape from its declaration
+only. The Spy's registration is not a night step: its `adjudication`
+capability and the engine code that applies a registration are unchanged.
 
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
