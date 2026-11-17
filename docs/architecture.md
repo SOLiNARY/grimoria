@@ -44,7 +44,8 @@ converts the engine result union to the typed store result, and
 
 `src/core/roles/ability.ts` is the role-side contract: a resolver receives
 read-only facts (the actor, the validated targets, the host's character answer,
-the impairment fact, an actual-character lookup) and returns typed intents.
+the host's drunk answer, the impairment fact, an actual-character lookup) and
+returns typed intents.
 `src/core/engine/ability.ts` is the one coordinator: it builds the context,
 applies each intent through the shared mechanic and writes the shared impairment
 note. A resolver never receives the game state, so it cannot write unrelated
@@ -58,8 +59,9 @@ the migration reviewable role by role.
 
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
-Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller and
-the Chef have moved.
+Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller, the
+Chef and, in Bad Moon Rising, the Gambler, the Pukka, the Sailor and the
+Innkeeper have moved.
 `src/core/roles/night-step.ts` is the one lookup the queue builders and the
 step completion use; it reads the capability or the legacy `nightStep` and
 `firstNightStep` fields, and a module declares one form only. A resolver has
@@ -72,6 +74,13 @@ A resolver that reports a `suppressed` ability may still return the choice
 that was made. The coordinator keeps a dated effect from that path as a record
 that never applies, so a drunk or poisoned Butler's master stays in the
 grimoire and binds no vote.
+
+An arm may name the kinds of dated effect that each use of the ability
+replaces (`endsOnUse`). The coordinator ends the ones this ability gave
+before the resolver reads the owner's health, also when the ability fails
+now: the Sailor's drunkenness, and the Innkeeper's safety and drunkenness.
+`givenBy` in `effects.ts` decides which effects an ability gave; the Goon's
+drunkenness names its chooser as the source but stays the Goon's.
 
 A Demon's kill is the `attack` decision: the role names the chosen player and
 the title of the attack's log line, nothing else. The coordinator runs it
