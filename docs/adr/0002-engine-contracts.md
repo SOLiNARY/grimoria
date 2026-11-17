@@ -774,6 +774,18 @@ Mathematician's removal of the ABNORMAL marks, which a resolver would
 skip. The ledger counts the seven rows as "capability + engine reference";
 their remaining references are those answers.
 
+`openspec/changes/snv-snakecharmer-pithag` moves the two character-changing
+steps. The Snake Charmer's step and the Pit-Hag's move to `night-step` arms
+without a resolver, and the transformation arm gains the `swap` decision
+from the table above: the role names the other player and whether the
+alignments are exchanged and the player is then poisoned for good; the
+engine applies the shared swap, then writes the poison with the id the
+branch wrote. The Snake Charmer's rule moves into its `transformation`
+capability; `sv.ts` builds one set of facts for both roles and applies the
+decision, as it already did for the Pit-Hag's `replace`. The Barber's swap
+waits for its wake, so a swap without alignments or without the poison is
+not yet exercised.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 
