@@ -268,6 +268,26 @@ function applyEffect(
       actor.used[module.id + "TargetNight"] = effect.playerId ? at.number : null;
       return null;
     }
+    case "record-no-one": {
+      const actor = playerById(state, actorId);
+      if (!actor) return null;
+      actor.used = actor.used || {};
+      actor.used[module.id + "NoOne"] = effect.noOne;
+      return null;
+    }
+    case "record-choices": {
+      // Last night's choice moves aside before tonight's is written, in this
+      // key order, because saved games hold the record as it was written.
+      const actor = playerById(state, actorId);
+      if (!actor) return null;
+      const used = (actor.used = actor.used || {});
+      const current = used[module.id + "Targets"];
+      used[module.id + "PreviousTargets"] = Array.isArray(current) ? current.slice() : [];
+      used[module.id + "PreviousNight"] = used[module.id + "TargetsNight"];
+      used[module.id + "Targets"] = effect.playerIds.slice();
+      used[module.id + "TargetsNight"] = at.number;
+      return null;
+    }
     case "block-demon": {
       const demon = playerById(state, effect.playerId);
       if (demon) keepDemonAsleep(state, step, demon, effect.note, effect.log, at, ports);
