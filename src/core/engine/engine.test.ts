@@ -6316,6 +6316,66 @@ test("the Spy step previews, applies and replays with the command clock and ids,
   }
 });
 
+// A module whose ability shows the Grimoire. The tests below use it, so they
+// show what the engine records for the decision itself, whatever role and
+// step shape it comes with.
+function showing(
+  id: RoleModule["id"],
+  seen: InformationContext[] = [],
+  shape: string = "grimoire",
+): RoleModule {
+  return {
+    id,
+    edition: "tb",
+    capabilities: [
+      { kind: "night-step", timing: "any", step: { infoKind: shape } },
+      {
+        kind: "information",
+        infoKind: "probe",
+        resolve(context) {
+          seen.push(context);
+          return { kind: "grimoire" };
+        },
+      },
+    ],
+  };
+}
+
+test("a grimoire decision is recorded as the Grimoire, whatever shape the step declares", () => {
+  const state = spyNight();
+  const step = roleStep(state, "spy");
+
+  const info = moduleInfoForStep(state, showing("spy"), step, {});
+  assert.deepEqual(info, GRIMOIRE);
+  assert.deepEqual(Object.keys(info!), ["kind"], "the record offers nothing and asks nothing");
+  assert.deepEqual(
+    moduleInfoForStep(state, showing("spy", [], "number"), step, {}),
+    GRIMOIRE,
+    "the Grimoire is not a value of another shape",
+  );
+  assert.deepEqual(
+    moduleInfoForStep(state, showing("chef"), roleStep(state, "chef"), {}),
+    GRIMOIRE,
+    "the decision is the module's, not the name of a role",
+  );
+  assert.notEqual(
+    moduleInfoForStep(state, showing("spy"), step, {}),
+    info,
+    "each read gives the step its own record",
+  );
+});
+
+test("an impaired owner of a grimoire decision is asked nothing", () => {
+  const state = spyNight();
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const seen: InformationContext[] = [];
+
+  const info = moduleInfoForStep(state, showing("spy", seen), roleStep(state, "spy"), {});
+  assert.equal(seen.length, 1, "the module is asked once");
+  assert.equal(seen[0]!.impaired, true, "the engine knows the owner is poisoned");
+  assert.deepEqual(info, GRIMOIRE, "and records the Grimoire without a question");
+});
+
 test("a drunk or poisoned Soldier dies to the Demon (TB-SOLDIER-01)", () => {
   const state = make({
     1: "monk",

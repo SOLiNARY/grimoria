@@ -314,6 +314,13 @@ export type InformationDecision =
    */
   | { readonly kind: "prepared"; readonly possible: readonly InformationValue[] }
   /**
+   * The ability shows the Grimoire itself. Nothing is computed and nothing is
+   * asked: the engine records that the Grimoire was shown, also for an owner
+   * who is drunk or poisoned, and stores no answer in its place. What a
+   * Storyteller shows an impaired owner is done at the table.
+   */
+  | { readonly kind: "grimoire" }
+  /**
    * The ability has nothing to learn this time, and the text says why. The
    * engine stores it as the answer of the step; nobody is asked.
    */

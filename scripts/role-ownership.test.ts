@@ -141,6 +141,21 @@ test("a role whose answer is prepared in setup keeps the references of setup, no
   }
 });
 
+test("the Spy declares its step and its answer and keeps the references of its registration", () => {
+  const spy = roleModules().find((candidate) => candidate.id === "spy");
+  assert.ok(spy);
+  assert.deepEqual(spy.declares, [
+    "capability:night-step",
+    "capability:information",
+    "capability:adjudication",
+  ]);
+  // Who the Spy may register as is read where a registration is applied, in
+  // the Virgin's nomination and in the check of a prepared answer. The night
+  // completion names no role for its answer, and neither does `infoForStep`.
+  assert.deepEqual(engineLocations("spy"), ["day.ts×1", "setup.ts×2", "information.ts×4"]);
+  assert.equal(ownerOf(spy, engineLocations("spy")), "capability + engine reference");
+});
+
 test("only the arms of the capabilities array are reported, not the kinds a resolver returns", () => {
   const source = `
     export const role = {

@@ -363,6 +363,9 @@ export function moduleInfoForStep(
   );
   const shape = nightStepFor(module, at.number)?.infoKind ?? "none";
   if (decision?.kind === "note") return { kind: "none", text: decision.text };
+  // The Grimoire is shown, not told: the record has no value, offers nothing
+  // and is the same for an impaired owner.
+  if (decision?.kind === "grimoire") return { kind: "grimoire" };
   if (decision?.kind === "prepared") {
     return preparedInfo(state, module.id, actor, impaired, decision.possible);
   }
@@ -424,15 +427,10 @@ export function infoForStep(
     return { kind: "note", text: step.note || "" };
   }
 
-  // A role that owns its answer never falls through to the branches below.
+  // A role answers from its module; a step of a role that owns no answer has
+  // none.
   const owned = moduleInfoForStep(state, role ? roleModule(role) : null, step, options);
-  if (owned) return owned;
-
-  if (role === "spy") {
-    return { kind: "grimoire" };
-  }
-
-  return { kind: "none" };
+  return owned ?? { kind: "none" };
 }
 
 // ---------------------------------------------------------------------------
