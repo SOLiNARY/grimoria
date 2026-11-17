@@ -1468,6 +1468,127 @@ async function newDemonWakesOnce() {
   await page.screenshot({ path: join(screenshots, "demon-wake-night-3-390.png") });
 }
 
+// Issue #200, Goon r2977: "The Goon still changes alignment, and makes the
+// player drunk, if the player choosing the Goon was already drunk or poisoned."
+// A Pukka poisoned by its own poison chooses the sober Goon on night 3.
+async function pukkaChoosesGoonWhileSelfPoisoned() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const result = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "pukka",
+      2: "goon",
+      3: "chambermaid",
+      4: "pacifist",
+      5: "professor",
+      6: "gossip",
+      7: "sailor",
+      8: "mastermind",
+    };
+    const game = model.createGame(8);
+    game.scriptId = "bmr";
+    game.script = {
+      ...game.script,
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [...rules.BMR_ALL],
+    };
+    Object.keys(assignment).forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 8;
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["exorcist", "innkeeper", "grandmother"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    const toPukka = () => {
+      while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "pukka")
+        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      return engine.currentStep(game)!;
+    };
+    // Night 1 the Pukka poisons the Chambermaid, night 2 itself.
+    for (const targetId of ["3", "1"]) {
+      const done = engine.completeStep(game, toPukka().key, { targetIds: [targetId] });
+      if (!done.ok) return done;
+      while (engine.currentStep(game))
+        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      const night = engine.endNight(game);
+      if (!night.ok) return night;
+      const day = engine.endDay(game);
+      if (!day.ok) return day;
+    }
+    toPukka();
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await page.waitForTimeout(100);
+  await route("/table");
+  const read = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const { state } = store;
+      const step = state.night.queue.find((entry) => entry.roleId === "pukka");
+      return {
+        night: state.night.number,
+        current: engine.currentStep(state)?.roleId ?? null,
+        pukkaImpaired: engine.isImpaired(state, "1"),
+        done: step?.done ?? false,
+        goonTeam: state.players["2"].team,
+        goonDrunk: state.effects.filter((effect) => effect.bmr === "goon").length,
+      };
+    });
+  assert.deepEqual(
+    await read(),
+    {
+      night: 3,
+      current: "pukka",
+      pukkaImpaired: true,
+      done: false,
+      goonTeam: "good",
+      goonDrunk: 0,
+    },
+    "night 3 opens on the Pukka's step, the Pukka poisoned by its own poison",
+  );
+
+  await page.locator('[data-target][data-id="2"]').click();
+  await page.waitForTimeout(150);
+  assert.equal(
+    await page.locator("[data-preview-reason]").count(),
+    0,
+    "the preview of the choice names no rejection",
+  );
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "pukka-goon-step-390.png") });
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator("[data-rejection]").count(), 0, "the step is not refused");
+  assert.deepEqual(
+    await read(),
+    {
+      night: 3,
+      current: "professor",
+      pukkaImpaired: true,
+      done: true,
+      goonTeam: "evil",
+      goonDrunk: 1,
+    },
+    "the Pukka is drunk, the Goon turns evil and the night moves on",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "pukka-goon-done-390.png") });
+}
+
 async function currentScriptRoleCorrections() {
   for (const { edition, width } of [
     { edition: "bmr", width: 390 },
@@ -5424,6 +5545,7 @@ async function fullChecks() {
   await lunaticSetupControls();
   await setupZeroIsTheLibrariansAlone();
   await newDemonWakesOnce();
+  await pukkaChoosesGoonWhileSelfPoisoned();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
@@ -5442,6 +5564,7 @@ try {
       "lunatic-setup": lunaticSetupControls,
       "setup-zero": setupZeroIsTheLibrariansAlone,
       "demon-wake": newDemonWakesOnce,
+      "pukka-goon": pukkaChoosesGoonWhileSelfPoisoned,
     }[focused];
     if (!check) throw new Error("Unknown browser check: " + focused);
     await page.goto(url);
