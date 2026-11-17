@@ -725,6 +725,16 @@ cause (`error.51`) and the code of `tinkerDeath` (`error.59`). The Tinker's
 module and the contract do not change. Commands recorded under the ruleset
 versions before `tb-bmr-snv-2026-11-17.2` keep the deaths they marked.
 
+`openspec/changes/bmr-night-step-resurrection` fixes the same kind of gap for
+resurrections: the outcome of any Bad Moon Rising night step brought back the
+dead player the host marked, and only the Professor's and the Shabaloth's
+steps checked their own rule. `recordBmrOutcome` now reads the step's
+`canResurrect`, which only those two roles declare, and refuses a
+resurrection on any other step with `error.51` before it changes anything, so
+a Lunatic shown the Shabaloth attacks as it but regurgitates no one. The
+modules and the contract do not change. Commands recorded under the ruleset
+versions before `tb-bmr-snv-2026-11-17.3` keep the resurrections they marked.
+
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
 

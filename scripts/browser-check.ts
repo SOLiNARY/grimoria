@@ -2205,6 +2205,146 @@ async function tinkerNightDeathNeedsTheAbility() {
   await page.screenshot({ path: join(screenshots, "tinker-sober-dies-390.png") });
 }
 
+// Professor r1775 and Shabaloth r1790 are the Bad Moon Rising abilities that
+// bring a player back. On night 2 the Po kills the Gossip and the Assassin the
+// Chambermaid: the Professor's step offers the resurrection and brings the
+// Gossip back; the Tinker's step offers none, and the engine refuses one sent
+// there.
+async function nightResurrectionNeedsTheAbility() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const result = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "tinker",
+      2: "professor",
+      3: "chambermaid",
+      4: "gossip",
+      5: "sailor",
+      6: "exorcist",
+      7: "assassin",
+      8: "po",
+    };
+    const game = model.createGame(8);
+    game.scriptId = "bmr";
+    game.script = {
+      ...game.script,
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [...rules.BMR_ALL],
+    };
+    Object.keys(assignment).forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 8;
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["innkeeper", "grandmother", "minstrel"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game))
+      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const day = engine.endDay(game);
+    if (!day.ok) return day;
+    // Night 2: the Po kills the Gossip, the Assassin the Chambermaid.
+    const kills: Record<string, string> = { po: "4", assassin: "3" };
+    let sent = 0;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "professor") {
+      const step = engine.currentStep(game)!;
+      const victim = kills[String(step.roleId)];
+      if (victim) {
+        const done = engine.applyCommand(game, {
+          id: "browser-check-kill-" + ++sent,
+          type: "completeNightStep",
+          payload: { key: step.key, targetIds: [victim], deathIds: [victim] },
+        });
+        if (done.status !== "allowed") return { ok: false, done };
+      } else engine.skipStep(game, step.key, "browser check");
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await page.waitForTimeout(100);
+  await route("/table");
+  const read = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const { state } = store;
+      return {
+        night: state.night.number,
+        current: engine.currentStep(state)?.roleId ?? null,
+        alive: state.order.filter((id) => state.players[id].alive),
+      };
+    });
+  const previewOnTinker = (resurrectId: string) =>
+    page.evaluate(async (resurrectId) => {
+      const { engine, store } = await window.PG_MODULES();
+      const step = store.state.night.queue.find((entry) => entry.roleId === "tinker")!;
+      const preview = engine.previewCommand(store.state, {
+        id: "browser-check-resurrect",
+        type: "completeNightStep",
+        payload: { key: step.key, resurrectId },
+      });
+      return {
+        status: preview.status,
+        errorCode: "errorCode" in preview ? (preview.errorCode ?? null) : null,
+      };
+    }, resurrectId);
+  const dialog = page.locator('[role="dialog"]');
+
+  assert.deepEqual(
+    await read(),
+    { night: 2, current: "professor", alive: ["1", "2", "5", "6", "7", "8"] },
+    "night 2 reaches the Professor with the Gossip and the Chambermaid dead",
+  );
+  await page.locator('[data-target][data-id="4"]').click();
+  await page.waitForTimeout(150);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  const professorPick = dialog.locator("select[data-bmr-resurrect]");
+  assert.equal(await professorPick.count(), 1, "the Professor's step offers the resurrection");
+  await professorPick.selectOption("4");
+  await page.waitForTimeout(100);
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "resurrection-professor-390.png") });
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator("[data-rejection]").count(), 0, "the Professor is not refused");
+  assert.deepEqual(
+    await read(),
+    { night: 2, current: "tinker", alive: ["1", "2", "4", "5", "6", "7", "8"] },
+    "the Professor brings the Gossip back and the night moves to the Tinker",
+  );
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  assert.equal(
+    await dialog.locator("select[data-bmr-resurrect]").count(),
+    0,
+    "the Tinker's step offers no resurrection while the Chambermaid is dead",
+  );
+  assert.deepEqual(await previewOnTinker("3"), { status: "rejected", errorCode: "error.51" });
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "resurrection-tinker-390.png") });
+  await dialog.locator('[data-tinker-decision="live"]').click();
+  await page.waitForTimeout(100);
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator("[data-rejection]").count(), 0);
+  const after = await read();
+  assert.deepEqual(after.alive, ["1", "2", "4", "5", "6", "7", "8"], "the Chambermaid stays dead");
+  assert.notEqual(after.current, "tinker", "the Tinker's step is done");
+}
+
 async function fullChecks() {
   await page.goto(url);
   await page.waitForSelector(".host");
@@ -5983,6 +6123,7 @@ async function fullChecks() {
   await heirQuestionLeadsAnOpenSheet();
   await chefRegistrationIsLabelled();
   await tinkerNightDeathNeedsTheAbility();
+  await nightResurrectionNeedsTheAbility();
   assert.deepEqual(errors, []);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
@@ -6007,6 +6148,7 @@ try {
       "heir-sheet": heirQuestionLeadsAnOpenSheet,
       "chef-label": chefRegistrationIsLabelled,
       "tinker-night": tinkerNightDeathNeedsTheAbility,
+      "night-resurrection": nightResurrectionNeedsTheAbility,
     }[focused];
     if (!check) throw new Error("Unknown browser check: " + focused);
     await page.goto(url);
