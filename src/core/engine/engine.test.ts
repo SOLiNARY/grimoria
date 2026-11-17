@@ -1470,7 +1470,7 @@ test("the record of a choice of no one names the module's role and is written al
   assert.deepEqual(draws, []);
 });
 
-test("the record of tonight's players keeps the record it replaces as last night's, in the order it was written", () => {
+test("the record of tonight's players keeps the record it replaces as last night's, in the order it was written, also when the ability fails", () => {
   const { state, step, at } = monkNightTwo();
   const chosen: string[][] = [["3", "4"], ["5"]];
   const module: RoleModule = {
@@ -1481,10 +1481,12 @@ test("the record of tonight's players keeps the record it replaces as last night
         kind: "night-step",
         timing: "any",
         step: { target: "two" },
-        resolve: () => ({
-          kind: "effects",
-          effects: [{ kind: "record-choices", playerIds: chosen[0]! }],
-        }),
+        resolve: ({ impaired }) => {
+          const record = { kind: "record-choices" as const, playerIds: chosen[0]! };
+          return impaired
+            ? { kind: "suppressed", effects: [record] }
+            : { kind: "effects", effects: [record] };
+        },
       },
     ],
   };
@@ -1506,8 +1508,19 @@ test("the record of tonight's players keeps the record it replaces as last night
   assert.deepEqual(actor.used!.monkTargets, ["3", "4"]);
 
   chosen.shift();
-  applyRoleAbility(state, module, step, ["5"], { phase: "night", number: 3 }, {}, ports);
+  const third = { phase: "night", number: 3 } as const;
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: third,
+    expires: { phase: "night", number: 4 },
+    active: true,
+  });
+  applyRoleAbility(state, module, step, ["5"], third, {}, ports);
 
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
   assert.equal(
     JSON.stringify(actor.used),
     JSON.stringify({
