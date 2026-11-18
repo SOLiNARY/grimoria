@@ -325,11 +325,11 @@ export function createGameStore(ports: StorePorts): GameStore {
       resetJournal();
       undoFloor = 0;
     }
-    const saved = persist();
+    const saved = persist(false);
     if (!saved.ok) {
       replaceContents(state, before);
-      state.storageError = saved.error;
       undoFloor = floorBefore;
+      markFailed(saved.error || "Could not save.");
       return failMutation(saved.error || "Could not save.");
     }
     legacyUndo = null;
@@ -442,10 +442,13 @@ export function createGameStore(ports: StorePorts): GameStore {
       if (!entry) {
         return { ok: false, errorCode: "nothing-to-undo", error: "Nothing to undo.", snapshot };
       }
+      const applied = { ...state.applied };
+      delete applied[entry.id];
       const replayed = replay({ base: journal.base, entries });
       if (!replayed.ok) {
         return { ok: false, errorCode: "journal-dependency", error: replayed.error, snapshot };
       }
+      replayed.state.applied = { ...applied, ...replayed.state.applied };
       const before = clone(state);
       replaceContents(state, replayed.state);
       state.storageError = null;
@@ -471,6 +474,7 @@ export function createGameStore(ports: StorePorts): GameStore {
       if (!replayed.ok) {
         return { ok: false, errorCode: "journal-dependency", error: replayed.error, snapshot };
       }
+      replayed.state.applied = { ...state.applied, ...replayed.state.applied };
       const before = clone(state);
       replaceContents(state, replayed.state);
       state.storageError = null;

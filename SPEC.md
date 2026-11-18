@@ -100,9 +100,13 @@ problem.
 ```
 
 `applied` is the idempotency ledger: command id mapped to `{ type, at,
-rulesetVersion, fingerprint, followUp, undoable }`. A repeated command id is a
-no-op only when its type, payload and ruleset version match the fingerprint; a
-different payload or version with the same id is rejected.
+rulesetVersion, identity, followUp, undoable }`. `identity` is a compact digest
+of the canonical fingerprint of type, payload and ruleset version; the full
+fingerprint stays in the prepared command, journal entry and execution seed. A
+legacy entry may carry the full `fingerprint` instead; it remains valid and is
+compared in full. A repeated command id is a no-op only when its type, payload
+and ruleset version match; a different payload or version with the same id is
+rejected.
 
 `journal` is the deterministic command history: one base state plus the ordered
 accepted commands, each with its id, type, host payload, resolved `at`, ruleset
@@ -299,7 +303,10 @@ reproduces that behaviour locally.
   "failed"`; an identical repeated failure publishes nothing; the next
   successful write clears it. Save revisions and disk snapshots detect
   conflicts, and an adopted cross-tab save clears undo history.
-- Disk snapshot checks prevent stale sequential overwrites between tabs.
+- Disk snapshot checks prevent stale sequential overwrites between tabs. The
+  read-check-write is not atomic across tabs: two simultaneous writers can both
+  observe the same stored value, and the later save wins. The app does not
+  promise multi-tab write serialization or a per-command expected revision.
 - Public/player transitions return to the console with no cover step. Player role
   lookup occurs only for the selected seat; the number-picker projection
   contains no role details. Auto-hide uses a fixed deadline and survives
