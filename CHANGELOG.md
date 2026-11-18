@@ -6,6 +6,18 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-18
+
+### Changed
+
+- Give the seat screen the table composition — the app bar, a scrollable stage, the measured stadium rail and a fixed action dock — with round medallions that carry the player initial, the seat number from 620 px and the table label-side rule, and share the measured surface between `/table` and `/seat` through `useTableLayout` and `TableFelt` (#282)
+- Re-compose `/secrets` as a setup checksheet: an obligations index with one open obligation and a pinned footer, each one-of-two answer read as the spoken sentence, and the Drunk mask and Librarian zero kept, with the strings in `ru`, `en` and `az` (#284)
+- Rebuild the setup screen around a commit dock that carries the team counts, the bluff count, the legality list and the deal button; the three suggested bags share one team-row grid, the forced secrets move under the bench, and the bag in play carries a tag, with commands, projections, validators, routes and browser-check selectors unchanged (#289)
+
+### Fixed
+
+- Group the seven app bar destinations into three labelled groups on one row from 1440 px and inside the compact burger panel below it, mark the current destination with a 2 px accent rule instead of a boxed chip, and attach the panel to its trigger (#287)
+
 ## [0.2.0] - 2026-11-18
 
 ### Added
@@ -68,7 +80,8 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Add the public and player projections that omit secret roles, bluffs and notes from shared views
 
-[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hose1021/grimoria/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hose1021/grimoria/releases/tag/v0.2.0
 [0.1.1]: https://github.com/hose1021/grimoria/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hose1021/grimoria/releases/tag/v0.1.0

@@ -1311,6 +1311,10 @@ async function setupZeroIsTheLibrariansAlone() {
   await page.locator('a[href$="secrets"]:visible').first().click();
   await page.waitForFunction(() => document.body.dataset.route === "secrets");
   await page.waitForTimeout(60);
+  // The checksheet opens one obligation at a time, so each editor is read
+  // through its index item.
+  await page.locator('[data-obligation="washerwoman"]').click();
+  await page.waitForTimeout(60);
   assert.equal(
     await page.locator('[data-info-role="washerwoman"]').isVisible(),
     true,
@@ -1324,11 +1328,15 @@ async function setupZeroIsTheLibrariansAlone() {
     "the zero is not a choice of the Washerwoman's editor",
   );
   // The Librarian's stored zero is shown as the zero and stays editable.
+  await page.locator('[data-obligation="librarian"]').click();
+  await page.waitForTimeout(60);
   assert.equal(await page.locator('[data-info-zero="librarian"]').isChecked(), true);
   assert.equal(await page.locator('[data-info-role="librarian"]').count(), 0);
   await overflow();
   await page.screenshot({ path: join(screenshots, "setup-zero-secrets-390.png"), fullPage: true });
 
+  await page.locator('[data-obligation="washerwoman"]').click();
+  await page.waitForTimeout(60);
   await page.locator('[data-info-role="washerwoman"]').selectOption("chef");
   await page.locator('[data-player="pair-a-washerwoman"]').selectOption("4");
   await page.locator('[data-player="pair-b-washerwoman"]').selectOption("5");
@@ -4403,16 +4411,64 @@ async function fullChecks() {
     "the actions render under the ring",
   );
   assert.equal(
-    await page.locator('#screen main a[href$="/player"]').count(),
+    await page.locator('.seat-actions a[href$="/player"]').count(),
     1,
     "one player control remains",
   );
   assert.equal(
-    await page.locator('#screen main a[href$="/secrets"]').count(),
+    await page.locator('.seat-actions a[href$="/secrets"]').count(),
     0,
     "the seat screen keeps no secrets shortcut",
   );
   await page.locator("#seat-ring").scrollIntoViewIfNeeded();
+  assert.equal(
+    await page.locator("#seat-ring [data-table-rail]").count(),
+    1,
+    "the seat ring renders the table rail",
+  );
+  assert.equal(
+    await page.locator("#seat-ring [data-table-felt]").count(),
+    1,
+    "the seat ring renders the table felt",
+  );
+  const seatFelt = await page.locator("#seat-ring [data-table-felt]").evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { backgroundImage: style.backgroundImage, boxShadow: style.boxShadow };
+  });
+  assert.match(seatFelt.backgroundImage, /radial-gradient/, "the seat felt is one radial surface");
+  assert.ok(seatFelt.boxShadow !== "none", "the seat felt keeps its inset depth");
+  const medallions = await page.locator("[data-seat-medallion]").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      const value = style.borderTopLeftRadius;
+      const round = value.endsWith("%")
+        ? parseFloat(value) >= 50
+        : parseFloat(value) >= box.height / 2 - 0.5;
+      return { clip: style.clipPath, round, width: box.width, height: box.height };
+    }),
+  );
+  assert.equal(medallions.length, beforeDrag.length, "every seat renders a medallion");
+  assert.deepEqual(
+    medallions.filter((medallion) => !medallion.round),
+    [],
+    "every medallion is round",
+  );
+  assert.deepEqual(
+    medallions.filter((medallion) => medallion.clip !== "none"),
+    [],
+    "no medallion keeps the amber hexagon clip",
+  );
+  assert.equal(
+    await page.locator("[data-seat-count]").innerText(),
+    String(beforeDrag.length),
+    "the centre count equals the rendered seats",
+  );
+  assert.equal(
+    await page.locator("[data-seat-dead]").getAttribute("data-seat-dead"),
+    "0",
+    "the centre reports the dead count",
+  );
   const dragFrom = await page.locator('.seat-item[data-index="0"]').boundingBox();
   const dragTo = await page.locator('.seat-item[data-index="2"]').boundingBox();
   assert.ok(dragFrom && dragTo, "the ring renders the dragged seat and the target");
@@ -4559,6 +4615,17 @@ async function fullChecks() {
     [],
     "every action is at least 44 pixels high",
   );
+  await route("/table");
+  await seed(15, "seat");
+  await route("/seat");
+  await page.waitForSelector('.seat-item[data-index="0"]');
+  assert.equal(await page.locator(".seat-item").count(), 15, "the ring renders fifteen seats");
+  assert.equal(
+    await page.locator(".seat-name:visible").count(),
+    15,
+    "all fifteen names stay visible on the seat ring",
+  );
+  await overflow();
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // Full night/day transition at tablet size using a 12-player game.
@@ -5570,15 +5637,29 @@ async function fullChecks() {
   };
 
   const fillPhoneSecrets = async (tab: Page) => {
-    // The pair must include the player who really holds the role named by the
-    // block heading; the Drunk-mask editor reuses the same slot, so it must be
-    // filled through the heading too.
-    for (const block of await tab.locator(".secrets-info").all()) {
+    // The screen opens one obligation at a time, so the helper visits each
+    // index item. The pair must include the player who really holds the role
+    // named by the block heading; the Drunk-mask editor reuses the same slot,
+    // so it must be filled through the heading too.
+    const openObligation = async (id: string) => {
+      const button = tab.locator(`[data-obligation="${id}"]`);
+      if (!(await button.count())) return;
+      await button.click();
+      await tab.waitForTimeout(80);
+    };
+    const obligationIds = await tab
+      .locator("[data-obligation]")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-obligation") || ""));
+    for (const id of obligationIds) {
+      if (!id) continue;
+      await openObligation(id);
+      const block = tab.locator(".secrets-info").first();
+      if (!(await block.count())) continue;
       const roleSelect = block.locator("select[data-info-role]");
       if (!(await roleSelect.count())) continue;
       const heading = (
         await block
-          .locator("h3")
+          .locator("h2")
           .innerText()
           .catch(() => "")
       ).trim();
@@ -5623,6 +5704,7 @@ async function fullChecks() {
       if (second) await pairB.selectOption(second);
       await tab.waitForTimeout(120);
     }
+    await openObligation("herring");
     const herring = tab.locator("select[data-herring]");
     if (await herring.count()) {
       const good = await herring
@@ -5790,7 +5872,7 @@ async function fullChecks() {
       await tab.waitForSelector(".secrets");
       await record("secrets", "secrets");
       await fillPhoneSecrets(tab);
-      await tab.waitForSelector(".secrets-status.is-ok");
+      await tab.waitForSelector('[data-act="start"]:not([disabled])');
       await tab.locator('[data-act="start"]').click();
       await tab.waitForSelector('[data-table-dock][data-phase="night"]');
       await record("night", "table");
