@@ -6,6 +6,7 @@ import type {
   InformationDecision,
   RoleCapability,
   RoleEffect,
+  TransformationDecision,
 } from "./ability.ts";
 import type { RoleModule } from "./types.ts";
 
@@ -68,6 +69,122 @@ type NightStepArm = Extract<RoleCapability, { kind: "night-step" }>;
 type NightStepFacts = Parameters<NonNullable<NightStepArm["resolve"]>>[0];
 // @ts-expect-error -- the night-step context exposes no game state
 export type NightStepStateAccess = NightStepFacts["state"];
+
+// Who is drunk is the host's answer: a resolver reads it and cannot change it.
+export function rewriteDrunkAnswer(facts: NightStepFacts): void {
+  // @ts-expect-error -- the host's drunk answer is read-only
+  facts.drunkId = "2";
+}
+
+// A use ends only dated effects the engine applies for the acting ability: an
+// arm cannot end another mechanic's record, such as the Goon's.
+export const endsForeignKind: NightStepArm = {
+  kind: "night-step",
+  timing: "any",
+  step: {},
+  // @ts-expect-error -- an arm cannot end an effect kind the engine does not date
+  endsOnUse: ["goon"],
+};
+
+// The record of tonight's choice is written on the acting seat, under the
+// acting role: a role cannot name the record or the seat.
+export const foreignChoice: RoleEffect = {
+  kind: "record-choice",
+  playerId: "2",
+  // @ts-expect-error -- a role cannot name the record it writes
+  roleId: "exorcist",
+};
+export const choiceOnAnotherSeat: RoleEffect = {
+  kind: "record-choice",
+  playerId: "2",
+  // @ts-expect-error -- a role cannot name the seat the record is written on
+  actorId: "3",
+};
+
+// A madness token is the acting ability's: the engine mints its id, stamps its
+// source and start, and decides whether it applies.
+export const forgedMadness: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot choose the token id
+  id: "eff-madness-cerenovus-1-2-1",
+};
+export const foreignMadness: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot name another ability as the token's owner
+  madness: "mutant",
+};
+export const selfActivatedMadness: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot switch the token on
+  active: true,
+};
+export const madnessFromAnotherSeat: RoleEffect = {
+  kind: "madness",
+  playerId: "2",
+  roleId: "artist",
+  expires: { phase: "day", number: 2 },
+  // @ts-expect-error -- a role cannot name the seat the madness comes from
+  sourceId: "3",
+};
+
+// The Po's and the Shabaloth's records are written the same way: on the acting
+// seat, under the acting role. Last night's players are the engine's to keep.
+export const foreignNoOne: RoleEffect = {
+  kind: "record-no-one",
+  noOne: true,
+  // @ts-expect-error -- a role cannot name the record it writes
+  roleId: "po",
+};
+export const noOneOnAnotherSeat: RoleEffect = {
+  kind: "record-no-one",
+  noOne: true,
+  // @ts-expect-error -- a role cannot name the seat the record is written on
+  actorId: "3",
+};
+export const foreignChoices: RoleEffect = {
+  kind: "record-choices",
+  playerIds: ["2", "4"],
+  // @ts-expect-error -- a role cannot name the record it writes
+  roleId: "shabaloth",
+};
+export const choicesOnAnotherSeat: RoleEffect = {
+  kind: "record-choices",
+  playerIds: ["2", "4"],
+  // @ts-expect-error -- a role cannot name the seat the record is written on
+  actorId: "3",
+};
+export const rewrittenLastNight: RoleEffect = {
+  kind: "record-choices",
+  playerIds: ["2", "4"],
+  // @ts-expect-error -- last night's record is kept by the engine, not written by the role
+  previousIds: ["5"],
+};
+
+// Keeping the Demon asleep is the engine's: the role names the seat and says
+// why, and cannot change the Demon's step itself.
+// @ts-expect-error -- a block says on the Demon's step why it does not wake
+export const silentBlock: RoleEffect = {
+  kind: "block-demon",
+  playerId: "7",
+  log: { title: "t", detail: "d" },
+};
+export const rewrittenDemonStep: RoleEffect = {
+  kind: "block-demon",
+  playerId: "7",
+  note: { key: "k", text: "t" },
+  log: { title: "t", detail: "d" },
+  // @ts-expect-error -- a role cannot choose how the Demon's step changes
+  targetMode: "none",
+};
 
 // A resolver is declared on a `night-step` capability and nowhere else: the
 // module has no resolver field of its own.
@@ -252,4 +369,35 @@ export const grimoireForImpaired: GrimoireShown = {
   kind: "grimoire",
   // @ts-expect-error -- a role cannot mark what an impaired owner is shown
   impaired: true,
+};
+
+// A swap names the other player and what the role's rule does with the
+// alignments and the poison. The acting seat, the poison's id and its source
+// are the engine's.
+export const swapWithPoisonId: TransformationDecision = {
+  kind: "swap",
+  playerId: "8",
+  alignments: true,
+  poisoned: true,
+  // @ts-expect-error -- a role cannot choose the poison's id
+  id: "eff-snakecharmer-3-8",
+};
+export const swapFromAnotherSeat: TransformationDecision = {
+  kind: "swap",
+  playerId: "8",
+  alignments: true,
+  poisoned: true,
+  // @ts-expect-error -- a role cannot name the seat the swap starts from
+  actorId: "4",
+};
+// @ts-expect-error -- a swap says whether the alignments are exchanged
+export const swapWithoutAlignments: TransformationDecision = {
+  kind: "swap",
+  playerId: "8",
+  poisoned: true,
+};
+export const unknownTransformationReason: TransformationDecision = {
+  kind: "no-effect",
+  // @ts-expect-error -- a role cannot invent a reason for nothing happening
+  reason: "bored",
 };

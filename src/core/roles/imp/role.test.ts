@@ -9,6 +9,7 @@ function context(overrides: Partial<AbilityContext> = {}): AbilityContext {
     actorId: "7",
     targetIds: ["2"],
     chosenRoleId: null,
+    drunkId: null,
     impaired: false,
     at: { phase: "night", number: 2 },
     pendings: [],

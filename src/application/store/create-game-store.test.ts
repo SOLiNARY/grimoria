@@ -12,11 +12,15 @@ import {
   currentStep,
   dealGame,
   endNight,
+  replay,
   skipStep,
   startNight,
 } from "../../core/engine/index.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
+  ANY_STEP_RESURRECTS_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
 } from "../../core/engine/command-versions.ts";
 import { createGameStore } from "./create-game-store.ts";
@@ -746,6 +750,185 @@ test("a game saved before the zero became the Librarian's alone continues, and u
     command(game, { type: "completeNightStep", payload: { key: open!.key } }),
   );
   assert.equal(sent.status, "allowed", JSON.stringify(sent));
+  assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
+  const continued = canonicalState(game.getSnapshot().state);
+
+  const undone = game.undo();
+  assert.equal(undone.ok, true, undone.ok ? "" : `${undone.errorCode}: ${undone.error}`);
+  assert.equal(game.state.journal.entries.length, recorded);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), loaded);
+
+  const redone = game.redo();
+  assert.equal(redone.ok, true, redone.ok ? "" : `${redone.errorCode}: ${redone.error}`);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), continued);
+});
+
+test("a game saved the day after an Imp self-kill by an older ruleset does not wake the new Demon again, and undo replays its journal (TB-IMP-01)", () => {
+  // The recorded journal of a game whose Imp killed itself on night 2 and whose
+  // new Imp was woken that night, saved at dawn of day 2 by the ruleset that
+  // woke a new Demon again on the next night. The host ends the day with a
+  // command of the current ruleset and takes it back; the undo replays the
+  // whole journal.
+  const fixture = importSavedGame(
+    readFileSync(
+      new URL("../../core/engine/fixtures/legacy-demon-wake-game.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(fixture.ok, true);
+  if (!fixture.ok) return;
+  const entries = fixture.state.journal.entries;
+  const day2 = replay({
+    ...fixture.state.journal,
+    entries: entries.slice(
+      0,
+      entries.findLastIndex((entry) => entry.type === "endDay"),
+    ),
+  });
+  assert.equal(day2.ok, true, JSON.stringify(day2));
+  if (!day2.ok) return;
+  const storage = memoryStorage(JSON.stringify(day2.state));
+  const { game } = store(storage);
+  const loaded = canonicalState(game.getSnapshot().state);
+  const recorded = game.state.journal.entries.length;
+  assert.equal(game.state.phase, "day");
+  assert.equal(game.state.night.demonChanged, true, "the older ruleset left the flag set");
+  assert.equal(
+    game.state.journal.entries.every(
+      (entry) => entry.rulesetVersion === REPEATED_DEMON_WAKE_RULESET_VERSION,
+    ),
+    true,
+  );
+
+  const sent = game.dispatch(command(game, { type: "endDay", payload: {} }));
+  assert.equal(sent.status, "allowed", JSON.stringify(sent));
+  assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
+  assert.equal(game.state.night.number, 3);
+  assert.deepEqual(
+    game.state.night.queue.filter((step) => step.system === "demonchange"),
+    [],
+    "the new Imp was woken on night 2 and is not woken again",
+  );
+  const continued = canonicalState(game.getSnapshot().state);
+
+  const undone = game.undo();
+  assert.equal(undone.ok, true, undone.ok ? "" : `${undone.errorCode}: ${undone.error}`);
+  assert.equal(game.state.journal.entries.length, recorded);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), loaded);
+
+  const redone = game.redo();
+  assert.equal(redone.ok, true, redone.ok ? "" : `${redone.errorCode}: ${redone.error}`);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), continued);
+});
+
+test("a game whose older ruleset let a drunk Tinker die on their step refuses that death now, and undo replays its journal (BMR-TINKER-01)", () => {
+  // The recorded journal of a game in which the host marked the Gossip's death
+  // on the Tinker's step of night 2, loaded on night 3 after the Courtier made
+  // the Tinker drunk. The host marks the drunk Tinker's death with a command of
+  // the current ruleset, which refuses it, lets the Tinker live and takes that
+  // back; the undo replays the whole journal.
+  const fixture = importSavedGame(
+    readFileSync(
+      new URL("../../core/engine/fixtures/legacy-tinker-night-game.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(fixture.ok, true);
+  if (!fixture.ok) return;
+  const entries = fixture.state.journal.entries;
+  const tinkerAt = entries.findLastIndex(
+    (entry) =>
+      entry.type === "completeNightStep" &&
+      String((entry.payload as { key?: string } | undefined)?.key).includes("-tinker-"),
+  );
+  const night3 = replay({ ...fixture.state.journal, entries: entries.slice(0, tinkerAt) });
+  assert.equal(night3.ok, true, JSON.stringify(night3));
+  if (!night3.ok) return;
+  const storage = memoryStorage(JSON.stringify(night3.state));
+  const { game } = store(storage);
+  const loaded = canonicalState(game.getSnapshot().state);
+  const recorded = game.state.journal.entries.length;
+  assert.equal(game.state.night.number, 3);
+  assert.equal(game.state.players["4"].alive, false, "the older ruleset let the Gossip die");
+  assert.equal(
+    game.state.journal.entries.every(
+      (entry) => entry.rulesetVersion === OPEN_TINKER_STEP_RULESET_VERSION,
+    ),
+    true,
+  );
+  const key = String((entries[tinkerAt]!.payload as { key: string }).key);
+
+  const marked = game.dispatch(
+    command(game, { type: "completeNightStep", payload: { key, deathIds: ["1"] } }),
+  );
+  assert.equal(marked.status, "rejected", JSON.stringify(marked));
+  assert.equal("errorCode" in marked ? marked.errorCode : null, "error.59");
+  assert.equal(game.state.players["1"].alive, true, "the drunk Tinker does not die");
+  assert.equal(game.state.journal.entries.length, recorded);
+
+  const lives = game.dispatch(command(game, { type: "completeNightStep", payload: { key } }));
+  assert.equal(lives.status, "allowed", JSON.stringify(lives));
+  assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
+  const continued = canonicalState(game.getSnapshot().state);
+
+  const undone = game.undo();
+  assert.equal(undone.ok, true, undone.ok ? "" : `${undone.errorCode}: ${undone.error}`);
+  assert.equal(game.state.journal.entries.length, recorded);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), loaded);
+
+  const redone = game.redo();
+  assert.equal(redone.ok, true, redone.ok ? "" : `${redone.errorCode}: ${redone.error}`);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), continued);
+});
+
+test("a game whose older ruleset brought a player back on the Tinker's step refuses that now, and undo replays its journal (BMR-PROFESSOR-01, BMR-SHABALOTH-01)", () => {
+  // The recorded journal of a game in which the Po killed the Gossip on night
+  // 2, loaded just before the host brought the Gossip back on the Tinker's
+  // step. The host sends that resurrection with a command of the current
+  // ruleset, which refuses it, completes the step without it and takes that
+  // back; the undo replays the whole journal.
+  const fixture = importSavedGame(
+    readFileSync(
+      new URL("../../core/engine/fixtures/legacy-night-resurrection-game.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(fixture.ok, true);
+  if (!fixture.ok) return;
+  const entries = fixture.state.journal.entries;
+  const resurrectAt = entries.findIndex(
+    (entry) =>
+      entry.type === "completeNightStep" &&
+      (entry.payload as { resurrectId?: string } | undefined)?.resurrectId === "4",
+  );
+  const night2 = replay({ ...fixture.state.journal, entries: entries.slice(0, resurrectAt) });
+  assert.equal(night2.ok, true, JSON.stringify(night2));
+  if (!night2.ok) return;
+  const storage = memoryStorage(JSON.stringify(night2.state));
+  const { game } = store(storage);
+  const loaded = canonicalState(game.getSnapshot().state);
+  const recorded = game.state.journal.entries.length;
+  assert.equal(game.state.night.number, 2);
+  assert.equal(game.state.players["4"].alive, false, "the Po killed the Gossip");
+  assert.equal(
+    game.state.journal.entries.every(
+      (entry) => entry.rulesetVersion === ANY_STEP_RESURRECTS_RULESET_VERSION,
+    ),
+    true,
+  );
+  const key = String((entries[resurrectAt]!.payload as { key: string }).key);
+  assert.match(key, /-tinker-/);
+
+  const brought = game.dispatch(
+    command(game, { type: "completeNightStep", payload: { key, resurrectId: "4" } }),
+  );
+  assert.equal(brought.status, "rejected", JSON.stringify(brought));
+  assert.equal("errorCode" in brought ? brought.errorCode : null, "error.51");
+  assert.equal(game.state.players["4"].alive, false, "the Gossip stays dead");
+  assert.equal(game.state.journal.entries.length, recorded);
+
+  const completed = game.dispatch(command(game, { type: "completeNightStep", payload: { key } }));
+  assert.equal(completed.status, "allowed", JSON.stringify(completed));
   assert.equal(game.state.journal.entries.at(-1)?.rulesetVersion, RULESET_VERSION);
   const continued = canonicalState(game.getSnapshot().state);
 

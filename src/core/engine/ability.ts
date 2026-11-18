@@ -7,6 +7,7 @@ import type {
   DayDecision,
   PendingDeathFact,
   RoleEffect,
+  TimedEffectKind,
   TransformationContext,
   TransformationDecision,
   InformationContext,
@@ -14,13 +15,14 @@ import type {
   ExecutionContext,
   ExecutionDecision,
 } from "../roles/ability.ts";
-import { nightResolverFor } from "../roles/night-step.ts";
+import { nightArmFor } from "../roles/night-step.ts";
 import type { RoleModule } from "../roles/types.ts";
 import { setStepNote } from "./context.ts";
 import { idSuffix, systemPorts } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, kill, resolveAttack, resolveDemonDeath } from "./death.ts";
-import { isImpaired } from "./effects.ts";
+import { givenBy, isImpaired, SAFE_EFFECT, SURVIVES_EXECUTION_EFFECT } from "./effects.ts";
+import { keepDemonAsleep } from "./bmr.ts";
 import { delayPukkaDeath, poisonPukkaPlayer, pukkaPendings, resolvePukkaDeath } from "./pukka.ts";
 
 /** The host's answers for one step. The command path has validated them. */
@@ -29,6 +31,8 @@ export interface HostAnswers {
   readonly chosenRoleId?: RoleId | null;
   /** The Mayor's redirect for an attack: a seat, "none", or absent while unanswered. */
   readonly redirectId?: string | null;
+  /** Who the ability makes drunk: the Sailor's or the Innkeeper's answer. */
+  readonly drunkId?: string | null;
 }
 
 /** What the shared attack path returned for one attack. */
@@ -61,13 +65,18 @@ export function applyRoleAbility(
   answers: HostAnswers = {},
   ports: CommandExecutionContext = systemPorts,
 ): AbilityOutcome {
-  const resolve = nightResolverFor(module, at.number);
+  const arm = nightArmFor(module, at.number);
+  const resolve = arm?.resolve;
   const actorId = step.actorId;
   if (!resolve || !actorId) return APPLIED;
+  // Tonight's choice replaces the last one also when the ability fails, so
+  // the old effects end first and the owner's health is read after.
+  for (const kind of arm.endsOnUse ?? []) endOwnEffects(state, actorId, kind);
   const decision = resolve({
     actorId,
     targetIds: targets,
     chosenRoleId: answers.chosenRoleId ?? null,
+    drunkId: answers.drunkId ?? null,
     impaired: isImpaired(state, actorId, at),
     at: { phase: "night", number: at.number },
     pendings: pukkaPendings(state, actorId).map((effect): PendingDeathFact => ({
@@ -118,7 +127,7 @@ function applyDecision(
   }
   if (decision.kind === "suppressed") {
     for (const effect of decision.effects || []) {
-      applyEffect(state, module, effect, at, actorId, ports, true);
+      applyEffect(state, module, step, effect, at, actorId, ports, true);
     }
     setStepNote(
       step,
@@ -131,7 +140,7 @@ function applyDecision(
   }
   const resolved = [];
   for (const effect of decision.effects) {
-    const outcome = applyEffect(state, module, effect, at, actorId, ports);
+    const outcome = applyEffect(state, module, step, effect, at, actorId, ports);
     if (outcome) resolved.push(outcome);
   }
   if (decision.note) {
@@ -151,6 +160,29 @@ function applyDecision(
   return APPLIED;
 }
 
+/** How a dated effect is stored, where an engine reader expects its own shape. */
+interface StoredShape {
+  readonly kind: string;
+  readonly bmr?: string;
+  /** The effect names the day it covers: the day after the night it starts. */
+  readonly withDay?: boolean;
+}
+
+/** How a dated effect is stored: under its own kind, except where a reader expects another. */
+function storedShape(kind: TimedEffectKind): StoredShape {
+  if (kind === "safe") return SAFE_EFFECT;
+  if (kind === "survives-execution") return SURVIVES_EXECUTION_EFFECT;
+  return { kind };
+}
+
+/** Ends the dated effects of one kind that the acting seat's ability gave. */
+function endOwnEffects(state: GameState, actorId: string, kind: TimedEffectKind): void {
+  const stored = storedShape(kind).kind;
+  for (const candidate of state.effects) {
+    if (candidate.kind === stored && givenBy(candidate, actorId)) candidate.active = false;
+  }
+}
+
 /**
  * Applies one intent. `wasted` is the suppressed path: the ability did
  * nothing, so a dated effect stays as a record that never applies.
@@ -158,6 +190,7 @@ function applyDecision(
 function applyEffect(
   state: GameState,
   module: RoleModule,
+  step: NightStep,
   effect: RoleEffect,
   at: DeadAt,
   actorId: string,
@@ -200,31 +233,82 @@ function applyEffect(
       const pending = state.effects.find((candidate) => candidate.id === effect.pendingId) || null;
       return resolvePukkaDeath(state, pending, at, {}, ports);
     }
-    case "timed-effect":
+    case "timed-effect": {
       // The source, the start and the id are engine bookkeeping: the id comes
       // from the command ports, so a role cannot choose it.
-      if (effect.replacesPrevious && !wasted) {
-        for (const candidate of state.effects) {
-          if (candidate.kind === effect.effect && candidate.sourceId === actorId) {
-            candidate.active = false;
-          }
-        }
-      }
+      if (effect.replacesPrevious && !wasted) endOwnEffects(state, actorId, effect.effect);
+      const stored = storedShape(effect.effect);
       state.effects.push({
         id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: effect.effect,
+        kind: stored.kind,
+        ...(stored.bmr ? { bmr: stored.bmr } : {}),
         sourceId: actorId,
         targetId: effect.playerId,
         start: at,
+        ...(stored.withDay ? { day: at.number } : {}),
         expires: { phase: effect.expires.phase, number: effect.expires.number },
         // A wasted use has no effect later (States r1039): the record stays
         // inactive even after its owner recovers.
         active: !wasted,
       });
       return null;
+    }
     case "record-master": {
       const actor = playerById(state, actorId);
       if (actor) actor.butlerMasterId = effect.playerId;
+      return null;
+    }
+    case "record-choice": {
+      // The record is the step builder's: it names the role by its module, so
+      // a role cannot write another role's restriction.
+      const actor = playerById(state, actorId);
+      if (!actor) return null;
+      actor.used = actor.used || {};
+      actor.used[module.id + "Target"] = effect.playerId;
+      actor.used[module.id + "TargetNight"] = effect.playerId ? at.number : null;
+      return null;
+    }
+    case "record-no-one": {
+      const actor = playerById(state, actorId);
+      if (!actor) return null;
+      actor.used = actor.used || {};
+      actor.used[module.id + "NoOne"] = effect.noOne;
+      return null;
+    }
+    case "record-choices": {
+      // Last night's choice moves aside before tonight's is written, in this
+      // key order, because saved games hold the record as it was written.
+      const actor = playerById(state, actorId);
+      if (!actor) return null;
+      const used = (actor.used = actor.used || {});
+      const current = used[module.id + "Targets"];
+      used[module.id + "PreviousTargets"] = Array.isArray(current) ? current.slice() : [];
+      used[module.id + "PreviousNight"] = used[module.id + "TargetsNight"];
+      used[module.id + "Targets"] = effect.playerIds.slice();
+      used[module.id + "TargetsNight"] = at.number;
+      return null;
+    }
+    case "madness": {
+      // A failed ability makes nobody mad, so nothing is kept as a record.
+      if (wasted) return null;
+      // The id, the source, the start and the ability that owns the token
+      // are engine bookkeeping. The key order is the stored token's.
+      state.effects.push({
+        id: "eff-madness-" + module.id + "-" + actorId + "-" + effect.playerId + "-" + at.number,
+        kind: "madness",
+        madness: module.id,
+        roleId: effect.roleId,
+        sourceId: actorId,
+        targetId: effect.playerId,
+        start: at,
+        expires: { phase: effect.expires.phase, number: effect.expires.number },
+        active: true,
+      });
+      return null;
+    }
+    case "block-demon": {
+      const demon = playerById(state, effect.playerId);
+      if (demon) keepDemonAsleep(state, step, demon, effect.note, effect.log, at, ports);
       return null;
     }
   }

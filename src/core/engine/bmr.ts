@@ -1,5 +1,6 @@
 import type { DeadAt, GameState, NightStep, Player, RoleId } from "../model/types.ts";
 
+import type { AbilityNote } from "../roles/ability.ts";
 import type { TargetMode } from "../roles/types.ts";
 
 type StepSpec = {
@@ -37,7 +38,6 @@ import {
   orderedPlayers,
   playerById,
   realTeamOf,
-  seatName,
 } from "../model/state.ts";
 
 import { applyRoleAbility } from "./ability.ts";
@@ -56,7 +56,11 @@ import {
   otherNightStepOf,
 } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
-import { LEGACY_RULESET_VERSION } from "./command-versions.ts";
+import {
+  LEGACY_RULESET_VERSION,
+  marksAnyDeathOnTinkerStep,
+  resurrectsOnAnyStep,
+} from "./command-versions.ts";
 
 const DEMON_ROLES = new Set(["po", "pukka", "shabaloth", "zombuul"]);
 
@@ -453,6 +457,49 @@ export function appendBmrConditionalSteps(
   );
 }
 
+/**
+ * Keeps the Demon on one seat from waking tonight (Exorcist r2973: "the Demon,
+ * if chosen, learns who you are then doesn't wake tonight"). Its other
+ * abilities still resolve: the Storyteller may still regurgitate the
+ * Shabaloth's last target (Shabaloth r1790), and the Pukka's waiting death
+ * happens now and is reported on the blocking step.
+ */
+export function keepDemonAsleep(
+  state: GameState,
+  step: NightStep,
+  demon: Player,
+  note: AbilityNote,
+  log: { readonly title: string; readonly detail: string },
+  at: DeadAt,
+  ports: CommandExecutionContext,
+): void {
+  const demonStep = state.night.queue.find(
+    (candidate) =>
+      candidate.kind === "role" && candidate.roleId === demon.roleId && !candidate.done,
+  );
+  if (demonStep) {
+    if (demon.roleId === "shabaloth") {
+      demonStep.canKill = false;
+      demonStep.canResurrect = true;
+      demonStep.blocked = true;
+      demonStep.targetMode = "none";
+      demonStep.minTargets = 0;
+      demonStep.maxTargets = 0;
+    } else {
+      demonStep.done = true;
+      demonStep.skipped = true;
+    }
+    setStepNote(demonStep, note.key, note.vars || null, note.text);
+  }
+  addLog(state, { secret: true, kind: "night", title: log.title, detail: log.detail }, ports);
+  if (demon.roleId === "pukka") {
+    const pending =
+      pukkaPendings(state, demon.id).find((candidate) => !candidate.resumeOnHealthy) || null;
+    const resolved = resolvePukkaDeath(state, pending, at, {}, ports);
+    if (resolved) step.result = { ...step.result, pukkaDeath: resolved };
+  }
+}
+
 export function completeBmrStep(
   state: GameState,
   step: NightStep,
@@ -474,12 +521,11 @@ export function completeBmrStep(
       step,
       targets,
       at,
-      { chosenRoleId: options.roleId ?? null },
+      { chosenRoleId: options.roleId ?? null, drunkId: options.drunkId || null },
       ports,
     );
     return;
   }
-  if (role === "po" && actor) actor.used.poNoOne = targets.length === 0;
   if (role === "lunatic" && actor) {
     // The first night is not a night where the pretended Po chose no one
     // (Po r3104), and the Lunatic's own choice is only a report. First-night
@@ -487,107 +533,6 @@ export function completeBmrStep(
     if (state.setup.lunaticShownId === "po" && at.number > 1)
       actor.used.poNoOne = targets.length === 0;
     if (at.number > 1) reportLunaticChoice(state, step, actor, targets);
-    return;
-  }
-  if (role === "sailor" && actor) {
-    // The Storyteller chooses who is drunk: the Sailor or the target. An empty
-    // choice means "nobody", never a silent fallback (Sailor r1768).
-    const drunkId = options.drunkId || null;
-    state.effects.forEach((effect) => {
-      if (effect.kind === "drunk" && effect.sourceId === actor.id && effect.bmr !== "goon")
-        effect.active = false;
-    });
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    if (drunkId) {
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "drunk",
-        sourceId: actor.id,
-        targetId: drunkId,
-        start: at,
-        expires: { phase: "night", number: at.number + 1 },
-        active: true,
-      });
-    }
-    return;
-  }
-  if (role === "innkeeper" && actor && targets.length === 2) {
-    state.effects.forEach((effect) => {
-      if (
-        (effect.kind === "protected" && effect.sourceId === actor.id) ||
-        (effect.kind === "drunk" && effect.sourceId === actor.id && effect.bmr !== "goon")
-      )
-        effect.active = false;
-    });
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    for (const targetId of targets) {
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "protected",
-        bmr: "innkeeper",
-        sourceId: actor.id,
-        targetId,
-        start: at,
-        expires: { phase: "day", number: at.number },
-        active: true,
-      });
-    }
-    // One of the two targets is drunk, chosen by the Storyteller (r1774).
-    const drunkId = options.drunkId || null;
-    if (drunkId) {
-      state.effects.push({
-        id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-        kind: "drunk",
-        sourceId: actor.id,
-        targetId: drunkId,
-        start: at,
-        expires: { phase: "night", number: at.number + 1 },
-        active: true,
-      });
-    }
-    return;
-  }
-  if (role === "devilsadvocate" && actor && targets[0]) {
-    actor.used.devilsadvocateTarget = targets[0];
-    actor.used.devilsadvocateTargetNight = at.number;
-    state.effects.forEach((effect) => {
-      if (effect.kind === "devilsadvocate" && effect.sourceId === actor.id) effect.active = false;
-    });
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    state.effects.push({
-      id: "eff-" + (state.effects.length + 1) + "-" + idSuffix(ports, 4),
-      kind: "devilsadvocate",
-      sourceId: actor.id,
-      targetId: targets[0],
-      start: at,
-      day: at.number,
-      expires: { phase: "night", number: at.number + 1 },
-      active: true,
-    });
     return;
   }
   if (role === "courtier" && actor) {
@@ -698,89 +643,6 @@ export function completeBmrStep(
         : target?.team === "good" || target?.team == null;
     if (target && target.alive && wasGood) {
       kill(state, target.id, "ability", at, { ability: "moonchild", bmr: true }, ports);
-    }
-    return;
-  }
-  if (role === "tinker" && actor) {
-    // The host decides whether the Tinker dies; the outcome controls record it.
-    return;
-  }
-  if (role === "exorcist" && actor) {
-    const targetId = targets[0];
-    // The choice is recorded even while impaired: "different to last night" is
-    // about the choice, not about whether the ability worked (Exorcist r2973).
-    actor.used.exorcistTarget = targetId || null;
-    actor.used.exorcistTargetNight = targetId ? at.number : null;
-    if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
-      return;
-    }
-    const target = targetId ? playerById(state, targetId) : null;
-    if (target && roleTeam(target.roleId || "") === "demon") {
-      const demonStep = state.night.queue.find(
-        (candidate) =>
-          candidate.kind === "role" && candidate.roleId === target.roleId && !candidate.done,
-      );
-      if (demonStep) {
-        if (target.roleId === "shabaloth") {
-          // The Demon does not wake, but its other abilities still resolve: the
-          // Storyteller may still regurgitate last night's target
-          // (Exorcist r2973, Shabaloth r1790).
-          demonStep.canKill = false;
-          demonStep.canResurrect = true;
-          demonStep.blocked = true;
-          demonStep.targetMode = "none";
-          demonStep.minTargets = 0;
-          demonStep.maxTargets = 0;
-        } else {
-          demonStep.done = true;
-          demonStep.skipped = true;
-        }
-        setStepNote(
-          demonStep,
-          "note.exorcistBlocked",
-          { name: actor.name || seatName(state, actor.id) },
-          "Экзорцист (" +
-            (actor.name || seatName(state, actor.id)) +
-            ") выбрал Демона. Демон узнаёт Экзорциста и не просыпается.",
-        );
-      }
-      addLog(
-        state,
-        {
-          secret: true,
-          kind: "night",
-          title: "Экзорцист выбрал Демона",
-          detail: target.name + " узнаёт Экзорциста и не действует этой ночью.",
-        },
-        ports,
-      );
-      if (target.roleId === "pukka") {
-        const pending =
-          pukkaPendings(state, target.id).find((candidate) => !candidate.resumeOnHealthy) || null;
-        const resolved = resolvePukkaDeath(state, pending, at, {}, ports);
-        if (resolved) step.result = { ...step.result, pukkaDeath: resolved };
-      }
-    }
-    return;
-  }
-  if (role === "shabaloth" && actor) {
-    // The chosen targets persist even when both survive, so next night's
-    // regurgitation has a legal source (Shabaloth r1790). The previous night's
-    // choice stays available for the outcome validation, which runs after this
-    // step is completed.
-    if (targets.length && !isImpaired(state, actor.id, at)) {
-      actor.used.shabalothPreviousTargets = Array.isArray(actor.used.shabalothTargets)
-        ? actor.used.shabalothTargets.slice()
-        : [];
-      actor.used.shabalothPreviousNight = actor.used.shabalothTargetsNight;
-      actor.used.shabalothTargets = targets.slice(0, 2);
-      actor.used.shabalothTargetsNight = at.number;
     }
     return;
   }
@@ -1142,7 +1004,7 @@ export function recordBmrOutcome(
   }
   // A drunk or poisoned ability that records deaths does nothing, so no marked
   // death may land. The Assassin, the Moonchild and the Professor check their
-  // own impairment, and the Tinker is a Storyteller decision, not an ability.
+  // own impairment, and the Tinker's step is checked below.
   if (
     actor &&
     IMPAIRABLE_DEATH[String(step.roleId)] &&
@@ -1156,9 +1018,11 @@ export function recordBmrOutcome(
       error: "Способность не сработала: игрок отравлен или пьян.",
     };
   }
+  // The Tinker chooses no one: the host decides whether the Tinker dies.
+  const tinkerStep = step.roleId === "tinker";
   // A death must be one of the step's chosen targets and must not exceed the
   // ability's maximum (Shabaloth 2, Po 1 or 3, the others 1).
-  if (deathIds.length && step.roleId !== "tinker") {
+  if (deathIds.length && !tinkerStep) {
     if (!step.canKill) {
       return {
         ok: false,
@@ -1182,7 +1046,39 @@ export function recordBmrOutcome(
       };
     }
   }
+  // Tinker r1782: "At any time, you may decide that the Tinker dies." The step
+  // is the Tinker's own ability, so only the Tinker dies on it, and only while
+  // the ability works, as by day (States r1039: "A drunk or poisoned player has
+  // no ability"). A command recorded before this rule keeps the deaths it
+  // marked.
+  if (deathIds.length && tinkerStep && !marksAnyDeathOnTinkerStep(ports.rulesetVersion)) {
+    if (deathIds.some((id) => id !== String(step.actorId))) {
+      return {
+        ok: false,
+        errorCode: "error.51",
+        error: "На шаге Механика может погибнуть только сам Механик.",
+      };
+    }
+    if (actor && isImpaired(state, actor.id, at)) {
+      return {
+        ok: false,
+        errorCode: "error.59",
+        error: "Механик отравлен или пьян: способность не работает.",
+      };
+    }
+  }
   if (resurrectId) {
+    // Professor r1775 and Shabaloth r1790 are the Bad Moon Rising abilities
+    // that bring a player back, so a step whose ability does not resurrect
+    // brings no one back. A command recorded before this rule keeps the
+    // resurrection it marked.
+    if (!step.canResurrect && !resurrectsOnAnyStep(ports.rulesetVersion)) {
+      return {
+        ok: false,
+        errorCode: "error.51",
+        error: "Способность этого шага никого не возвращает.",
+      };
+    }
     const target = playerById(state, resurrectId);
     if (step.roleId === "professor") {
       // The step owns the ability: the outcome may only repeat the chosen

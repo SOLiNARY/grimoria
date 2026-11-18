@@ -1,6 +1,7 @@
 import type { DeadAt, GameState, JugglerGuess, NightStep, Player, RoleId } from "../model/types.ts";
 
 import type { NightStepSpec, TargetMode } from "../roles/types.ts";
+import type { TransformationCause, TransformationContext } from "../roles/ability.ts";
 
 type StepSpec = {
   target?: TargetMode;
@@ -47,9 +48,9 @@ import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, evilTwinPair, kill, setWinner } from "./death.ts";
 import { activeEffects, isImpaired } from "./effects.ts";
 import { vigormortisActive } from "./retention.ts";
-import { firstNightStepOf, nightStepFor } from "../roles/night-step.ts";
+import { firstNightStepOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
-import { resolveTransformationCapability } from "./ability.ts";
+import { applyRoleAbility, resolveTransformationCapability } from "./ability.ts";
 import { stillWakes } from "../roles/sv-common.ts";
 
 const DEMON_ROLES = new Set(["fanggu", "nodashii", "vigormortis", "vortox"]);
@@ -1122,6 +1123,35 @@ export function recordKlutzChoice(
   return { ok: true };
 }
 
+// The read-only facts of a character change. "In play" counts a character a
+// Philosopher borrowed, so the Pit-Hag cannot duplicate it.
+function transformationFacts(
+  state: GameState,
+  actor: Player,
+  target: Player,
+  newRoleId: RoleId,
+  cause: TransformationCause,
+  impaired: boolean,
+  at: DeadAt,
+): TransformationContext {
+  return {
+    actorId: actor.id,
+    targetId: target.id,
+    newRoleId,
+    cause,
+    impaired,
+    at,
+    roleInPlay: (candidate) =>
+      Boolean(holderOf(state, candidate)) ||
+      orderedPlayers(state).some(
+        (player) => player.used != null && player.used.philosopherAbility === candidate,
+      ),
+    nameOf: (playerId) => playerById(state, playerId)?.name || "",
+    actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
+    hasPlayer: (playerId) => playerById(state, playerId) != null,
+  };
+}
+
 export function completeSvStep(
   state: GameState,
   step: NightStep,
@@ -1135,6 +1165,31 @@ export function completeSvStep(
   const at = currentAt(state);
   const order = Number(step.order) || 0;
   const impaired = isImpaired(state, actor.id, at);
+  // Cerenovus r3048: "any Townsfolk or Outsider icon". The command refuses
+  // another character before the ability resolves.
+  if (
+    step.roleId === "cerenovus" &&
+    targets[0] &&
+    options.roleId &&
+    !GOOD_ROLES(state).includes(options.roleId)
+  ) {
+    return { ok: false, errorCode: "error.2", error: "Выберите добрую роль из сценария." };
+  }
+  const declared = step.roleId ? roleModule(step.roleId) : null;
+  if (declared && nightResolverFor(declared, at.number)) {
+    // A migrated role never falls through to the branches below, so a missing
+    // resolution is a visible test failure instead of a silent fallback.
+    applyRoleAbility(
+      state,
+      declared,
+      step,
+      targets,
+      at,
+      { chosenRoleId: options.roleId ?? null },
+      ports,
+    );
+    return { ok: true };
+  }
 
   if (step.roleId === "philosopher") {
     const roleId = options.roleId || null;
@@ -1205,23 +1260,12 @@ export function completeSvStep(
     const module = roleModule("pithag");
     const decision =
       module &&
-      resolveTransformationCapability(module, {
-        actorId: actor.id,
-        targetId: target.id,
-        newRoleId: roleId,
-        cause: "pithag",
-        impaired,
-        at,
-        roleInPlay: (candidate) =>
-          Boolean(holderOf(state, candidate)) ||
-          orderedPlayers(state).some(
-            (player) => player.used != null && player.used.philosopherAbility === candidate,
-          ),
-        nameOf: (playerId) => playerById(state, playerId)?.name || "",
-        actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
-        hasPlayer: (playerId) => playerById(state, playerId) != null,
-      });
-    if (!decision) {
+      resolveTransformationCapability(
+        module,
+        transformationFacts(state, actor, target, roleId, "pithag", impaired, at),
+      );
+    // The Pit-Hag's change replaces one character; it swaps none.
+    if (!decision || decision.kind === "swap") {
       return { ok: false, errorCode: "error.5", error: "Способность Pit-Hag не объявлена." };
     }
     if (decision.kind === "no-effect" && decision.reason === "impaired") {
@@ -1279,37 +1323,62 @@ export function completeSvStep(
 
   if (step.roleId === "snakecharmer") {
     const target = targets[0] ? playerById(state, targets[0]) : null;
+    // Snake Charmer r2905: "choose an alive player".
     if (target && !target.alive) {
       return { ok: false, errorCode: "error.55", error: "Нельзя выбрать мёртвого игрока." };
     }
-    if (target && !impaired && roleTeam(target.roleId || "") === "demon") {
-      swapCharacters(state, actor, target, {
-        order,
-        currentKey: step.key,
-        alignments: true,
-      });
-      const id = "eff-snakecharmer-" + actor.id + "-" + target.id;
-      if (!state.effects.some((effect) => effect.id === id)) {
-        state.effects.push({
-          id,
-          kind: "poison",
-          // The poison outlives its source: the new Demon may die or be
-          // impaired and the new Snake Charmer stays poisoned.
-          permanent: true,
-          sourceId: actor.id,
-          targetId: target.id,
-          start: at,
-          expires: null,
-          active: true,
-        });
-      }
+    if (!target || !target.roleId) return { ok: true };
+    const module = roleModule("snakecharmer");
+    const decision =
+      module &&
+      resolveTransformationCapability(
+        module,
+        transformationFacts(state, actor, target, target.roleId, "snakecharmer", impaired, at),
+      );
+    if (!decision) {
+      return { ok: false, errorCode: "error.5", error: "Способность Заклинателя не объявлена." };
+    }
+    // Nothing happens for a player who is not the Demon or a failed ability:
+    // the step keeps the shared note.
+    if (decision.kind !== "swap") return { ok: true };
+    const other = playerById(state, decision.playerId);
+    if (!other) return { ok: true };
+    swapCharacters(state, actor, other, {
+      order,
+      currentKey: step.key,
+      alignments: decision.alignments,
+    });
+    if (!decision.poisoned) {
       setStepNote(
         step,
-        "note.characterSwapPoisoned",
-        { actor: actor.name, target: target.name },
-        actor.name + " и " + target.name + " меняются персонажами; " + target.name + " отравлен.",
+        "note.characterSwap",
+        { first: actor.name, second: other.name },
+        actor.name + " и " + other.name + " меняются персонажами.",
       );
+      return { ok: true };
     }
+    // The poison is written after the swap, which reconciles the No Dashii's
+    // and the Vigormortis's poison first. It outlives its source: the new
+    // Demon may die or be impaired and the new Snake Charmer stays poisoned.
+    const id = "eff-" + module!.id + "-" + actor.id + "-" + other.id;
+    if (!state.effects.some((effect) => effect.id === id)) {
+      state.effects.push({
+        id,
+        kind: "poison",
+        permanent: true,
+        sourceId: actor.id,
+        targetId: other.id,
+        start: at,
+        expires: null,
+        active: true,
+      });
+    }
+    setStepNote(
+      step,
+      "note.characterSwapPoisoned",
+      { actor: actor.name, target: other.name },
+      actor.name + " и " + other.name + " меняются персонажами; " + other.name + " отравлен.",
+    );
     return { ok: true };
   }
 
@@ -1378,38 +1447,6 @@ export function completeSvStep(
       expires: { phase: "night", number: at.number + 1 },
       active: true,
     });
-  }
-  if (step.roleId === "cerenovus" && targets[0]) {
-    const target = playerById(state, targets[0]);
-    const roleId = options.roleId || null;
-    if (target && roleId && !GOOD_ROLES(state).includes(roleId)) {
-      return { ok: false, errorCode: "error.2", error: "Выберите добрую роль из сценария." };
-    }
-    if (target && roleId && !impaired) {
-      state.effects.push({
-        id: "eff-madness-cerenovus-" + actor.id + "-" + target.id + "-" + at.number,
-        kind: "madness",
-        madness: "cerenovus",
-        roleId,
-        sourceId: actor.id,
-        targetId: target.id,
-        start: at,
-        // Cerenovus r3048: "During the next day or night ... you can decide to
-        // execute them." The token therefore covers the next day and the night
-        // that follows it, and expires at the next dawn.
-        expires: { phase: "day", number: at.number + 1 },
-        active: true,
-      });
-      setStepNote(
-        step,
-        "note.madness",
-        { name: target.name, role: roleId },
-        target.name +
-          " должен быть «помешан» на роли " +
-          roleLabel(roleId) +
-          " до следующего рассвета.",
-      );
-    }
   }
   if (step.roleId === "sweetheart" && targets[0] && !failedAtDeath(state, actor.id)) {
     state.effects.push({

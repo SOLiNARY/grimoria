@@ -143,13 +143,26 @@ function compareEffects(left: Effect, right: Effect): number {
   return String(left.id).localeCompare(String(right.id));
 }
 
+// An effect waits for every effect that impairs its source, because an
+// impaired source loses it. A permanent effect does not: it stays active
+// whatever happens to its source (`resolveAt`), so it waits for nothing. This
+// is why the Goon's drunkenness on a chooser who is already poisoned by their
+// own ability is not a cycle (Goon r2977). The Vigormortis poison is the
+// exception: it outlives its dead Minion but not that Minion's impairment
+// (`reconcileVigormortisPoison`, r3015), so it still waits for its source.
+function dependsOnSource(effect: Effect): boolean {
+  return effect.permanent !== true || effect.vigormortis === true;
+}
+
 function topological(list: Effect[]): TopoResult {
   const items: CascadeItem[] = list.map((effect) => ({
     key: String(effect.id),
     kind: "impairment",
-    after: list
-      .filter((other) => other !== effect && String(other.targetId) === String(effect.sourceId))
-      .map((other) => String(other.id)),
+    after: dependsOnSource(effect)
+      ? list
+          .filter((other) => other !== effect && String(other.targetId) === String(effect.sourceId))
+          .map((other) => String(other.id))
+      : [],
   }));
   const sorted = orderCascade(items);
   if (!sorted.ok) return { ok: false, cycle: sorted.keys };

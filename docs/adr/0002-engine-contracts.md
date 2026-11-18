@@ -632,6 +632,15 @@ play is still read from setup, and the role is still told nothing. Commands
 recorded under the ruleset versions before `tb-bmr-snv-2026-11-17` keep the
 answer they gave.
 
+`openspec/changes/tb-new-demon-wake-once` fixes the two defects of the new
+Demon's wake that the Imp's move kept: the wake was queued again on the night
+after a night change, and the wake of a heir the host named waited for the
+next step of the night. The fix is in the shared succession (`chooseDemonHeir`
+queues the conditional steps) and in `endDay` (the flag is carried only while
+the change still owes its wake); no contract changes and the Imp's module is
+untouched. Commands recorded under the ruleset versions before
+`tb-bmr-snv-2026-11-17.1` keep the wakes they queued.
+
 `openspec/changes/tb-spy-grimoire` ends the Trouble Brewing part of the slice
 with the Spy. Its step moves to the `night-step` arm, every night, with the
 `grimoire` shape. The `information` arm gains the `grimoire` decision: the
@@ -658,6 +667,124 @@ without a `night-step` arm owns no resolver. The step builder still names the
 Gambler for the list of characters to guess, and the Demon set, the
 Exorcist's block, the outcome panel and the delayed death still name the
 Pukka; none of them completes the step.
+
+`openspec/changes/bmr-sailor-innkeeper-night-step` continues slice 3 with
+the Sailor and the Innkeeper, the first roles whose resolution leaves
+`completeBmrStep`. The context gains the host's drunk answer, `drunkId`, a
+host answer like the Courtier's character; the command path still checks
+it against the step. The dated effects gain two kinds: `drunk`, and `safe`
+for the Innkeeper's players, stored as the protection the death path already
+tells from the Monk's by its marker. The `night-step` arm gains `endsOnUse`,
+the kinds of dated effect each use replaces. The coordinator ends the effects
+of those kinds that the ability gave before it reads the owner's health, the
+order of the removed branches, so a drunk or poisoned Sailor still ends last
+night's choice and makes nobody drunk. It is a declaration of the arm and not
+an intent, because `suppressed` ends nothing and must stay that way: a
+replacing intent on that path would let a failed ability end another
+ability's effect. The Goon's drunkenness names its chooser as the source but
+is the Goon's, so `givenBy` in `effects.ts` keeps it; `replacesPrevious`
+uses the same predicate. Who may be drunk, and that a working ability needs
+the answer, stays the command check in `night.ts`.
+
+`openspec/changes/bmr-advocate-exorcist-night-step` moves the Devil's
+Advocate and the Exorcist, the two roles that choose a player "different to
+last night". The choice is about the choosing, not about whether the ability
+worked, so a new `record-choice` intent writes it on the `effects` and the
+`suppressed` path alike, under the acting role's own record that the step
+builder reads. The dated effects gain `survives-execution`, stored as the
+protection the execution check already reads, with the day it covers; the
+Devil's Advocate's two arms (its first-night step shows another note) end
+last night's protection with `endsOnUse`. A new `block-demon` intent keeps the
+chosen Demon from waking. "The Demon, if chosen" is the Exorcist's rule, so
+the resolver decides it and writes what the host reads; what a Demon that does
+not wake still does is the Demon's, so the Shabaloth's regurgitation and the
+Pukka's waiting death stay in `keepDemonAsleep` in `bmr.ts`.
+
+`openspec/changes/bmr-tinker-po-shabaloth-night-step` moves the Tinker, the
+Po and the Shabaloth, whose deaths the host marks on the outcome of the
+step. Their completion only keeps what the next night reads, so the
+contract gains two records, each written on the acting seat under the
+acting role. `record-no-one` says whether the seat chose no one; the Po
+returns it also when drunk or poisoned, because the next night's three
+players depend on the choice (Po r3104). `record-choices` names tonight's
+players and keeps the record it replaces as last night's, in the key order
+saved games hold; the Shabaloth returns it only when sober and healthy, as
+before. The Tinker's resolver returns `no-effect`. The outcome, its checks
+and the regurgitation stay in `recordBmrOutcome`, the size of the Po's step
+in the step builder, and the Tinker's death during the day in `day.ts`.
+After this change the Bad Moon Rising roles with a legacy step are those
+whose wake is read from the game: nine through `actor` hooks, and the
+Grandmother, whose later step a death adds.
+
+`openspec/changes/bmr-tinker-night-death` fixes the difference between the
+Tinker's two death paths that the move kept: the outcome of the night step
+took any death the host marked, also while the Tinker was drunk or poisoned.
+`recordBmrOutcome` now lets only the Tinker die on the step, and only while
+the ability works, with the outcome's code for a death the ability does not
+cause (`error.51`) and the code of `tinkerDeath` (`error.59`). The Tinker's
+module and the contract do not change. Commands recorded under the ruleset
+versions before `tb-bmr-snv-2026-11-17.2` keep the deaths they marked.
+
+`openspec/changes/bmr-night-step-resurrection` fixes the same kind of gap for
+resurrections: the outcome of any Bad Moon Rising night step brought back the
+dead player the host marked, and only the Professor's and the Shabaloth's
+steps checked their own rule. `recordBmrOutcome` now reads the step's
+`canResurrect`, which only those two roles declare, and refuses a
+resurrection on any other step with `error.51` before it changes anything, so
+a Lunatic shown the Shabaloth attacks as it but regurgitates no one. The
+modules and the contract do not change. Commands recorded under the ruleset
+versions before `tb-bmr-snv-2026-11-17.3` keep the resurrections they marked.
+
+Slice 4 starts in `openspec/changes/snv-demon-night-step` with the four
+Sects & Violets Demons. The Fang Gu, the No Dashii, the Vigormortis and the
+Vortox declare their step and resolver on a `night-step` arm for the nights
+after the first. Their completion had no branch: the host marks the death on
+the outcome of the step, which checks the Demon's health, so each resolver
+returns `no-effect`, as the Tinker's does. `completeSvStep` gains the
+dispatch `completeBmrStep` already has: a role with a resolver goes to the
+coordinator, after the seat's record exists, and never reaches the branches
+below. No contract changes. The retained-ability fact named in the table is
+not added, because no resolver of this change reads it: the queue builder
+keeps the Vigormortis's retained Minions awake as before. `sv.ts` still names
+the four in the Demon set, the outcome, the Fang Gu's jump, the No Dashii's
+and the Vigormortis's poison and the Vortox's false information, and
+`death.ts` names the Vortox for its win at dusk; none of them completes the
+step.
+
+`openspec/changes/snv-cerenovus-night-step` continues slice 4 with the
+Cerenovus, whose completion wrote the madness token. A dated `timed-effect`
+cannot be that token: its id comes from the command ports, it carries no
+character, and a failed use keeps an inactive record. A new `madness`
+intent names the player, the character and the end; the engine writes the
+token under the acting ability with the id the branch wrote, so saved games
+and the day's review keep it, and writes nothing on the `suppressed` path.
+The check that the character is good stays a command check in
+`completeSvStep`, before the step resolves. The day's review in `day.ts`,
+the token's hold after its source dies in `effects.ts`, and the list of
+good characters on the step still name the role.
+
+`openspec/changes/snv-information-night-steps` moves the steps of the
+Sects & Violets information roles whose wake reads no game state: the
+Clockmaker and the Evil Twin on a `first` arm, the Dreamer and the
+Mathematician on an `any` arm, the Flowergirl, the Oracle and the Town
+Crier on an `other` arm. Only the steps move, without a resolver, as the
+Empath's step did before its answer: the answers, with the Vortox's false
+information, stay in `svInfoForStep` for slice 5, and so does the
+Mathematician's removal of the ABNORMAL marks, which a resolver would
+skip. The ledger counts the seven rows as "capability + engine reference";
+their remaining references are those answers.
+
+`openspec/changes/snv-snakecharmer-pithag` moves the two character-changing
+steps. The Snake Charmer's step and the Pit-Hag's move to `night-step` arms
+without a resolver, and the transformation arm gains the `swap` decision
+from the table above: the role names the other player and whether the
+alignments are exchanged and the player is then poisoned for good; the
+engine applies the shared swap, then writes the poison with the id the
+branch wrote. The Snake Charmer's rule moves into its `transformation`
+capability; `sv.ts` builds one set of facts for both roles and applies the
+decision, as it already did for the Pit-Hag's `replace`. The Barber's swap
+waits for its wake, so a swap without alignments or without the poison is
+not yet exercised.
 
 Slice 9 was last because it touched every handler and needed the smallest
 reviewable diff per command family.
