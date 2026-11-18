@@ -4,11 +4,7 @@
 // table: the app bar, a scrollable stage and a fixed action dock.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DispatchResult } from "../../../core/commands/result.ts";
-import {
-  mayorRedirectNeeded,
-  tableProjection,
-  targetBounds,
-} from "../../../application/read-models/table.ts";
+import { tableProjection, targetBounds } from "../../../application/read-models/table.ts";
 import { playerById } from "../../../core/model/state.ts";
 import { useShellPorts } from "../../ports.ts";
 import type { PreviewOutcome, ShellPorts } from "../../ports.ts";
@@ -181,7 +177,9 @@ export function TableScreen() {
         drafts.setOverlay("playerSheet");
         return;
       }
-      const step = tableProjection(state).step;
+      const projection = tableProjection(state);
+      // While the host owes the Demon's heir, no later step takes a target.
+      const step = projection.pendingDemonChange ? null : projection.step;
       if (state.phase !== "night" || !step || step.targetMode === "none") {
         openCorrection(playerId);
         return;
@@ -191,10 +189,9 @@ export function TableScreen() {
       const before = list[0];
       const next = nextSelection(list, playerId, targetBounds(step).max);
       drafts.putTargets(key, next);
+      // A new victim drops the stored redirect. The Mayor's fate is the
+      // Storyteller's choice, so a seat tap never answers it (Mayor r2995).
       if (before !== next[0]) drafts.dropRedirect(key);
-      if (mayorRedirectNeeded(state, step, next[0] || "") && !drafts.redirects.has(key)) {
-        drafts.putRedirect(key, "none");
-      }
     },
     openGrimoire: () => {
       captureFocus();

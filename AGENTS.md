@@ -171,7 +171,11 @@ Pipeline: `GitHub issue → OpenSpec change → branch + PR → CI → owner mer
    (step 3). Only a `hotfix/*` PR and a release PR (`dev` → `main`) target
    `main`. Open it, run checks, report CI, then **stop and wait**. Review fixes
    go to the same branch. Before any merge verify the current HEAD SHA, CI result
-   and the owner's permission for that exact PR.
+   and the owner's permission for that exact PR. A release PR (`dev` → `main`)
+   and a back-merge PR (`main` → `dev`) name no issue and no OpenSpec change in
+   the body, and skip the `Specifications` job: the changes were validated in
+   `dev` before the release. The title keeps the issue reference line only
+   because the conventions check requires one.
 6. **After merge.** Remove the worktree and local branch
    (`git worktree remove ../grimoria-<topic>`, `git branch -D <type>/<topic>`).
    A merge into `main` changes the version and creates tag `vX.Y.Z`; merge
@@ -369,6 +373,6 @@ Before reporting a task complete:
 - [ ] UI change: app run at `http://localhost:8010/`, real route exercised, console clean, checked at ~390 px width.
 - [ ] `src/core/engine/` change: affected screen checked with a real game state.
 - [ ] The PR targets `dev`; only a `hotfix/*` PR or the `dev` release PR targets `main`.
-- [ ] `openspec validate --changes --strict` passes; PR names the issue and the OpenSpec change.
+- [ ] `openspec validate --changes --strict` passes; PR names the issue and the OpenSpec change, unless it is a release or back-merge PR.
 - [ ] PR title is a valid Conventional Commit and ends with the issue reference `(#N)`.
 - [ ] PR opened, CI result reported, agent stopped. No merge.

@@ -74,6 +74,137 @@ test("the Gambler and the Pukka declare their resolver on the night-step capabil
   assert.equal(ownerOf(pukka, engineLocations("pukka")), "capability + engine reference");
 });
 
+test("the Sailor and the Innkeeper resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  const sailor = facts.find((candidate) => candidate.id === "sailor");
+  assert.ok(sailor);
+  assert.deepEqual(sailor.declares, ["capability:night-step"]);
+  // "You can't die" in the death path and the check of the drunk answer
+  // still name the role; bmr.ts does not.
+  assert.deepEqual(engineLocations("sailor"), ["effects.ts×1", "night.ts×3"]);
+  assert.equal(ownerOf(sailor, engineLocations("sailor")), "capability + engine reference");
+  const innkeeper = facts.find((candidate) => candidate.id === "innkeeper");
+  assert.ok(innkeeper);
+  assert.deepEqual(innkeeper.declares, ["capability:night-step"]);
+  // The marker of the protection and the check of the drunk answer.
+  assert.deepEqual(engineLocations("innkeeper"), ["effects.ts×2", "night.ts×1"]);
+  assert.equal(ownerOf(innkeeper, engineLocations("innkeeper")), "capability + engine reference");
+});
+
+test("the Devil's Advocate and the Exorcist resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  const advocate = facts.find((candidate) => candidate.id === "devilsadvocate");
+  assert.ok(advocate);
+  assert.deepEqual(advocate.declares, ["capability:night-step"]);
+  // The execution check, the living-target check and the step builder's
+  // "different to last night" still name the role; the completion does not.
+  assert.deepEqual(engineLocations("devilsadvocate"), ["effects.ts×2", "night.ts×1", "bmr.ts×1"]);
+  assert.equal(
+    ownerOf(advocate, engineLocations("devilsadvocate")),
+    "capability + engine reference",
+  );
+  const exorcist = facts.find((candidate) => candidate.id === "exorcist");
+  assert.ok(exorcist);
+  assert.deepEqual(exorcist.declares, ["capability:night-step"]);
+  // The step builder's "different to last night" and the note of the step.
+  assert.deepEqual(engineLocations("exorcist"), ["bmr.ts×2"]);
+  assert.equal(ownerOf(exorcist, engineLocations("exorcist")), "capability + engine reference");
+});
+
+test("the Tinker, the Po and the Shabaloth resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  const tinker = facts.find((candidate) => candidate.id === "tinker");
+  assert.ok(tinker);
+  assert.deepEqual(tinker.declares, ["capability:night-step"]);
+  // The day command and the outcome of the step, where the host marks the
+  // death, still name the role; the completion does not.
+  assert.deepEqual(engineLocations("tinker"), ["day.ts×2", "bmr.ts×1"]);
+  assert.equal(ownerOf(tinker, engineLocations("tinker")), "capability + engine reference");
+  const po = facts.find((candidate) => candidate.id === "po");
+  assert.ok(po);
+  assert.deepEqual(po.declares, ["capability:night-step"]);
+  // The Demon set, the size of the step after a night with no choice, and
+  // the Lunatic who was shown the Po.
+  assert.deepEqual(engineLocations("po"), ["bmr.ts×6"]);
+  assert.equal(ownerOf(po, engineLocations("po")), "capability + engine reference");
+  const shabaloth = facts.find((candidate) => candidate.id === "shabaloth");
+  assert.ok(shabaloth);
+  assert.deepEqual(shabaloth.declares, ["capability:night-step"]);
+  // The Demon set, a Demon kept asleep, and the regurgitation on the outcome.
+  assert.deepEqual(engineLocations("shabaloth"), ["bmr.ts×6"]);
+  assert.equal(ownerOf(shabaloth, engineLocations("shabaloth")), "capability + engine reference");
+});
+
+test("the four Sects & Violets Demons resolve on the night-step capability, not in the step completion", () => {
+  const facts = roleModules();
+  // The Demon set, the outcome of the step where the host marks the death,
+  // and the shared mechanics each Demon keeps: the Fang Gu's once-per-game
+  // jump, the No Dashii's and the Vigormortis's poison, and the Vortox's
+  // false information and win at dusk.
+  const expected = {
+    fanggu: ["sv.ts×5"],
+    nodashii: ["sv.ts×3"],
+    vigormortis: ["sv.ts×2"],
+    vortox: ["death.ts×2", "sv.ts×2"],
+  };
+  for (const [id, locations] of Object.entries(expected)) {
+    const module = facts.find((candidate) => candidate.id === id);
+    assert.ok(module, id);
+    assert.deepEqual(module.declares, ["capability:night-step"], id);
+    assert.deepEqual(engineLocations(id), locations, id);
+    assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
+  }
+});
+
+test("the Cerenovus resolves on the night-step capability, not in the step completion", () => {
+  const cerenovus = roleModules().find((candidate) => candidate.id === "cerenovus");
+  assert.ok(cerenovus);
+  assert.deepEqual(cerenovus.declares, ["capability:night-step"]);
+  // The madness review in effects.ts and day.ts, and in sv.ts the list of
+  // good characters on the step, the console note and the command check of
+  // the character named.
+  assert.deepEqual(engineLocations("cerenovus"), ["effects.ts×1", "day.ts×1", "sv.ts×3"]);
+  assert.equal(ownerOf(cerenovus, engineLocations("cerenovus")), "capability + engine reference");
+});
+
+test("the Sects & Violets information roles declare their step on the night-step capability and keep their answers in the engine", () => {
+  const facts = roleModules();
+  // The answers in svInfoForStep, the Mathematician's ledger and the
+  // Dreamer's bar on choosing themself, and what each role's other rules
+  // keep: the Evil Twin's pair and win, the day's yes-or-no questions.
+  const expected = {
+    clockmaker: ["sv.ts×1"],
+    dreamer: ["night.ts×1", "sv.ts×1"],
+    eviltwin: ["model/state.ts×1", "death.ts×2", "setup.ts×3", "sv.ts×3", "corrections.ts×1"],
+    flowergirl: ["sv.ts×3", "host-choice.ts×1"],
+    mathematician: ["night.ts×2", "sv.ts×3"],
+    oracle: ["sv.ts×1"],
+    towncrier: ["sv.ts×2", "host-choice.ts×1"],
+  };
+  for (const [id, locations] of Object.entries(expected)) {
+    const module = facts.find((candidate) => candidate.id === id);
+    assert.ok(module, id);
+    assert.deepEqual(module.declares, ["capability:night-step"], id);
+    assert.deepEqual(engineLocations(id), locations, id);
+    assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
+  }
+});
+
+test("the Snake Charmer and the Pit-Hag declare their step and resolve their change on capabilities", () => {
+  const facts = roleModules();
+  // sv.ts routes each change to its module by role and cause and applies it
+  // through the shared swap or replacement; it builds the Pit-Hag's
+  // character list and both console notes.
+  const expected = { snakecharmer: ["sv.ts×4"], pithag: ["sv.ts×5"] };
+  for (const [id, locations] of Object.entries(expected)) {
+    const module = facts.find((candidate) => candidate.id === id);
+    assert.ok(module, id);
+    assert.deepEqual(module.declares, ["capability:night-step", "capability:transformation"], id);
+    assert.deepEqual(engineLocations(id), locations, id);
+    assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
+  }
+});
+
 test("a migrated attack keeps the references of the shared succession, not of the step completion", () => {
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);

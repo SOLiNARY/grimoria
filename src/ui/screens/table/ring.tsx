@@ -58,7 +58,8 @@ export function TableRing({ view, dismissedDawn, onDismissDawn }: TableRingProps
   const nomination =
     state.day.nominations.find((entry) => entry.id === state.day.activeNominationId) ??
     state.day.nominations[state.day.nominations.length - 1];
-  const step = projection.step;
+  // While the host owes the Demon's heir, the step behind it takes no target.
+  const step = projection.pendingDemonChange ? null : projection.step;
   const targetStep = state.phase === "night" && step && step.targetMode !== "none" ? step : null;
   const targetKey = targetStep ? targetStep.key : null;
   const draftKey = targetStep ? `${state.createdAt}:${state.night.number}:${targetStep.key}` : "";
@@ -145,7 +146,7 @@ export function TableRing({ view, dismissedDawn, onDismissDawn }: TableRingProps
         const badges = seatBadges({
           alive: player.alive,
           voteToken: player.voteToken,
-          acting: projection.step?.actorId === player.id,
+          acting: step?.actorId === player.id,
           nominated: Boolean(nominated),
           impaired: seat.impaired && player.roleId !== "drunk",
           drunk: seat.drunk && player.roleId !== "drunk",
@@ -183,7 +184,7 @@ export function TableRing({ view, dismissedDawn, onDismissDawn }: TableRingProps
           >
             <span
               className={`relative mx-auto block size-11 rounded-full bg-table-chip min-[620px]:size-[58px] ${
-                projection.step?.actorId === player.id
+                step?.actorId === player.id
                   ? "border-2 border-table-primary shadow-[0_0_0_2px_var(--color-table-primary),0_0_24px_rgba(69,184,169,.45)]"
                   : nominated
                     ? "border-2 border-table-danger shadow-[0_0_0_2px_var(--color-table-danger),0_0_22px_rgba(239,119,121,.42)]"
@@ -292,7 +293,8 @@ function Hub({
     !executed.alive &&
     executed.deadAt?.phase === "day" &&
     executed.deadAt?.number === state.day.number;
-  const step = projection.step;
+  const heir = projection.pendingDemonChange;
+  const step = heir ? null : projection.step;
   const actor = step?.actorId ? playerById(state, step.actorId) : null;
   const label =
     "text-[10px] font-semibold uppercase tracking-[.16em] text-table-muted min-[620px]:text-[11.5px]";
@@ -318,7 +320,7 @@ function Hub({
           data-hub-step
           className="max-w-full truncate font-role text-[17px] leading-tight text-player-role-text min-[620px]:text-[22px]"
         >
-          {step ? stepTitle(step, ports.roles.byId, t) : t("ui.allDone")}
+          {heir ? t("pendingHeir") : step ? stepTitle(step, ports.roles.byId, t) : t("ui.allDone")}
         </b>
         <span className={sub}>
           {step

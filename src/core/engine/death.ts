@@ -27,7 +27,8 @@ import { systemPorts } from "../model/ports.ts";
 import { isImpaired, protectionFor, soldierSafe, mayorRedirects, bmrCannotDie } from "./effects.ts";
 import { HOST_CHOICE_REASONS } from "./host-choice.ts";
 
-import { demonChangePending } from "./night.ts";
+import { appendConditionalSteps, demonChangePending } from "./night.ts";
+import { repeatsDemonWake } from "./command-versions.ts";
 import { minionRetainsAbility } from "./retention.ts";
 import { becomeDemon } from "./becoming.ts";
 import { resolveDeathCapability } from "./death-ability.ts";
@@ -195,6 +196,10 @@ export function chooseDemonHeir(
   }
   becomeDemon(state, heir, "imp", currentAt(state), ports);
   step.pending = null;
+  // Imp r3116, How to Run: the Storyteller chooses the Minion, then wakes the
+  // new Imp. The wake is queued with the choice, so the night cannot end
+  // before it even when the Imp's step was the last one.
+  if (!repeatsDemonWake(ports.rulesetVersion)) appendConditionalSteps(state, ports);
   checkWin(state, {}, ports);
   addLog(
     state,

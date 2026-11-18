@@ -62,6 +62,7 @@ import { minionRetainsAbility } from "./retention.ts";
 import { parseScript, sectsAndVioletsScript } from "../model/scripts.ts";
 import type { GameState, NightStep, RoleId, Role } from "../model/types.ts";
 import type { InfoResult } from "./index.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
 
 type MakeOptions = { count?: number };
 
@@ -3889,4 +3890,1268 @@ test("the abnormal command rejects a blank reason, an unknown player and a wrong
   });
   assert.equal(unknown.status, "rejected");
   assert.deepEqual(state.abnormal, []);
+});
+
+// The steps of the four Sects & Violets Demons as the night queue builds them
+// and as their completion leaves them: the step record, the effects, the log
+// lines, each draw from the command ports and the seat's record. The host
+// marks the death on the outcome of the step, which is pinned as well.
+
+const SV_DEMONS = ["fanggu", "nodashii", "vigormortis", "vortox"] as const;
+
+/** Eight seats where only the Cerenovus and the information roles wake beside the Demon. */
+function svDemonGame(demon: (typeof SV_DEMONS)[number]): GameState {
+  return make({
+    1: "clockmaker",
+    2: "oracle",
+    3: "towncrier",
+    // The Fang Gu adds an Outsider and the Vigormortis removes one.
+    4: demon === "vigormortis" ? "mathematician" : "klutz",
+    5: demon === "fanggu" ? "sweetheart" : "flowergirl",
+    6: "savant",
+    7: "cerenovus",
+    8: demon,
+  });
+}
+
+function svRecordingPorts(): { ports: CommandExecutionContext; draws: string[] } {
+  const draws: string[] = [];
+  let ids = 0;
+  let ticks = 0;
+  return {
+    draws,
+    ports: {
+      clock: {
+        now: () => {
+          draws.push("clock");
+          ticks += 1;
+          return "2030-01-01T00:00:0" + ticks + ".000Z";
+        },
+      },
+      rng: {
+        next: () => {
+          draws.push("rng");
+          return 0.5;
+        },
+      },
+      idFactory: {
+        suffix: (length) => {
+          draws.push("id:" + length);
+          ids += 1;
+          return ("k" + ids).padEnd(length, "0");
+        },
+      },
+    },
+  };
+}
+
+function svQueueRoles(state: GameState): string[] {
+  return state.night.queue.map((step) => String(step.roleId || step.system));
+}
+
+function svStepOf(state: GameState, roleId: RoleId): NightStep {
+  const step = state.night.queue.find((candidate) => candidate.roleId === roleId);
+  assert.ok(step, roleId + " has no step in " + JSON.stringify(svQueueRoles(state)));
+  return step;
+}
+
+/** A step without the field a completion stamps from the clock. */
+function svRecordOf(step: NightStep): Record<string, unknown> {
+  const record: Record<string, unknown> = JSON.parse(JSON.stringify(step));
+  delete record.completedAt;
+  return record;
+}
+
+function svSkipRemaining(state: GameState): void {
+  for (let guard = 0; guard < 40; guard += 1) {
+    const step = state.night.queue.find((candidate) => !candidate.done && !candidate.skipped);
+    if (!step) return;
+    assert.equal(skipStep(state, step.key, "fixture").ok, true);
+  }
+  throw new Error("night did not finish");
+}
+
+/** Skips every open step before the role's own. */
+function svSkipTo(state: GameState, roleId: RoleId): NightStep {
+  const target = svStepOf(state, roleId);
+  for (const step of state.night.queue) {
+    if (step === target) break;
+    if (!step.done && !step.skipped) assert.equal(skipStep(state, step.key, "fixture").ok, true);
+  }
+  return target;
+}
+
+/** Ends the night and the day. A Vortox game executes the Savant first, or evil wins at dusk. */
+function svToNextNight(state: GameState): void {
+  assert.equal(endNight(state).ok, true);
+  if (Object.values(state.players).some((player) => player.roleId === "vortox")) {
+    assert.equal(executeByDecision(state, "6").ok, true);
+  }
+  assert.equal(endDay(state).ok, true);
+  assert.equal(state.winner, null);
+}
+
+const SV_DEMON_OPEN_STEP = {
+  kind: "role",
+  sv: true,
+  actorAlive: true,
+  targetMode: "one-any",
+  minTargets: 1,
+  maxTargets: 1,
+  infoKind: "none",
+  optional: false,
+  canKill: true,
+  targetIds: [],
+  given: null,
+  result: null,
+  note: null,
+  pending: null,
+  done: false,
+  skipped: false,
+};
+
+const SV_DEMON_ORDER = { fanggu: 5, nodashii: 6, vortox: 7, vigormortis: 8 } as const;
+
+test("the four Sects & Violets Demons have a step from the second night, choosing one player (SNV-FANGGU-01, SNV-NODASHII-01, SNV-VIGORMORTIS-01, SNV-VORTOX-01)", () => {
+  for (const demon of SV_DEMONS) {
+    const state = svDemonGame(demon);
+    startNight(state);
+    assert.deepEqual(
+      svQueueRoles(state),
+      demon === "vigormortis"
+        ? ["minioninfo", "demoninfo", "cerenovus", "clockmaker", "mathematician"]
+        : ["minioninfo", "demoninfo", "cerenovus", "clockmaker"],
+      demon,
+    );
+    svSkipRemaining(state);
+    svToNextNight(state);
+    assert.deepEqual(
+      svQueueRoles(state),
+      demon === "fanggu"
+        ? ["cerenovus", "fanggu", "towncrier", "oracle"]
+        : demon === "vigormortis"
+          ? ["cerenovus", "vigormortis", "flowergirl", "towncrier", "oracle", "mathematician"]
+          : ["cerenovus", demon, "flowergirl", "towncrier", "oracle"],
+      demon,
+    );
+    const order = SV_DEMON_ORDER[demon];
+    assert.deepEqual(svRecordOf(svStepOf(state, demon)), {
+      ...SV_DEMON_OPEN_STEP,
+      key: "n2-" + order + "-" + demon + "-8",
+      roleId: demon,
+      actorId: "8",
+      actorName: "P8",
+      order,
+    });
+  }
+});
+
+test("a Sects & Violets Demon's step changes nothing but the step, and the host's death on its outcome is a Demon death (SNV-FANGGU-01, SNV-NODASHII-01, SNV-VIGORMORTIS-01, SNV-VORTOX-01)", () => {
+  for (const demon of SV_DEMONS) {
+    const state = svDemonGame(demon);
+    startNight(state);
+    svSkipRemaining(state);
+    svToNextNight(state);
+    const step = svSkipTo(state, demon);
+    const order = SV_DEMON_ORDER[demon];
+    const effects = JSON.parse(JSON.stringify(state.effects));
+    const usedBefore = JSON.parse(JSON.stringify(state.players["8"].used ?? null));
+    const logged = state.log.length;
+    const { ports, draws } = svRecordingPorts();
+    const result = completeStep(state, step.key, { targetIds: ["2"] }, ports);
+    assert.equal(result.ok, true, demon);
+    assert.deepEqual(
+      svRecordOf(step),
+      {
+        ...SV_DEMON_OPEN_STEP,
+        key: "n2-" + order + "-" + demon + "-8",
+        roleId: demon,
+        actorId: "8",
+        actorName: "P8",
+        order,
+        targetIds: ["2"],
+        registrations: {},
+        impaired: false,
+        note: "Шаг выполнен.",
+        noteKey: "note.finished",
+        noteVars: null,
+        done: true,
+      },
+      demon,
+    );
+    assert.equal(step.completedAt, "2030-01-01T00:00:01.000Z");
+    assert.deepEqual(state.effects, effects, demon + " leaves the effects as they were");
+    assert.deepEqual(usedBefore, {}, demon);
+    assert.deepEqual(state.players["8"].used, {}, demon + " records nothing on the seat");
+    assert.equal(state.players["2"].alive, true, demon + " kills nobody at completion");
+    assert.deepEqual(draws, ["clock", "id:5", "clock"], demon);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(state.log.slice(logged))),
+      [
+        {
+          id: "log-" + (logged + 1) + "-k1000",
+          at: "2030-01-01T00:00:02.000Z",
+          phase: "Ночь 2",
+          kind: "night",
+          title: state.log.at(-1)!.title,
+          detail: "Шаг выполнен.",
+          playerId: null,
+          secret: true,
+          roleId: demon,
+          phaseCode: "night",
+          phaseNumber: 2,
+          noteKey: "note.finished",
+          noteVars: null,
+        },
+      ],
+      demon,
+    );
+    const outcome = svRecordingPorts();
+    assert.deepEqual(
+      recordSvOutcome(state, step.key, { deathIds: ["2"] }, outcome.ports),
+      {
+        ok: true,
+        deaths: [
+          {
+            // The Vortox game executed the Savant on the first day.
+            id: demon === "vortox" ? "death-2-k100" : "death-1-k100",
+            playerId: "2",
+            roleId: "oracle",
+            cause: "ability",
+            phase: "night",
+            number: 2,
+            at: "2030-01-01T00:00:01.000Z",
+            impaired: false,
+            livingBefore: demon === "vortox" ? 7 : 8,
+            demon: true,
+            ability: demon,
+          },
+        ],
+      },
+      demon,
+    );
+    assert.deepEqual(outcome.draws, ["id:4", "clock", "id:5", "clock"], demon);
+    assert.equal(state.players["2"].alive, false, demon);
+  }
+});
+
+test("a poisoned Sects & Violets Demon's step completes without a failure note, and its outcome refuses the death (SNV-FANGGU-04)", () => {
+  for (const demon of SV_DEMONS) {
+    const state = svDemonGame(demon);
+    startNight(state);
+    svSkipRemaining(state);
+    svToNextNight(state);
+    const step = svSkipTo(state, demon);
+    state.effects.push({
+      id: "fixture-poison-8",
+      kind: "poison",
+      sourceId: "7",
+      targetId: "8",
+      start: { phase: "night", number: 2 },
+      expires: { phase: "night", number: 3 },
+      active: true,
+    });
+    const effects = JSON.parse(JSON.stringify(state.effects));
+    const { ports, draws } = svRecordingPorts();
+    assert.equal(completeStep(state, step.key, { targetIds: ["2"] }, ports).ok, true, demon);
+    assert.equal(step.impaired, true, demon);
+    assert.equal(step.note, "Шаг выполнен.", demon);
+    assert.equal(step.noteKey, "note.finished", demon);
+    assert.deepEqual(state.effects, effects, demon);
+    assert.deepEqual(state.players["8"].used, {}, demon);
+    assert.deepEqual(draws, ["clock", "id:5", "clock"], demon);
+    const before = canonicalState(state);
+    assert.deepEqual(recordSvOutcome(state, step.key, { deathIds: ["2"] }), {
+      ok: false,
+      errorCode: "error.52",
+      error: "Способность не сработала: игрок отравлен или пьян.",
+    });
+    assert.deepEqual(canonicalState(state), before, demon + " leaves the state unchanged");
+  }
+});
+
+test("the Outsider the Fang Gu jumps into wakes as the Fang Gu from the next night (SNV-FANGGU-01)", () => {
+  const state = svDemonGame("fanggu");
+  startNight(state);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  const step = svSkipTo(state, "fanggu");
+  assert.equal(completeStep(state, step.key, { targetIds: ["4"] }).ok, true);
+  assert.equal(recordSvOutcome(state, step.key, { deathIds: ["4"] }).ok, true);
+  assert.equal(state.players["4"].roleId, "fanggu");
+  assert.equal(state.players["8"].alive, false);
+  assert.equal(
+    state.night.queue.filter((candidate) => candidate.roleId === "fanggu").length,
+    1,
+    "the new Fang Gu does not wake again tonight",
+  );
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "fanggu")), {
+    ...SV_DEMON_OPEN_STEP,
+    key: "n3-5-fanggu-4",
+    roleId: "fanggu",
+    actorId: "4",
+    actorName: "P4",
+    order: 5,
+  });
+});
+
+test("a Snake Charmer who becomes the Demon on the first night does not wake as it until the second (SNV-SNAKECHARMER-01)", () => {
+  // The No Dashii poisons the Townsfolk on seats 1 and 5; the Snake Charmer on
+  // seat 3 is healthy.
+  const state = make({
+    1: "clockmaker",
+    2: "oracle",
+    3: "snakecharmer",
+    4: "towncrier",
+    5: "flowergirl",
+    6: "klutz",
+    7: "cerenovus",
+    8: "nodashii",
+  });
+  startNight(state);
+  const step = svSkipTo(state, "snakecharmer");
+  assert.equal(completeStep(state, step.key, { targetIds: ["8"] }).ok, true);
+  assert.equal(state.players["3"].roleId, "nodashii");
+  assert.deepEqual(svQueueRoles(state), [
+    "minioninfo",
+    "demoninfo",
+    "snakecharmer",
+    "cerenovus",
+    "clockmaker",
+  ]);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "nodashii")), {
+    ...SV_DEMON_OPEN_STEP,
+    key: "n2-6-nodashii-3",
+    roleId: "nodashii",
+    actorId: "3",
+    actorName: "P3",
+    order: 6,
+  });
+});
+
+// The Cerenovus's step as the queue builds it and as its completion leaves
+// it: the madness token with its id, the note, the log line, each draw from
+// the command ports and the seat's record.
+
+const SV_GOOD_ROLES = [
+  "artist",
+  "clockmaker",
+  "dreamer",
+  "flowergirl",
+  "juggler",
+  "mathematician",
+  "oracle",
+  "philosopher",
+  "sage",
+  "savant",
+  "seamstress",
+  "snakecharmer",
+  "towncrier",
+  "barber",
+  "klutz",
+  "mutant",
+  "sweetheart",
+];
+
+const SV_CERENOVUS_OPEN_STEP = {
+  ...SV_DEMON_OPEN_STEP,
+  roleId: "cerenovus",
+  actorId: "7",
+  actorName: "P7",
+  infoKind: "note",
+  canKill: false,
+  roleChoices: SV_GOOD_ROLES,
+};
+
+const SV_CERENOVUS_GIVEN = {
+  kind: "note",
+  text: "Выберите игрока и добрую роль: завтра он должен быть «помешан» на этой роли.",
+  textKey: "note.sv.cerenovus",
+};
+
+/** Completes the Cerenovus's step with recording ports and returns what it left. */
+function runCerenovus(state: GameState, options: { targetIds: string[]; roleId?: string }) {
+  const step = svSkipTo(state, "cerenovus");
+  const logged = state.log.length;
+  const { ports, draws } = svRecordingPorts();
+  const result = completeStep(state, step.key, options, ports);
+  return {
+    result,
+    step: svRecordOf(step),
+    madness: JSON.parse(
+      JSON.stringify(state.effects.filter((effect) => effect.kind === "madness")),
+    ),
+    log: JSON.parse(JSON.stringify(state.log.slice(logged))),
+    draws,
+    used: JSON.parse(JSON.stringify(state.players["7"].used ?? null)),
+  };
+}
+
+test("the Cerenovus has a step on every night, choosing one player and a good character (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "cerenovus")), {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n1-5-cerenovus-7",
+    order: 5,
+  });
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "cerenovus")), {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n2-3-cerenovus-7",
+    order: 3,
+  });
+});
+
+test("the Cerenovus makes the chosen player mad about a good character until the next dawn, each night anew (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  const first = runCerenovus(state, { targetIds: ["2"], roleId: "artist" });
+  assert.equal(first.result.ok, true);
+  assert.deepEqual(first.step, {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n1-5-cerenovus-7",
+    order: 5,
+    given: SV_CERENOVUS_GIVEN,
+    targetIds: ["2"],
+    registrations: {},
+    impaired: false,
+    note: "P2 должен быть «помешан» на роли Художник до следующего рассвета.",
+    noteKey: "note.madness",
+    noteVars: { name: "P2", role: "artist" },
+    done: true,
+  });
+  const firstToken = {
+    id: "eff-madness-cerenovus-7-2-1",
+    kind: "madness",
+    madness: "cerenovus",
+    roleId: "artist",
+    sourceId: "7",
+    targetId: "2",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "day", number: 2 },
+    active: true,
+  };
+  assert.deepEqual(first.madness, [firstToken]);
+  assert.deepEqual(first.draws, ["clock", "id:5", "clock"]);
+  assert.deepEqual(first.used, {});
+  assert.deepEqual(first.log, [
+    {
+      id: "log-" + state.log.length + "-k1000",
+      at: "2030-01-01T00:00:02.000Z",
+      phase: "Ночь 1",
+      kind: "night",
+      title: "Цереновус",
+      detail: "P2 должен быть «помешан» на роли Художник до следующего рассвета.",
+      playerId: null,
+      secret: true,
+      roleId: "cerenovus",
+      phaseCode: "night",
+      phaseNumber: 1,
+      noteKey: "note.madness",
+      noteVars: { name: "P2", role: "artist" },
+    },
+  ]);
+  svSkipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  // The day's review of the first token is the Storyteller's, not the step's.
+  reviewMadness(state);
+  assert.equal(endDay(state).ok, true);
+  const second = runCerenovus(state, { targetIds: ["3"], roleId: "sage" });
+  assert.equal(second.result.ok, true);
+  assert.equal(second.step.note, "P3 должен быть «помешан» на роли Мудрец до следующего рассвета.");
+  assert.deepEqual(second.step.noteVars, { name: "P3", role: "sage" });
+  assert.deepEqual(
+    second.madness.map((effect: { id: string; active: boolean; expires: unknown }) => [
+      effect.id,
+      effect.active,
+      effect.expires,
+    ]),
+    [
+      ["eff-madness-cerenovus-7-2-1", true, { phase: "day", number: 2 }],
+      ["eff-madness-cerenovus-7-3-2", true, { phase: "day", number: 3 }],
+    ],
+    "tonight's token does not end last night's, which has expired at dawn",
+  );
+});
+
+test("a Cerenovus who names no character makes nobody mad, and one who names an evil character is refused (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  const step = svSkipTo(state, "cerenovus");
+  const before = canonicalState(state);
+  const refused = applyCommand(state, {
+    id: "cerenovus-evil",
+    type: "completeStep",
+    payload: { key: step.key, options: { targetIds: ["2"], roleId: "nodashii" } },
+  });
+  assert.equal(refused.status, "rejected");
+  assert.equal(refused.errorCode, "error.2");
+  assert.deepEqual(canonicalState(state), before, "the refused command changes nothing");
+  const none = runCerenovus(state, { targetIds: ["2"] });
+  assert.equal(none.result.ok, true);
+  assert.equal(none.step.note, "Шаг выполнен.");
+  assert.equal(none.step.noteKey, "note.finished");
+  assert.deepEqual(none.madness, []);
+  assert.deepEqual(none.draws, ["clock", "id:5", "clock"]);
+});
+
+test("a poisoned Cerenovus makes nobody mad and gets the shared note, not a failure note (SNV-CERENOVUS-01)", () => {
+  const state = svDemonGame("nodashii");
+  startNight(state);
+  state.effects.push({
+    id: "fixture-poison-7",
+    kind: "poison",
+    sourceId: "8",
+    targetId: "7",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "night", number: 2 },
+    active: true,
+  });
+  const run = runCerenovus(state, { targetIds: ["2"], roleId: "artist" });
+  assert.equal(run.result.ok, true);
+  assert.equal(run.step.impaired, true);
+  assert.equal(run.step.note, "Шаг выполнен.");
+  assert.equal(run.step.noteKey, "note.finished");
+  assert.deepEqual(run.madness, []);
+  assert.deepEqual(run.used, {});
+  assert.deepEqual(run.draws, ["clock", "id:5", "clock"]);
+});
+
+test("a Cerenovus the Vigormortis killed keeps waking and makes a player mad (SNV-CERENOVUS-01, SNV-VIGORMORTIS-01)", () => {
+  const state = svDemonGame("vigormortis");
+  startNight(state);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  const vigormortis = svSkipTo(state, "vigormortis");
+  assert.equal(completeStep(state, vigormortis.key, { targetIds: ["7"] }).ok, true);
+  assert.equal(recordSvOutcome(state, vigormortis.key, { deathIds: ["7"] }).ok, true);
+  assert.equal(state.players["7"].alive, false);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svRecordOf(svStepOf(state, "cerenovus")), {
+    ...SV_CERENOVUS_OPEN_STEP,
+    key: "n3-3-cerenovus-7",
+    order: 3,
+    actorAlive: false,
+  });
+  const run = runCerenovus(state, { targetIds: ["3"], roleId: "artist" });
+  assert.equal(run.result.ok, true);
+  assert.equal(run.step.noteKey, "note.madness");
+  assert.deepEqual(
+    run.madness.map((effect: { id: string }) => effect.id),
+    ["eff-madness-cerenovus-7-3-3"],
+  );
+});
+
+// The steps of the Sects & Violets information roles whose wake reads no
+// game state, as the queue builder, a Philosopher and a Pit-Hag build them,
+// and what their completion leaves: the stored answer, the shared note and,
+// for the Mathematician, the cleared ledger.
+
+/** Ten seats with the seven information roles, a Philosopher and the Pit-Hag. */
+function svInformationGame(): GameState {
+  return make({
+    1: "clockmaker",
+    2: "dreamer",
+    3: "flowergirl",
+    4: "mathematician",
+    5: "oracle",
+    6: "towncrier",
+    7: "philosopher",
+    8: "eviltwin",
+    9: "pithag",
+    10: "vigormortis",
+  });
+}
+
+const SV_INFO_OPEN_STEP = {
+  kind: "role",
+  sv: true,
+  actorAlive: true,
+  targetMode: "none",
+  minTargets: 0,
+  maxTargets: 0,
+  optional: false,
+  canKill: false,
+  targetIds: [],
+  given: null,
+  result: null,
+  note: null,
+  pending: null,
+  done: false,
+  skipped: false,
+};
+
+const SV_FINISHED = {
+  registrations: {},
+  impaired: false,
+  note: "Шаг выполнен.",
+  noteKey: "note.finished",
+  noteVars: null,
+  done: true,
+};
+
+function svInfoStep(
+  key: string,
+  roleId: RoleId,
+  actorId: string,
+  order: number,
+  infoKind: string,
+  target = false,
+) {
+  return {
+    ...SV_INFO_OPEN_STEP,
+    key,
+    roleId,
+    actorId,
+    actorName: "P" + actorId,
+    order,
+    infoKind,
+    ...(target ? { targetMode: "one-any", minTargets: 1, maxTargets: 1 } : {}),
+  };
+}
+
+test("the Clockmaker and the Evil Twin wake on the first night only, the Dreamer and the Mathematician every night, and the Flowergirl, the Town Crier and the Oracle from the second (SNV-CLOCKMAKER-01, SNV-EVILTWIN-01, SNV-DREAMER-01, SNV-MATHEMATICIAN-01, SNV-FLOWERGIRL-01, SNV-TOWNCRIER-01, SNV-ORACLE-01)", () => {
+  const state = svInformationGame();
+  startNight(state);
+  assert.deepEqual(svQueueRoles(state), [
+    "philosopher",
+    "minioninfo",
+    "demoninfo",
+    "eviltwin",
+    "clockmaker",
+    "dreamer",
+    "mathematician",
+  ]);
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "eviltwin")),
+    svInfoStep("n1-3-eviltwin-8", "eviltwin", "8", 3, "note"),
+  );
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "clockmaker")),
+    svInfoStep("n1-6-clockmaker-1", "clockmaker", "1", 6, "number"),
+  );
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "dreamer")),
+    svInfoStep("n1-7-dreamer-2", "dreamer", "2", 7, "note", true),
+  );
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "mathematician")),
+    svInfoStep("n1-9-mathematician-4", "mathematician", "4", 9, "number"),
+  );
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svQueueRoles(state), [
+    "philosopher",
+    "pithag",
+    "vigormortis",
+    "dreamer",
+    "flowergirl",
+    "towncrier",
+    "oracle",
+    "mathematician",
+  ]);
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "dreamer")),
+    svInfoStep("n2-12-dreamer-2", "dreamer", "2", 12, "note", true),
+  );
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "flowergirl")),
+    svInfoStep("n2-13-flowergirl-3", "flowergirl", "3", 13, "yes-no"),
+  );
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "towncrier")),
+    svInfoStep("n2-14-towncrier-6", "towncrier", "6", 14, "yes-no"),
+  );
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "oracle")),
+    svInfoStep("n2-15-oracle-5", "oracle", "5", 15, "number"),
+  );
+  assert.deepEqual(
+    svRecordOf(svStepOf(state, "mathematician")),
+    svInfoStep("n2-18-mathematician-4", "mathematician", "4", 18, "number"),
+  );
+});
+
+test("an information step stores its answer and the shared note, and the Mathematician's step clears the abnormal ledger (SNV-CLOCKMAKER-01, SNV-EVILTWIN-01, SNV-DREAMER-01, SNV-MATHEMATICIAN-01, SNV-FLOWERGIRL-01, SNV-TOWNCRIER-01, SNV-ORACLE-01)", () => {
+  const state = svInformationGame();
+  startNight(state);
+  const run = (roleId: RoleId, targetIds: string[] = []) => {
+    const step = svSkipTo(state, roleId);
+    const effects = JSON.stringify(state.effects);
+    const logged = state.log.length;
+    const { ports, draws } = svRecordingPorts();
+    assert.equal(completeStep(state, step.key, { targetIds }, ports).ok, true, roleId);
+    assert.equal(JSON.stringify(state.effects), effects, roleId + " writes no effect");
+    assert.deepEqual(draws, ["clock", "id:5", "clock"], roleId);
+    assert.equal(state.log.length, logged + 1, roleId + " writes one log line");
+    return svRecordOf(step);
+  };
+  assert.deepEqual(run("eviltwin"), {
+    ...svInfoStep("n1-3-eviltwin-8", "eviltwin", "8", 3, "note"),
+    ...SV_FINISHED,
+    given: {
+      kind: "note",
+      textKey: "note.sv.evilTwin",
+      textVars: { actor: "P8", twin: "P1", twinRole: "clockmaker" },
+      text: "Покажите Близнецам друг друга: P8 и P1 (Часовщик).",
+    },
+  });
+  assert.deepEqual(run("clockmaker"), {
+    ...svInfoStep("n1-6-clockmaker-1", "clockmaker", "1", 6, "number"),
+    ...SV_FINISHED,
+    given: {
+      kind: "number",
+      value: 1,
+      impaired: false,
+      needsChoice: false,
+      options: [],
+      textKey: "note.sv.clockmaker",
+      textVars: { value: 1 },
+      falsifiedSuffix: false,
+      mayBeFalseSuffix: false,
+      text: "Расстояние от Демона до ближайшего Приспешника: 1.",
+    },
+  });
+  assert.deepEqual(run("dreamer", ["5"]), {
+    ...svInfoStep("n1-7-dreamer-2", "dreamer", "2", 7, "note", true),
+    ...SV_FINISHED,
+    targetIds: ["5"],
+    given: {
+      kind: "note",
+      impaired: false,
+      needsChoice: false,
+      textKey: "note.sv.dreamer",
+      textVars: { target: "P5" },
+      falsifiedSuffix: false,
+      mayBeFalseSuffix: false,
+      text: "Сон о P5: покажите 1 добрую и 1 злую роль; одна из них — роль P5.",
+    },
+  });
+  const mark = applyCommand(state, {
+    id: "info-abnormal",
+    type: "recordAbnormal",
+    payload: { playerId: "2", reason: "The test Storyteller's mark." },
+  });
+  assert.equal(mark.status, "allowed");
+  assert.equal(state.abnormal!.length, 1);
+  assert.deepEqual(run("mathematician"), {
+    ...svInfoStep("n1-9-mathematician-4", "mathematician", "4", 9, "number"),
+    ...SV_FINISHED,
+    given: {
+      kind: "number",
+      value: 1,
+      impaired: false,
+      needsChoice: false,
+      options: [],
+      textKey: "note.sv.mathematician",
+      falsifiedSuffix: false,
+      mayBeFalseSuffix: false,
+      text: "Способности сработали некорректно: 1.",
+    },
+  });
+  assert.deepEqual(state.abnormal, [], "the Mathematician's step clears the ledger");
+  svSkipRemaining(state);
+  svToNextNight(state);
+  const yesNo = (
+    roleId: RoleId,
+    key: string,
+    actorId: string,
+    order: number,
+    textKey: string,
+    text: string,
+  ) => {
+    assert.deepEqual(run(roleId), {
+      ...svInfoStep(key, roleId, actorId, order, "yes-no"),
+      ...SV_FINISHED,
+      given: {
+        kind: "yes-no",
+        value: false,
+        impaired: false,
+        needsChoice: false,
+        options: [],
+        textKey,
+        falsifiedSuffix: false,
+        mayBeFalseSuffix: false,
+        text,
+      },
+    });
+  };
+  yesNo(
+    "flowergirl",
+    "n2-13-flowergirl-3",
+    "3",
+    13,
+    "note.sv.flowergirlNo",
+    "Демон голосовал сегодня: нет.",
+  );
+  yesNo(
+    "towncrier",
+    "n2-14-towncrier-6",
+    "6",
+    14,
+    "note.sv.towncrierNo",
+    "Приспешник выдвигал сегодня: нет.",
+  );
+  assert.deepEqual(run("oracle"), {
+    ...svInfoStep("n2-15-oracle-5", "oracle", "5", 15, "number"),
+    ...SV_FINISHED,
+    given: {
+      kind: "number",
+      value: 0,
+      impaired: false,
+      needsChoice: false,
+      options: [],
+      textKey: "note.sv.oracle",
+      textVars: { value: 0 },
+      falsifiedSuffix: false,
+      mayBeFalseSuffix: false,
+      text: "Мёртвых злых игроков: 0.",
+    },
+  });
+});
+
+test("a Philosopher who gains an information ability wakes for it in its slot, at once for a first-night ability on a later night, and from the next night when gained on the first (SNV-PHILOSOPHER-01)", () => {
+  const borrow = (roleId: RoleId, night: number) => {
+    const state = svInformationGame();
+    startNight(state);
+    if (night === 2) {
+      svSkipRemaining(state);
+      svToNextNight(state);
+    }
+    const step = svStepOf(state, "philosopher");
+    assert.equal(completeStep(state, step.key, { targetIds: [], roleId }).ok, true, roleId);
+    return state;
+  };
+  const oracle = borrow("oracle", 2);
+  assert.deepEqual(
+    svRecordOf(
+      oracle.night.queue.find((step) => step.roleId === "oracle" && step.actorId === "7")!,
+    ),
+    svInfoStep("n2-15-oracle-7", "oracle", "7", 15, "number"),
+  );
+  const clockmaker = borrow("clockmaker", 2);
+  assert.deepEqual(
+    svRecordOf(clockmaker.night.queue.find((step) => step.roleId === "clockmaker")!),
+    svInfoStep("n2-0.1-clockmaker-7", "clockmaker", "7", 0.1, "number"),
+  );
+  const early = borrow("flowergirl", 1);
+  assert.equal(
+    early.night.queue.some((step) => step.actorId === "7" && step.roleId === "flowergirl"),
+    false,
+    "an ability of the later nights does not wake on the first",
+  );
+  svSkipRemaining(early);
+  svToNextNight(early);
+  assert.deepEqual(
+    svRecordOf(
+      early.night.queue.find((step) => step.roleId === "flowergirl" && step.actorId === "7")!,
+    ),
+    svInfoStep("n2-13-flowergirl-7", "flowergirl", "7", 13, "yes-no"),
+  );
+});
+
+test("a player the Pit-Hag makes the Town Crier wakes for it tonight, and one made the Clockmaker does not (SNV-PITHAG-01)", () => {
+  const change = (roleId: RoleId) => {
+    const state = make({
+      1: "savant",
+      2: "artist",
+      3: "sage",
+      4: "juggler",
+      5: "seamstress",
+      6: "philosopher",
+      7: "pithag",
+      8: "vigormortis",
+    });
+    startNight(state);
+    svSkipRemaining(state);
+    svToNextNight(state);
+    const step = svSkipTo(state, "pithag");
+    assert.equal(completeStep(state, step.key, { targetIds: ["2"], roleId }).ok, true, roleId);
+    assert.equal(state.players["2"].roleId, roleId);
+    return state;
+  };
+  const crier = change("towncrier");
+  assert.deepEqual(
+    svRecordOf(svStepOf(crier, "towncrier")),
+    svInfoStep("n2-14-towncrier-2", "towncrier", "2", 14, "yes-no"),
+  );
+  const clockmaker = change("clockmaker");
+  assert.equal(
+    clockmaker.night.queue.some((step) => step.roleId === "clockmaker"),
+    false,
+    "a first-night ability has no wake on a later night",
+  );
+});
+
+// The Snake Charmer's and the Pit-Hag's steps, and the character changes
+// their completion writes through the shared swap and replacement.
+
+function svCharmerGame(second: RoleId = "oracle"): GameState {
+  // The No Dashii poisons the Townsfolk on seats 1 and 5; the Snake Charmer
+  // on seat 3 and the player on seat 2 are healthy.
+  return make({
+    1: "clockmaker",
+    2: second,
+    3: "snakecharmer",
+    4: "towncrier",
+    5: "flowergirl",
+    6: "klutz",
+    7: "pithag",
+    8: "nodashii",
+  });
+}
+
+function svSeat(state: GameState, id: string) {
+  const player = state.players[id];
+  return JSON.parse(
+    JSON.stringify({
+      roleId: player.roleId,
+      shownRoleId: player.shownRoleId,
+      team: player.team,
+      changedFrom: player.changedFrom ?? null,
+      used: player.used ?? null,
+    }),
+  );
+}
+
+const SV_CHARMER_GIVEN = {
+  kind: "note",
+  textKey: "note.sv.snakecharmer",
+  text: "Если выбрали Демона, поменяйте роли и стороны; Демон становится отравлен.",
+};
+
+test("the Snake Charmer has a step on every night choosing one player, and the Pit-Hag from the second night with every character (SNV-SNAKECHARMER-01, SNV-PITHAG-01)", () => {
+  const state = svCharmerGame();
+  startNight(state);
+  assert.deepEqual(svQueueRoles(state), ["minioninfo", "demoninfo", "snakecharmer", "clockmaker"]);
+  const open = {
+    ...SV_INFO_OPEN_STEP,
+    targetMode: "one-any",
+    minTargets: 1,
+    maxTargets: 1,
+    infoKind: "note",
+  };
+  assert.deepEqual(svRecordOf(svStepOf(state, "snakecharmer")), {
+    ...open,
+    key: "n1-2-snakecharmer-3",
+    roleId: "snakecharmer",
+    actorId: "3",
+    actorName: "P3",
+    order: 2,
+  });
+  svSkipRemaining(state);
+  svToNextNight(state);
+  assert.deepEqual(svQueueRoles(state), [
+    "snakecharmer",
+    "pithag",
+    "nodashii",
+    "flowergirl",
+    "towncrier",
+    "oracle",
+  ]);
+  assert.deepEqual(svRecordOf(svStepOf(state, "snakecharmer")), {
+    ...open,
+    key: "n2-1-snakecharmer-3",
+    roleId: "snakecharmer",
+    actorId: "3",
+    actorName: "P3",
+    order: 1,
+  });
+  assert.deepEqual(svRecordOf(svStepOf(state, "pithag")), {
+    ...open,
+    key: "n2-4-pithag-7",
+    roleId: "pithag",
+    actorId: "7",
+    actorName: "P7",
+    order: 4,
+    canKill: true,
+    roleChoices: [
+      ...SV_GOOD_ROLES,
+      "cerenovus",
+      "eviltwin",
+      "pithag",
+      "witch",
+      "fanggu",
+      "nodashii",
+      "vigormortis",
+      "vortox",
+    ],
+  });
+});
+
+test("a Snake Charmer who chooses the Demon swaps characters and alignments with it and poisons it for good, and the new Demon wakes tonight (SNV-SNAKECHARMER-01)", () => {
+  const state = svCharmerGame();
+  startNight(state);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  const step = svSkipTo(state, "snakecharmer");
+  const logged = state.log.length;
+  const { ports, draws } = svRecordingPorts();
+  assert.equal(completeStep(state, step.key, { targetIds: ["8"] }, ports).ok, true);
+  assert.deepEqual(svRecordOf(step), {
+    ...SV_INFO_OPEN_STEP,
+    ...SV_FINISHED,
+    key: "n2-1-snakecharmer-3",
+    roleId: "snakecharmer",
+    actorId: "3",
+    actorName: "P3",
+    order: 1,
+    targetMode: "one-any",
+    minTargets: 1,
+    maxTargets: 1,
+    infoKind: "note",
+    targetIds: ["8"],
+    given: SV_CHARMER_GIVEN,
+    note: "P3 и P8 меняются персонажами; P8 отравлен.",
+    noteKey: "note.characterSwapPoisoned",
+    noteVars: { actor: "P3", target: "P8" },
+  });
+  assert.deepEqual(svSeat(state, "3"), {
+    roleId: "nodashii",
+    shownRoleId: "nodashii",
+    team: "evil",
+    changedFrom: "snakecharmer",
+    used: {},
+  });
+  assert.deepEqual(svSeat(state, "8"), {
+    roleId: "snakecharmer",
+    shownRoleId: "snakecharmer",
+    team: "good",
+    changedFrom: "nodashii",
+    used: {},
+  });
+  assert.equal(
+    JSON.stringify(state.effects),
+    JSON.stringify([
+      {
+        id: "eff-nodashii-8-5",
+        kind: "poison",
+        nodashii: true,
+        sourceId: "8",
+        targetId: "5",
+        start: { phase: "night", number: 1 },
+        expires: null,
+        active: false,
+      },
+      {
+        id: "eff-nodashii-8-1",
+        kind: "poison",
+        nodashii: true,
+        sourceId: "8",
+        targetId: "1",
+        start: { phase: "night", number: 1 },
+        expires: null,
+        active: false,
+      },
+      {
+        id: "eff-nodashii-3-2",
+        kind: "poison",
+        nodashii: true,
+        sourceId: "3",
+        targetId: "2",
+        start: { phase: "night", number: 2 },
+        expires: null,
+        active: true,
+      },
+      {
+        id: "eff-nodashii-3-4",
+        kind: "poison",
+        nodashii: true,
+        sourceId: "3",
+        targetId: "4",
+        start: { phase: "night", number: 2 },
+        expires: null,
+        active: true,
+      },
+      {
+        id: "eff-snakecharmer-3-8",
+        kind: "poison",
+        permanent: true,
+        sourceId: "3",
+        targetId: "8",
+        start: { phase: "night", number: 2 },
+        expires: null,
+        active: true,
+      },
+    ]),
+    "the No Dashii's poison follows the new holder before the Snake Charmer's poison is written",
+  );
+  assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+  assert.equal(state.log.length, logged + 1);
+  assert.equal(state.log.at(-1)!.noteKey, "note.characterSwapPoisoned");
+  assert.deepEqual(
+    state.night.queue.map((candidate) => [
+      candidate.key,
+      candidate.done,
+      candidate.skipped,
+      candidate.noteKey ?? null,
+    ]),
+    [
+      ["n2-1-snakecharmer-3", true, false, "note.characterSwapPoisoned"],
+      ["n2-4-pithag-7", false, false, null],
+      ["n2-6-nodashii-8", true, true, "note.characterChanged"],
+      ["n2-6-nodashii-3", false, false, null],
+      ["n2-13-flowergirl-5", false, false, null],
+      ["n2-14-towncrier-4", false, false, null],
+      ["n2-15-oracle-2", false, false, null],
+    ],
+  );
+});
+
+test("a Snake Charmer who chooses a player who is not the Demon, or who is poisoned, changes nothing, and a dead player is refused (SNV-SNAKECHARMER-01)", () => {
+  const unchanged = (state: GameState, targetIds: string[]) => {
+    const step = svSkipTo(state, "snakecharmer");
+    const seats = JSON.stringify(state.order.map((id) => svSeat(state, id)));
+    const effects = JSON.stringify(state.effects);
+    const { ports, draws } = svRecordingPorts();
+    assert.equal(completeStep(state, step.key, { targetIds }, ports).ok, true);
+    assert.equal(step.note, "Шаг выполнен.");
+    assert.equal(step.noteKey, "note.finished");
+    assert.equal(JSON.stringify(state.order.map((id) => svSeat(state, id))), seats);
+    assert.equal(JSON.stringify(state.effects), effects);
+    assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+  };
+  const minion = svCharmerGame();
+  startNight(minion);
+  unchanged(minion, ["7"]);
+  const poisoned = svCharmerGame();
+  startNight(poisoned);
+  poisoned.effects.push({
+    id: "fixture-poison-3",
+    kind: "poison",
+    sourceId: "7",
+    targetId: "3",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "night", number: 2 },
+    active: true,
+  });
+  unchanged(poisoned, ["8"]);
+  const dead = svCharmerGame();
+  startNight(dead);
+  svSkipRemaining(dead);
+  svToNextNight(dead);
+  dead.players["2"].alive = false;
+  const step = svSkipTo(dead, "snakecharmer");
+  const before = canonicalState(dead);
+  const refused = applyCommand(dead, {
+    id: "charmer-dead",
+    type: "completeStep",
+    payload: { key: step.key, options: { targetIds: ["2"] } },
+  });
+  assert.equal(refused.status, "rejected");
+  assert.equal(refused.errorCode, "error.55");
+  assert.deepEqual(canonicalState(dead), before);
+});
+
+test("a Philosopher with the Snake Charmer's ability who chooses the Demon becomes the Demon, and the Demon becomes a poisoned Philosopher (SNV-SNAKECHARMER-01, SNV-PHILOSOPHER-01)", () => {
+  const state = svCharmerGame("philosopher");
+  startNight(state);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  const philosopher = svStepOf(state, "philosopher");
+  assert.equal(
+    completeStep(state, philosopher.key, { targetIds: [], roleId: "snakecharmer" }).ok,
+    true,
+  );
+  const borrowed = state.night.queue.find(
+    (candidate) => candidate.roleId === "snakecharmer" && candidate.actorId === "2",
+  )!;
+  assert.equal(borrowed.key, "n2-1-snakecharmer-2");
+  assert.equal(completeStep(state, borrowed.key, { targetIds: ["8"] }).ok, true);
+  assert.equal(borrowed.noteKey, "note.characterSwapPoisoned");
+  assert.deepEqual(svSeat(state, "2"), {
+    roleId: "nodashii",
+    shownRoleId: "nodashii",
+    team: "evil",
+    changedFrom: "philosopher",
+    used: { philosopher: true },
+  });
+  assert.deepEqual(svSeat(state, "8"), {
+    roleId: "philosopher",
+    shownRoleId: "philosopher",
+    team: "good",
+    changedFrom: "nodashii",
+    used: {},
+  });
+  assert.deepEqual(
+    state.effects
+      .filter((effect) => effect.permanent === true)
+      .map((effect) => [effect.id, effect.targetId, effect.active]),
+    [["eff-snakecharmer-2-8", "8", true]],
+  );
+  assert.equal(isImpaired(state, "8", { phase: "night", number: 2 }), true);
+});
+
+test("the Pit-Hag turns a player into a character not in play, does nothing for one in play, and fails while poisoned (SNV-PITHAG-01)", () => {
+  const run = (roleId: RoleId, poisoned = false) => {
+    const state = svCharmerGame();
+    startNight(state);
+    svSkipRemaining(state);
+    svToNextNight(state);
+    const step = svSkipTo(state, "pithag");
+    if (poisoned) {
+      state.effects.push({
+        id: "fixture-poison-7",
+        kind: "poison",
+        sourceId: "3",
+        targetId: "7",
+        start: { phase: "night", number: 2 },
+        expires: { phase: "night", number: 3 },
+        active: true,
+      });
+    }
+    const { ports, draws } = svRecordingPorts();
+    assert.equal(completeStep(state, step.key, { targetIds: ["6"], roleId }, ports).ok, true);
+    assert.deepEqual(draws, ["clock", "id:5", "clock"]);
+    return { state, step };
+  };
+  const changed = run("sage");
+  assert.equal(changed.step.note, "P6 становится: Мудрец.");
+  assert.equal(changed.step.noteKey, "note.characterBecame");
+  assert.deepEqual(changed.step.noteVars, { name: "P6", role: "sage" });
+  assert.deepEqual(svSeat(changed.state, "6"), {
+    roleId: "sage",
+    shownRoleId: "sage",
+    team: "good",
+    changedFrom: "klutz",
+    used: {},
+  });
+  const inPlay = run("oracle");
+  assert.equal(inPlay.step.noteKey, "note.pithagInPlay");
+  assert.equal(inPlay.step.note, "Оракул уже в игре: ничего не происходит.");
+  assert.equal(inPlay.state.players["6"].roleId, "klutz");
+  const failed = run("sage", true);
+  assert.equal(failed.step.noteKey, "note.abilityFailed");
+  assert.equal(failed.state.players["6"].roleId, "klutz");
+});
+
+test("a Demon the Pit-Hag makes does not wake tonight, and the host marks the night's deaths on the Pit-Hag's step (SNV-PITHAG-01)", () => {
+  const state = svCharmerGame();
+  startNight(state);
+  svSkipRemaining(state);
+  svToNextNight(state);
+  const step = svSkipTo(state, "pithag");
+  assert.equal(completeStep(state, step.key, { targetIds: ["6"], roleId: "vortox" }).ok, true);
+  assert.equal(step.canKill, true);
+  assert.equal(step.note, "P6 становится: Вортокс. Смерти этой ночью выбирает ведущий.");
+  assert.equal(state.players["6"].roleId, "vortox");
+  assert.equal(state.players["6"].team, "good", "the alignment does not change");
+  assert.equal(
+    state.night.queue.some((candidate) => candidate.roleId === "vortox"),
+    false,
+    "the new Demon does not take the Demon's turn tonight",
+  );
+  const outcome = recordSvOutcome(state, step.key, { deathIds: ["2"] });
+  assert.equal(outcome.ok, true);
+  assert.deepEqual(
+    state.deaths.map((death) => [death.playerId, death.cause, death.demon, death.ability]),
+    [["2", "ability", false, "pithag"]],
+  );
 });

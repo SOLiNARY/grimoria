@@ -22,6 +22,12 @@ export interface AbilityContext {
   readonly targetIds: readonly string[];
   /** The host's character answer for the step: the Courtier's character or the Gambler's guess. */
   readonly chosenRoleId: RoleId | null;
+  /**
+   * The host's answer for who the ability makes drunk: the Sailor or the
+   * chosen player, one of the Innkeeper's two players. Null when the host
+   * named nobody; the command path checks the answer against the step.
+   */
+  readonly drunkId: string | null;
   /** True when the effect graph says the actor is drunk or poisoned now. */
   readonly impaired: boolean;
   /** The night the step resolves in. */
@@ -36,8 +42,19 @@ export interface AbilityContext {
   nameOf(playerId: string): string;
 }
 
-/** The effect kinds a dated intent may add. A kind arrives with its first migrated role. */
-export type TimedEffectKind = "poison" | "protected" | "butler";
+/**
+ * The effect kinds a dated intent may add. A kind arrives with its first
+ * migrated role. `protected` is safe from the Demon (the Monk); `safe` cannot
+ * die tonight from any ability (the Innkeeper); `survives-execution` stays
+ * alive if executed the next day (the Devil's Advocate).
+ */
+export type TimedEffectKind =
+  | "poison"
+  | "protected"
+  | "butler"
+  | "drunk"
+  | "safe"
+  | "survives-execution";
 
 /** An intent the engine applies through a shared mechanic. */
 export type RoleEffect =
@@ -88,7 +105,51 @@ export type RoleEffect =
    * of the choice, not the restriction, so it is recorded whether or not the
    * ability works.
    */
-  | { readonly kind: "record-master"; readonly playerId: string };
+  | { readonly kind: "record-master"; readonly playerId: string }
+  /**
+   * The player the acting seat chose tonight, or null for nobody. The step
+   * builder reads it for "different to last night", which is about the
+   * choice, so it is recorded whether or not the ability works.
+   */
+  | { readonly kind: "record-choice"; readonly playerId: string | null }
+  /**
+   * Whether the acting seat chose no one tonight. The step builder reads it
+   * for the size of the next night's step, which depends on the choice, not
+   * on whether the ability worked.
+   */
+  | { readonly kind: "record-no-one"; readonly noOne: boolean }
+  /**
+   * The players the acting seat chose tonight. The engine keeps the record it
+   * replaces as last night's choice, which the outcome reads for a player
+   * chosen last night, and writes both on the acting seat under the acting
+   * role.
+   */
+  | { readonly kind: "record-choices"; readonly playerIds: readonly string[] }
+  /**
+   * The chosen player is mad about being a character until `expires`, the
+   * first moment the madness no longer applies. The engine writes the
+   * madness token under the acting ability, with an id made of the ability,
+   * the acting seat, the player and the night, and the Storyteller reviews
+   * it on each day it applies. On the `suppressed` path nothing is written.
+   */
+  | {
+      readonly kind: "madness";
+      readonly playerId: string;
+      readonly roleId: RoleId;
+      readonly expires: DeadAt;
+    }
+  /**
+   * The Demon on this seat does not wake tonight; its other abilities still
+   * resolve. The engine finds the Demon's step in tonight's queue and writes
+   * `note` on it, and adds `log` as a secret log line. The role names a seat
+   * that holds the Demon.
+   */
+  | {
+      readonly kind: "block-demon";
+      readonly playerId: string;
+      readonly note: AbilityNote;
+      readonly log: { readonly title: string; readonly detail: string };
+    };
 
 export interface AbilityNote {
   readonly key: string;
@@ -215,6 +276,7 @@ export type TransformationCause = "pithag" | "snakecharmer" | "barber" | "fanggu
 export interface TransformationContext {
   readonly actorId: string;
   readonly targetId: string;
+  /** The character the change gives; for a swap, the one the acting seat would take. */
   readonly newRoleId: RoleId;
   readonly cause: TransformationCause;
   readonly impaired: boolean;
@@ -227,7 +289,20 @@ export interface TransformationContext {
 
 export type TransformationDecision =
   | { readonly kind: "replace"; readonly playerId: string; readonly roleId: RoleId }
-  | { readonly kind: "no-effect"; readonly reason: "impaired" | "in-play" };
+  /**
+   * The acting seat and the player swap characters through the shared swap,
+   * which requeues tonight's steps. `alignments` exchanges their alignments
+   * too. `poisoned` poisons the player for good by the acting ability once
+   * the swap is done; the engine mints the effect's id from the ability, the
+   * acting seat and the player, and writes it once.
+   */
+  | {
+      readonly kind: "swap";
+      readonly playerId: string;
+      readonly alignments: boolean;
+      readonly poisoned: boolean;
+    }
+  | { readonly kind: "no-effect"; readonly reason: "impaired" | "in-play" | "not-demon" };
 
 /** Read-only facts for an information capability. */
 export interface InformationContext {
@@ -372,6 +447,14 @@ export type RoleCapability =
       readonly timing: NightTiming;
       /** The step the night queue builds for the role. */
       readonly step: NightStepSpec;
+      /**
+       * The kinds of dated effect this ability gave that end each time the
+       * step resolves. The engine ends them before the resolver runs, also
+       * when the ability does not work now: tonight's choice replaces the
+       * last one. An arm that attacks does not declare them, because an
+       * attack may wait for the host before anything is written.
+       */
+      readonly endsOnUse?: readonly TimedEffectKind[];
       /** Resolves the completed step. Absent means the engine keeps its own path. */
       readonly resolve?: (context: AbilityContext) => AbilityDecision;
     }

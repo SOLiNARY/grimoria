@@ -6,14 +6,76 @@ export const LEGACY_RULESET_VERSION = "tb-bmr-snv-2026-11-10";
  * declares it (Librarian r1721).
  */
 export const ANY_ROLE_ZERO_RULESET_VERSION = "tb-bmr-snv-2026-11-16";
-export const RULESET_VERSION = "tb-bmr-snv-2026-11-17";
+/**
+ * The last version that woke a new Demon a second time on the night after a
+ * night succession, and queued the wake of a heir the host named only when a
+ * later step of that night ended. From the next one the new Demon is woken
+ * once, the night of the change (Imp r3116, Scarlet Woman r3117).
+ */
+export const REPEATED_DEMON_WAKE_RULESET_VERSION = "tb-bmr-snv-2026-11-17";
+/**
+ * The last version whose Tinker step took any death the host marked, also
+ * while the Tinker was drunk or poisoned. From the next one only the Tinker
+ * dies there, and only while the ability works (Tinker r1782, States r1039).
+ */
+export const OPEN_TINKER_STEP_RULESET_VERSION = "tb-bmr-snv-2026-11-17.1";
+/**
+ * The last version whose Bad Moon Rising night steps took any resurrection
+ * the host marked. From the next one only a step whose ability resurrects
+ * brings a player back (Professor r1775, Shabaloth r1790).
+ */
+export const ANY_STEP_RESURRECTS_RULESET_VERSION = "tb-bmr-snv-2026-11-17.2";
+export const RULESET_VERSION = "tb-bmr-snv-2026-11-17.3";
 export const SUPPORTED_RULESET_VERSIONS = new Set([
   LEGACY_RULESET_VERSION,
   ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
+  ANY_STEP_RESURRECTS_RULESET_VERSION,
   RULESET_VERSION,
 ]);
 
 /** Whether a command recorded under this version answers a zero held for any role. */
 export function answersZeroForAnyRole(version: string | undefined): boolean {
   return version === LEGACY_RULESET_VERSION || version === ANY_ROLE_ZERO_RULESET_VERSION;
+}
+
+/**
+ * Whether a command recorded under this version wakes a new Demon the way it
+ * did before the fix: again on the night after a night change, and, after a
+ * named heir, only when a later step of the night ends.
+ */
+export function repeatsDemonWake(version: string | undefined): boolean {
+  return (
+    version === LEGACY_RULESET_VERSION ||
+    version === ANY_ROLE_ZERO_RULESET_VERSION ||
+    version === REPEATED_DEMON_WAKE_RULESET_VERSION
+  );
+}
+
+/**
+ * Whether a command recorded under this version lets the host mark any death
+ * on the Tinker's step, also while the Tinker is drunk or poisoned.
+ */
+export function marksAnyDeathOnTinkerStep(version: string | undefined): boolean {
+  return (
+    version === LEGACY_RULESET_VERSION ||
+    version === ANY_ROLE_ZERO_RULESET_VERSION ||
+    version === REPEATED_DEMON_WAKE_RULESET_VERSION ||
+    version === OPEN_TINKER_STEP_RULESET_VERSION
+  );
+}
+
+/**
+ * Whether a command recorded under this version lets the host bring a player
+ * back on a Bad Moon Rising night step whose ability does not resurrect.
+ */
+export function resurrectsOnAnyStep(version: string | undefined): boolean {
+  return (
+    version === LEGACY_RULESET_VERSION ||
+    version === ANY_ROLE_ZERO_RULESET_VERSION ||
+    version === REPEATED_DEMON_WAKE_RULESET_VERSION ||
+    version === OPEN_TINKER_STEP_RULESET_VERSION ||
+    version === ANY_STEP_RESURRECTS_RULESET_VERSION
+  );
 }

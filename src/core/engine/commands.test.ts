@@ -1139,6 +1139,111 @@ test("a mixed poison/drunk cycle is rejected", () => {
   assert.deepEqual(result.errors, mirrored.errors);
 });
 
+// A permanent effect stays active whatever happens to its source, so it waits
+// for no effect on that source. Goon r2977: "The Goon still changes alignment,
+// and makes the player drunk, if the player choosing the Goon was already drunk
+// or poisoned." A chooser poisoned by their own ability is such a player.
+test("a permanent effect on its own source resolves beside that source's own poison (SYS-EFFECTS-04, BMR-GOON-01)", () => {
+  for (const reversed of [false, true]) {
+    const state = poisonFixture();
+    state.effects.push(poisonEffect("self-poison", "1", "1", 2), {
+      ...drunkEffect("goon-drunk", "1", "1", 3, 4),
+      permanent: true,
+    });
+    if (reversed) state.effects.reverse();
+    const graph = outcome(effectGraph(state, { phase: "night", number: 3 }));
+    assert.equal(graph.ok, true, JSON.stringify(graph));
+    assert.equal(graph.activeDrunk.has("goon-drunk"), true, "the permanent drunk is active");
+    assert.equal(
+      graph.activePoison.has("self-poison"),
+      false,
+      "the poison of a source made drunk is suspended",
+    );
+    assert.equal(graph.impaired.has("1"), true);
+
+    // At dusk the drunk ends and the source's own poison resumes.
+    const dusk = outcome(effectGraph(state, { phase: "night", number: 4 }));
+    assert.equal(dusk.ok, true, JSON.stringify(dusk));
+    assert.equal(dusk.activeDrunk.has("goon-drunk"), false);
+    assert.equal(dusk.activePoison.has("self-poison"), true);
+    assert.equal(dusk.impaired.has("1"), true);
+  }
+});
+
+// A permanent effect waits for nothing, so the graph may reach it before or
+// after the poison on its source. It holds either way.
+test("a permanent effect holds while its source is already poisoned, in either visiting order (SYS-EFFECTS-04, BMR-GOON-01)", () => {
+  for (const poisonId of ["a-poison", "z-poison"]) {
+    for (const reversed of [false, true]) {
+      const state = poisonFixture();
+      state.effects.push(poisonEffect(poisonId, "2", "1", 2), {
+        ...drunkEffect("goon-drunk", "1", "1", 3, 4),
+        permanent: true,
+      });
+      if (reversed) state.effects.reverse();
+      const graph = outcome(effectGraph(state, { phase: "night", number: 3 }));
+      assert.equal(graph.ok, true, JSON.stringify(graph));
+      assert.equal(graph.activePoison.has(poisonId), true, poisonId);
+      assert.equal(graph.activeDrunk.has("goon-drunk"), true, poisonId + " the drunk holds");
+      assert.equal(graph.impaired.has("1"), true);
+    }
+  }
+});
+
+test("a same-night pair of a player's effects on themself is still a cycle unless one is permanent (SYS-EFFECTS-04)", () => {
+  const cyclic = poisonFixture();
+  cyclic.effects.push(
+    poisonEffect("pair-poison", "1", "1", 2),
+    drunkEffect("pair-drunk", "1", "1", 2, 3),
+  );
+  const rejected = validateCommand(cyclic, { id: "pair-cycle", type: "startNight" });
+  assert.equal(rejected.status, "rejected", JSON.stringify(rejected));
+  assert.equal(rejected.errorCode, "CYCLIC_EFFECT_DEPENDENCY");
+
+  const resolved = poisonFixture();
+  resolved.effects.push(poisonEffect("pair-poison", "1", "1", 2), {
+    ...drunkEffect("pair-drunk", "1", "1", 2, 3),
+    permanent: true,
+  });
+  const graph = outcome(effectGraph(resolved, { phase: "night", number: 2 }));
+  assert.equal(graph.ok, true, JSON.stringify(graph));
+  assert.equal(graph.activeDrunk.has("pair-drunk"), true);
+  assert.equal(graph.activePoison.has("pair-poison"), false);
+});
+
+// The Vigormortis poison outlives its dead Minion but not that Minion's
+// impairment (r3015, SNV-VIGORMORTIS-02), so it still waits for its source and
+// a same-night cycle through the Minion stays unresolvable.
+test("a Vigormortis poison still waits for its dead Minion, so a cycle through that Minion is rejected (SYS-EFFECTS-04, SNV-VIGORMORTIS-02)", () => {
+  const vigormortis = (state: GameState, flagged: boolean) => {
+    state.effects.push(
+      { ...poisonEffect("minion-poison", "3", "4", 2), permanent: true, vigormortis: flagged },
+      poisonEffect("neighbour-poison", "4", "3", 2),
+    );
+    return state;
+  };
+  for (const reversed of [false, true]) {
+    const cyclic = vigormortis(poisonFixture(), true);
+    if (reversed) cyclic.effects.reverse();
+    const graph = outcome(effectGraph(cyclic, { phase: "night", number: 2 }));
+    assert.equal(graph.ok, false);
+    assert.equal(graph.errorCode, "CYCLIC_EFFECT_DEPENDENCY");
+    assert.deepEqual(graph.effectIds, ["minion-poison", "neighbour-poison"]);
+    const rejected = validateCommand(cyclic, { id: "vigormortis-cycle", type: "startNight" });
+    assert.equal(rejected.status, "rejected", JSON.stringify(rejected));
+    assert.equal(rejected.errorCode, "CYCLIC_EFFECT_DEPENDENCY");
+  }
+
+  // Another permanent poison holds whatever its source is, so it waits for
+  // nothing and the pair resolves.
+  const resolved = outcome(
+    effectGraph(vigormortis(poisonFixture(), false), { phase: "night", number: 2 }),
+  );
+  assert.equal(resolved.ok, true, JSON.stringify(resolved));
+  assert.equal(resolved.activePoison.has("minion-poison"), true);
+  assert.equal(resolved.activePoison.has("neighbour-poison"), false);
+});
+
 test("a protected effect does not apply before its start", () => {
   const state = poisonFixture();
   state.effects.push({

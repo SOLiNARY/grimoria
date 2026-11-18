@@ -21,6 +21,7 @@ import {
   stepTitle,
   timerText,
 } from "./helpers.ts";
+import { HeirChoice } from "./cards.tsx";
 import { ConsequenceList } from "./parts.tsx";
 import { stepContext } from "./step-context.ts";
 import type { TableView } from "./view.ts";
@@ -39,7 +40,10 @@ export function TableDock({ view }: { view: TableView }) {
   const { state, ports, drafts, actions, viewVersion } = view;
   const t = ports.strings.t;
   const projection = tableProjection(state);
-  const step = state.phase === "night" ? projection.step : null;
+  // A heir the host owes is the night's prompt: Imp r3116 has the Storyteller
+  // choose the Minion before the night goes on, so the next step waits.
+  const heir = state.phase === "night" ? projection.pendingDemonChange : null;
+  const step = state.phase === "night" && !heir ? projection.step : null;
   const context = step ? stepContext(state, drafts, step) : null;
   const stepPreview = useMemo(
     () =>
@@ -51,8 +55,10 @@ export function TableDock({ view }: { view: TableView }) {
   );
   const nightEndPreview = useMemo(
     () =>
-      state.phase === "night" && !step ? actions.preview({ type: "endNight", payload: {} }) : null,
-    [actions.preview, state.phase, step?.key, viewVersion],
+      state.phase === "night" && !step && !heir
+        ? actions.preview({ type: "endNight", payload: {} })
+        : null,
+    [actions.preview, state.phase, step?.key, heir?.key, viewVersion],
   );
   const dayEndPreview = useMemo(
     () => (state.phase === "day" ? actions.preview({ type: "endDay", payload: {} }) : null),
@@ -89,9 +95,11 @@ export function TableDock({ view }: { view: TableView }) {
   const outcome = state.phase === "night" ? (step ? stepPreview : nightEndPreview) : dayEndPreview;
   const dockStep =
     state.phase === "night"
-      ? step
-        ? stepTitle(step, ports.roles.byId, t)
-        : t("ui.allDone")
+      ? heir
+        ? t("pendingHeir")
+        : step
+          ? stepTitle(step, ports.roles.byId, t)
+          : t("ui.allDone")
       : state.phase === "day"
         ? target
           ? displayName(target, t)
@@ -100,13 +108,15 @@ export function TableDock({ view }: { view: TableView }) {
           ? t("gameOver")
           : t("setup");
   const hint =
-    state.phase === "night" && step
-      ? guide?.check || guide?.host || ""
-      : state.phase === "day"
-        ? t("ui.tableVotes")
-        : state.phase === "night"
-          ? t("ui.allDone")
-          : "";
+    state.phase === "night" && heir
+      ? t("pendingHeirText")
+      : state.phase === "night" && step
+        ? guide?.check || guide?.host || ""
+        : state.phase === "day"
+          ? t("ui.tableVotes")
+          : state.phase === "night"
+            ? t("ui.allDone")
+            : "";
 
   const outcomeRejection = rejectionOf(outcome);
   const quietSelection = Boolean(
@@ -350,7 +360,11 @@ export function TableDock({ view }: { view: TableView }) {
         ) : null}
 
         <div className="grid gap-1.5 border-t border-edge pt-2">
-          {state.phase === "night" && step ? (
+          {heir ? (
+            <div data-dock-heir>
+              <HeirChoice view={view} pending={heir} />
+            </div>
+          ) : state.phase === "night" && step ? (
             <>
               <div className="grid grid-cols-2 gap-1.5">
                 <DockButton

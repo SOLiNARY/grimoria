@@ -42,6 +42,7 @@ import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
 import { effectActive, isImpaired, butlerMaster } from "./effects.ts";
 import { appendConditionalSteps, buildNightQueue } from "./night.ts";
+import { repeatsDemonWake } from "./command-versions.ts";
 import {
   MADNESS_PENALTIES,
   activeMadness,
@@ -1304,8 +1305,11 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
   };
   // A Demon change during the day must still wake the new Demon tonight
   // (Scarlet Woman r3117). The flag survives the night reset; the queue build
-  // below appends the YOU ARE step before the flag is cleared.
-  const demonChanged = state.night.demonChanged;
+  // below appends the YOU ARE step before the flag is cleared. A change made
+  // last night was woken last night (Imp r3116), so it is not carried again.
+  const demonChanged =
+    state.night.demonChanged &&
+    (repeatsDemonWake(ports.rulesetVersion) || newDemonAwaitsWake(state));
   const nextNight = Math.max(1, (state.night.number || state.day.number) + 1);
   state.night = { number: nextNight, queue: [], currentIndex: 0, demonChanged };
   state.day = {
@@ -1333,6 +1337,20 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
     ports,
   );
   return { ok: true, night: state.night };
+}
+
+// Whether the Demon change the flag records still needs its YOU ARE wake when
+// the day ends. The flag covers every change since the last night began. A
+// change made that night has its wake in that night's queue; a change made
+// today follows the death of a Demon today, whatever that night held.
+function newDemonAwaitsWake(state: GameState): boolean {
+  if (!state.night.queue.some((step) => step.system === "demonchange")) return true;
+  return state.deaths.some(
+    (death) =>
+      death.phase === "day" &&
+      death.number === state.day.number &&
+      roleTeam(death.roleId || "") === "demon",
+  );
 }
 
 export function useSlayer(

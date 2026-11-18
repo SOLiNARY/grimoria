@@ -105,6 +105,29 @@ export function butlerMaster(
 // ---------------------------------------------------------------------------
 // Bad Moon Rising protection and drunk effects
 
+/**
+ * How the Innkeeper's safety is stored: a protection the death path tells
+ * from the Monk's by its marker, because it holds against every ability, not
+ * only the Demon (Innkeeper r3160).
+ */
+export const SAFE_EFFECT = { kind: "protected", bmr: "innkeeper" } as const;
+
+/**
+ * How the engine stores the Devil's Advocate's protection: its own kind, with
+ * the day whose execution it covers (Devil's Advocate r2594: "if executed
+ * tomorrow, they don't die"). The execution check reads both.
+ */
+export const SURVIVES_EXECUTION_EFFECT = { kind: "devilsadvocate", withDay: true } as const;
+
+/**
+ * Whether the ability of the seat named as the source gave the effect. The
+ * Goon's drunkenness names its chooser as the source but is the Goon's own
+ * (Goon r2977).
+ */
+export function givenBy(effect: Effect, playerId: string): boolean {
+  return effect.sourceId === playerId && effect.bmr !== "goon";
+}
+
 export function bmrDrunkEffect(
   state: GameState,
   playerId: string,
@@ -178,7 +201,7 @@ export function bmrCannotDie(
   if (cause === "execution") {
     const advocate = state.effects.find(
       (effect) =>
-        effect.kind === "devilsadvocate" &&
+        effect.kind === SURVIVES_EXECUTION_EFFECT.kind &&
         effect.targetId === playerId &&
         effectActive(state, effect, at) &&
         effect.day === at.number,
@@ -199,10 +222,10 @@ export function bmrCannotDie(
   if (teaLadyProtects(state, playerId, at)) return "tea-lady";
   const innkeeper = state.effects.find(
     (effect) =>
-      effect.kind === "protected" &&
+      effect.kind === SAFE_EFFECT.kind &&
       effect.targetId === playerId &&
       effectActive(state, effect, at) &&
-      effect.bmr === "innkeeper" &&
+      effect.bmr === SAFE_EFFECT.bmr &&
       (cause === "demon" || cause === "ability"),
   );
   if (innkeeper) return "innkeeper";

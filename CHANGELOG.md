@@ -6,6 +6,34 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
+### Added
+
+- Add one lifecycle policy that declares every command's allowed phase and one guard helper for the documented transition owners; a wrong-phase command is rejected atomically, so a stale tab can no longer rebuild the day, re-deal a running game or leave the documented path (#215)
+- Reject `manualOnly: true` on a single-edition custom script at import and migrate a legacy saved flag to the automatic engine on load, since manual mode is reserved for a pool that mixes editions (#215)
+- Prove the coordinator order for protection, death, execution, transformation and win with a source-backed cross-role acceptance suite, and add an executable ownership check that only the coordinator modules call the shared death, execution, transformation, effect and win writers (#212)
+
+### Changed
+
+- Make the table one measured stadium: two straight sides and two semicircular caps carry the rail, the felt surface and every seat centre; seats sit at equal arc distance for five to fifteen players, labels stay inside the box, and the table reads vertical on a phone and horizontal on a desktop (#266)
+- Apply the obsidian and antique gold palette to the shared token layer so every route reads it, restyle the seats as identity blocks and the dock as a fixed action dock, and apply the shared component standard to the setup and secrets screens (#266)
+- Move the night steps of the Sailor, Innkeeper, Devil's Advocate, Exorcist, Tinker, Po and Shabaloth from the engine into their role capabilities, with behavior pinned by tests before each move; the night-step contract gains the `endsOnUse` and `givenBy` arm fields, the `drunk`, `safe` and `survives-execution` timed effects, and the `record-choice`, `record-choices`, `record-no-one` and `block-demon` intents (#200)
+- Move the night steps of the four Sects & Violets Demons (Fang Gu, No Dashii, Vigormortis and Vortox) from legacy fields to their role capabilities, with behavior pinned by tests before the move; the Sects & Violets step completion now hands a role that owns a resolver to the shared capability coordinator, as the Bad Moon Rising one does (#200)
+- Move the Cerenovus's night step to its role capability, with behavior pinned by tests before the move; the night-step contract gains the `madness` intent, which writes the madness token with the id saved games already hold (#200)
+- Declare the night steps of the Sects & Violets Clockmaker, Dreamer, Evil Twin, Flowergirl, Mathematician, Oracle and Town Crier on their role capabilities, with behavior pinned by tests before the move; their answers stay in the engine until the information slice (#200)
+- Move the Snake Charmer's swap to its transformation capability and declare the Snake Charmer's and the Pit-Hag's night steps on their capabilities, with behavior pinned by tests before the move; the transformation contract gains the `swap` decision (#200)
+
+### Fixed
+
+- Wake a new Demon once, the night it takes the role: a named heir is woken right after the host's choice, and the next night no longer repeats the YOU ARE wake; saved games keep the wakes they recorded (#200)
+- Let a Pukka poisoned by its own poison choose a sober Goon: the Pukka is drunk until dusk and the Goon turns evil, where the choice was refused as an effect cycle (#200)
+- Ask the host for the Mayor's fate: choosing the Mayor as the Demon's target from a seat leaves the redirect unanswered and the step blocked, where the tap answered "the Mayor dies" (#200)
+- Ask for the Demon's heir first: after an Imp self-kill with several Minions alive, the dock and the centre of the table name the heir question and offer the Minions, and no control of the next step is shown until the host names one (#200)
+- Label a registration as one: the count of a healthy Chef beside a Spy is labelled a registration, not false information (#200)
+- Let only a working Tinker die on the Tinker's night step: the step refuses the death of a drunk or poisoned Tinker, as the day already did, and the death of any other player; saved games keep the deaths they recorded (#200)
+- Bring a player back only on the Professor's or the Shabaloth's night step: the outcome of any other Bad Moon Rising night step, a Lunatic shown the Shabaloth included, refuses a resurrection; saved games keep the resurrections they recorded (#200)
+
 ## [0.1.1] - 2026-11-17
 
 ### Changed
@@ -40,6 +68,7 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Add the public and player projections that omit secret roles, bluffs and notes from shared views
 
-[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hose1021/grimoria/releases/tag/v0.2.0
 [0.1.1]: https://github.com/hose1021/grimoria/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hose1021/grimoria/releases/tag/v0.1.0

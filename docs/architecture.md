@@ -44,7 +44,8 @@ converts the engine result union to the typed store result, and
 
 `src/core/roles/ability.ts` is the role-side contract: a resolver receives
 read-only facts (the actor, the validated targets, the host's character answer,
-the impairment fact, an actual-character lookup) and returns typed intents.
+the host's drunk answer, the impairment fact, an actual-character lookup) and
+returns typed intents.
 `src/core/engine/ability.ts` is the one coordinator: it builds the context,
 applies each intent through the shared mechanic and writes the shared impairment
 note. A resolver never receives the game state, so it cannot write unrelated
@@ -58,8 +59,21 @@ the migration reviewable role by role.
 
 A night step migrates to the `night-step` capability: the nights it covers
 (`first`, `other` or `any`), the step the queue builds and the resolver. The
-Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller and
-the Chef have moved.
+Poisoner, the Monk, the Butler, the Imp, the Empath, the Fortune Teller, the
+Chef, in Bad Moon Rising, the Gambler, the Pukka, the Sailor, the
+Innkeeper, the Devil's Advocate, the Exorcist, the Tinker, the Po and the
+Shabaloth, and in Sects & Violets the Fang Gu, the No Dashii, the
+Vigormortis, the Vortox and the Cerenovus have moved. The Sects & Violets
+Clockmaker, Dreamer, Evil Twin, Flowergirl, Mathematician, Oracle and Town
+Crier declare their step on the capability but keep their answers in
+`svInfoForStep` until their own slice. The Snake Charmer and the Pit-Hag
+declare their step on the capability and their character change on the
+`transformation` capability, which `sv.ts` applies: the Pit-Hag's
+`replace`, and the Snake Charmer's `swap`, which names the other player and
+whether the alignments are exchanged and the player poisoned. The Sects & Violets step completion
+hands a role that owns a resolver to the coordinator, as the Bad Moon Rising
+one does; the four Demons' resolvers change nothing, because the host marks
+their deaths on the step's outcome.
 `src/core/roles/night-step.ts` is the one lookup the queue builders and the
 step completion use; it reads the capability or the legacy `nightStep` and
 `firstNightStep` fields, and a module declares one form only. A resolver has
@@ -71,7 +85,30 @@ roles have moved.
 A resolver that reports a `suppressed` ability may still return the choice
 that was made. The coordinator keeps a dated effect from that path as a record
 that never applies, so a drunk or poisoned Butler's master stays in the
-grimoire and binds no vote.
+grimoire and binds no vote. `record-choice` writes the choice the step
+builder reads for "different to last night" on both paths, under the acting
+role's own record, so a drunk or poisoned Devil's Advocate or Exorcist still
+cannot repeat it the next night. `record-no-one` writes whether the seat
+chose no one, which sizes the Po's next step, also for a drunk or poisoned
+Po. `record-choices` writes the players chosen tonight and keeps the record
+it replaces as last night's, which the outcome reads for the Shabaloth's
+regurgitation. `madness` writes the Cerenovus's token with the id the
+day's review and saved games already hold, and nothing for a failed
+ability.
+
+An arm may name the kinds of dated effect that each use of the ability
+replaces (`endsOnUse`). The coordinator ends the ones this ability gave
+before the resolver reads the owner's health, also when the ability fails
+now: the Sailor's drunkenness, and the Innkeeper's safety and drunkenness.
+`givenBy` in `effects.ts` decides which effects an ability gave; the Goon's
+drunkenness names its chooser as the source but stays the Goon's. The Devil's
+Advocate ends its protection from execution the same way.
+
+The Exorcist keeps the Demon from waking with `block-demon`: the role decides
+that the chosen player is the Demon and writes the note and the log line,
+and `keepDemonAsleep` in `bmr.ts` closes the Demon's step in tonight's queue.
+What a Demon that does not wake still does stays there: the Shabaloth keeps
+its regurgitation and the Pukka's waiting death resolves.
 
 A Demon's kill is the `attack` decision: the role names the chosen player and
 the title of the attack's log line, nothing else. The coordinator runs it
@@ -167,6 +204,19 @@ cannot read an ambient clock, and interleaved games cannot share a sequence.
 `src/core/model/state.ts` has no clock override and `src/core/engine/execution.ts`
 is gone. Direct engine calls outside a command use the immutable `systemPorts`
 default; a store command always passes its own ports.
+
+The ports also carry the command's ruleset version. A fix that would change
+what a recorded command did adds a version to `command-versions.ts`, and the
+engine branches on it where the fix applies, so a recorded command keeps its
+behavior and a saved journal replays and undoes as it was written. Four
+fixes do so: the zero answered for any role (`answersZeroForAnyRole`), the new
+Demon's wake, repeated on the next night and late after a named heir
+(`repeatsDemonWake`), the Tinker's night step, which took any death the
+host marked, also while the Tinker was drunk or poisoned
+(`marksAnyDeathOnTinkerStep`), and the Bad Moon Rising night steps, which
+brought back any dead player the host marked, also on a step whose ability
+does not resurrect (`resurrectsOnAnyStep`). A direct read outside a command
+has no version and follows the rule.
 
 ## Store transaction
 

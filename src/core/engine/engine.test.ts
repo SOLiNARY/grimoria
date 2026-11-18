@@ -75,16 +75,20 @@ import {
 } from "./index.ts";
 import type { InfoResult } from "./index.ts";
 import { applyRoleAbility } from "./ability.ts";
+import { bmrCannotDie } from "./effects.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
+  ANY_STEP_RESURRECTS_RULESET_VERSION,
   LEGACY_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
 } from "./command-versions.ts";
 import { moduleInfoForStep } from "./information.ts";
 import type { InformationContext, InformationDecision } from "../roles/ability.ts";
 import type { RoleModule } from "../roles/types.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
-import type { GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
+import type { DeadAt, GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
 
 type StepOptions = {
   targetIds?: string[];
@@ -1128,6 +1132,474 @@ test("a suppressed ability keeps its dated effect as a record that never applies
   assert.equal(isImpaired(state, "4"), false, "the record poisons no one");
   assert.equal(step.noteKey, "note.abilityFailed");
   assert.deepEqual(draws, ["id:4"]);
+});
+
+/** A night-two game whose Monk step a synthetic module completes. */
+function monkNightTwo(): { state: GameState; step: NightStep; at: DeadAt } {
+  const state = make(NIGHT_ROLES);
+  startNight(state);
+  nextNight(state);
+  return { state, step: roleStep(state, "monk"), at: { phase: "night", number: 2 } };
+}
+
+/** A module that names the effects its use ends and reports the health it saw. */
+function endingModule(seen: boolean[]): RoleModule {
+  return {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        endsOnUse: ["drunk"],
+        resolve: ({ impaired }) => {
+          seen.push(impaired);
+          return { kind: "suppressed" };
+        },
+      },
+    ],
+  };
+}
+
+test("a night step ends the effects its arm names before the resolver reads the owner's health", () => {
+  const { state, step, at } = monkNightTwo();
+  state.effects.push(
+    // The ability's own drunkenness on its owner, still working tonight.
+    {
+      id: "own-self",
+      kind: "drunk",
+      sourceId: "1",
+      targetId: "1",
+      start: at,
+      expires: { phase: "night", number: 3 },
+      active: true,
+    },
+    {
+      id: "own-other",
+      kind: "drunk",
+      sourceId: "1",
+      targetId: "3",
+      start: { phase: "night", number: 1 },
+      expires: { phase: "night", number: 2 },
+      active: true,
+    },
+    {
+      id: "own-protection",
+      kind: "protected",
+      sourceId: "1",
+      targetId: "3",
+      start: at,
+      expires: { phase: "day", number: 2 },
+      active: true,
+    },
+    {
+      id: "foreign",
+      kind: "drunk",
+      sourceId: "6",
+      targetId: "4",
+      start: at,
+      expires: { phase: "night", number: 3 },
+      active: true,
+    },
+  );
+  assert.equal(isImpaired(state, "1", at), true, "the owner starts drunk by their own ability");
+  const seen: boolean[] = [];
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, endingModule(seen), step, ["3"], at, {}, ports);
+
+  assert.deepEqual(seen, [false], "the owner's own drunkenness ended before the resolver ran");
+  assert.deepEqual(
+    state.effects.map((effect) => [effect.id, effect.active]),
+    [
+      ["own-self", false],
+      ["own-other", false],
+      ["own-protection", true],
+      ["foreign", true],
+    ],
+    "only the named kind of this ability ends, also on the suppressed path",
+  );
+  assert.equal(step.noteKey, "note.abilityFailed");
+  assert.deepEqual(draws, []);
+});
+
+test("a night step that ends its own drunkenness keeps the Goon's drunkenness on the chooser (BMR-GOON-01)", () => {
+  const { state, step, at } = monkNightTwo();
+  state.effects.push({
+    id: "goon",
+    kind: "drunk",
+    bmr: "goon",
+    sourceId: "1",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+    permanent: true,
+  });
+  const seen: boolean[] = [];
+
+  applyRoleAbility(state, endingModule(seen), step, ["3"], at, {}, recordingPorts().ports);
+
+  assert.deepEqual(seen, [true]);
+  assert.equal(state.effects[0]!.active, true);
+});
+
+test("the safe and drunk dated effects are stored as the Innkeeper's protection and a drunk effect", () => {
+  const { state, step, at } = monkNightTwo();
+  const facts: Array<string | null> = [];
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ drunkId }) => {
+          facts.push(drunkId);
+          return {
+            kind: "effects",
+            effects: [
+              {
+                kind: "timed-effect",
+                effect: "safe",
+                playerId: "3",
+                expires: { phase: "day", number: 2 },
+              },
+              {
+                kind: "timed-effect",
+                effect: "drunk",
+                playerId: drunkId!,
+                expires: { phase: "night", number: 3 },
+              },
+            ],
+          };
+        },
+      },
+    ],
+  };
+  const { ports, draws } = recordingPorts();
+  const before = state.effects.length;
+
+  applyRoleAbility(state, module, step, ["3"], at, { drunkId: "4" }, ports);
+
+  assert.deepEqual(facts, ["4"], "the host's drunk answer reaches the resolver");
+  // The stored text, so the key order of a record is pinned too.
+  assert.deepEqual(
+    state.effects.slice(before).map((effect) => JSON.stringify(effect)),
+    [
+      JSON.stringify({
+        id: "eff-" + (before + 1) + "-k100",
+        kind: "protected",
+        bmr: "innkeeper",
+        sourceId: "1",
+        targetId: "3",
+        start: at,
+        expires: { phase: "day", number: 2 },
+        active: true,
+      }),
+      JSON.stringify({
+        id: "eff-" + (before + 2) + "-k200",
+        kind: "drunk",
+        sourceId: "1",
+        targetId: "4",
+        start: at,
+        expires: { phase: "night", number: 3 },
+        active: true,
+      }),
+    ],
+  );
+  assert.deepEqual(draws, ["id:4", "id:4"]);
+});
+
+test("the survives-execution dated effect is stored as the Devil's Advocate's protection for the next day (BMR-DEVILSADVOCATE-01)", () => {
+  const { state, step, at } = monkNightTwo();
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: () => ({
+          kind: "effects",
+          effects: [
+            {
+              kind: "timed-effect",
+              effect: "survives-execution",
+              playerId: "3",
+              expires: { phase: "night", number: 3 },
+            },
+          ],
+        }),
+      },
+    ],
+  };
+  const { ports, draws } = recordingPorts();
+  const before = state.effects.length;
+
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  // The stored text, so the key order of the record is pinned too: the day
+  // follows the start.
+  assert.deepEqual(
+    state.effects.slice(before).map((effect) => JSON.stringify(effect)),
+    [
+      JSON.stringify({
+        id: "eff-" + (before + 1) + "-k100",
+        kind: "devilsadvocate",
+        sourceId: "1",
+        targetId: "3",
+        start: at,
+        day: 2,
+        expires: { phase: "night", number: 3 },
+        active: true,
+      }),
+    ],
+  );
+  assert.deepEqual(draws, ["id:4"]);
+  // The execution check reads that record: the player survives tomorrow's
+  // execution only.
+  const execution = { cause: "execution" };
+  assert.equal(bmrCannotDie(state, "3", { phase: "day", number: 2 }, execution), "devilsadvocate");
+  assert.equal(bmrCannotDie(state, "3", { phase: "day", number: 2 }, { cause: "demon" }), null);
+  assert.equal(bmrCannotDie(state, "4", { phase: "day", number: 2 }, execution), null);
+  assert.equal(bmrCannotDie(state, "3", { phase: "day", number: 3 }, execution), null);
+});
+
+test("the record of tonight's choice names the module's role and is written also when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const choices: Array<string | null> = ["3", null];
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ impaired }) => {
+          const choice = { kind: "record-choice" as const, playerId: choices.shift() ?? null };
+          return impaired
+            ? { kind: "suppressed", effects: [choice] }
+            : { kind: "effects", effects: [choice] };
+        },
+      },
+    ],
+  };
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const actor = state.players["1"]!;
+  const others = JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1"));
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(JSON.stringify(actor.used), JSON.stringify({ monkTarget: "3", monkTargetNight: 2 }));
+
+  state.effects.pop();
+  applyRoleAbility(state, module, step, [], at, {}, ports);
+
+  // Nobody chosen clears the night as well, so tomorrow has no restriction.
+  assert.equal(
+    JSON.stringify(actor.used),
+    JSON.stringify({ monkTarget: null, monkTargetNight: null }),
+  );
+  assert.equal(
+    JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1")),
+    others,
+    "no other seat is written",
+  );
+  assert.deepEqual(draws, []);
+});
+
+test("the record of a choice of no one names the module's role and is written also when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ targetIds, impaired }) => {
+          const record = { kind: "record-no-one" as const, noOne: targetIds.length === 0 };
+          return impaired
+            ? { kind: "suppressed", effects: [record] }
+            : { kind: "effects", effects: [record] };
+        },
+      },
+    ],
+  };
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const actor = state.players["1"]!;
+  const others = JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1"));
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, [], at, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(JSON.stringify(actor.used), JSON.stringify({ monkNoOne: true }));
+
+  state.effects.pop();
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(JSON.stringify(actor.used), JSON.stringify({ monkNoOne: false }));
+  assert.equal(
+    JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1")),
+    others,
+    "no other seat is written",
+  );
+  assert.deepEqual(draws, []);
+});
+
+test("the record of tonight's players keeps the record it replaces as last night's, in the order it was written, also when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const chosen: string[][] = [["3", "4"], ["5"]];
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "two" },
+        resolve: ({ impaired }) => {
+          const record = { kind: "record-choices" as const, playerIds: chosen[0]! };
+          return impaired
+            ? { kind: "suppressed", effects: [record] }
+            : { kind: "effects", effects: [record] };
+        },
+      },
+    ],
+  };
+  const actor = state.players["1"]!;
+  const others = JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1"));
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, ["3", "4"], at, {}, ports);
+
+  // The first record has no night before it: the key is written, unset.
+  assert.deepEqual(Object.entries(actor.used!), [
+    ["monkPreviousTargets", []],
+    ["monkPreviousNight", undefined],
+    ["monkTargets", ["3", "4"]],
+    ["monkTargetsNight", 2],
+  ]);
+  // The record is the engine's copy, not the array the role returned.
+  chosen[0]!.push("6");
+  assert.deepEqual(actor.used!.monkTargets, ["3", "4"]);
+
+  chosen.shift();
+  const third = { phase: "night", number: 3 } as const;
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: third,
+    expires: { phase: "night", number: 4 },
+    active: true,
+  });
+  applyRoleAbility(state, module, step, ["5"], third, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(
+    JSON.stringify(actor.used),
+    JSON.stringify({
+      monkPreviousTargets: ["3", "4"],
+      monkPreviousNight: 2,
+      monkTargets: ["5"],
+      monkTargetsNight: 3,
+    }),
+  );
+  assert.equal(
+    JSON.stringify(Object.values(state.players).filter((p) => p.id !== "1")),
+    others,
+    "no other seat is written",
+  );
+  assert.deepEqual(draws, []);
+});
+
+test("the madness intent writes the token under the module's ability with an id of the seat, the player and the night, and nothing when the ability fails", () => {
+  const { state, step, at } = monkNightTwo();
+  const madness = {
+    kind: "madness" as const,
+    playerId: "3",
+    roleId: "artist" as const,
+    expires: { phase: "day" as const, number: 3 },
+  };
+  const module: RoleModule = {
+    id: "monk",
+    edition: "tb",
+    capabilities: [
+      {
+        kind: "night-step",
+        timing: "any",
+        step: { target: "one-any" },
+        resolve: ({ impaired }) =>
+          impaired
+            ? { kind: "suppressed", effects: [madness] }
+            : { kind: "effects", effects: [madness] },
+      },
+    ],
+  };
+  state.effects.push({
+    id: "fixture-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: at,
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const effects = JSON.stringify(state.effects);
+  const { ports, draws } = recordingPorts();
+
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(step.noteKey, "note.abilityFailed", "the ability failed");
+  assert.equal(JSON.stringify(state.effects), effects, "a failed ability makes nobody mad");
+
+  state.effects.pop();
+  applyRoleAbility(state, module, step, ["3"], at, {}, ports);
+
+  assert.equal(
+    JSON.stringify(state.effects.at(-1)),
+    JSON.stringify({
+      id: "eff-madness-monk-1-3-2",
+      kind: "madness",
+      madness: "monk",
+      roleId: "artist",
+      sourceId: "1",
+      targetId: "3",
+      start: { phase: "night", number: 2 },
+      expires: { phase: "day", number: 3 },
+      active: true,
+    }),
+  );
+  madness.expires.number = 9;
+  assert.deepEqual(state.effects.at(-1)!.expires, { phase: "day", number: 3 }, "a copy is kept");
+  assert.deepEqual(draws, [], "the id draws nothing from the command ports");
 });
 
 // A module whose night step is an attack under its own title. The coordinator
@@ -6784,6 +7256,341 @@ test("the new Demon is woken the night after a daytime Scarlet Woman succession 
   assert.equal(state.night.queue.find((step) => step.key === change.key)!.done, true);
 });
 
+// Imp r3116, How to Run: "If the Imp killed themself at night, choose an alive
+// Minion ... Wake the new Imp, show them the YOU ARE info token, then show them
+// the Imp token." The new Demon is woken once, the night the change happens.
+// The next night it wakes only for its own Imp step.
+
+const wakeSteps = (state: GameState) =>
+  state.night.queue.filter((step) => step.system === "demonchange");
+
+// Ten players, two Minions. The Poisoner (8) and the Scarlet Woman (9) are the
+// Imp's (10) Minions, and only the Empath (3) wakes after the Imp. With
+// `lastAwake` the Empath's seat holds the Virgin, so the Imp's step is the last
+// of the night.
+function heirNight(lastAwake = false): GameState {
+  return attackNight({
+    1: "soldier",
+    2: "mayor",
+    3: lastAwake ? "virgin" : "empath",
+    4: "chef",
+    5: lastAwake ? "investigator" : "virgin",
+    6: "slayer",
+    7: "washerwoman",
+    8: "poisoner",
+    9: "scarletwoman",
+    10: "imp",
+  });
+}
+
+// The Poisoner poisons the Scarlet Woman, so her ability does not take the
+// role, and the Imp kills itself: the host names the heir among both Minions.
+function selfKillWithChoice(state: GameState): NightStep {
+  completeRole(state, "poisoner", { targetIds: ["9"] });
+  const imp = roleStep(state, "imp");
+  completeRole(state, "imp", { targetIds: ["10"] });
+  assert.equal(imp.pending?.kind, "demon-inheritance");
+  return imp;
+}
+
+function finishNight(state: GameState): void {
+  skipNight(state);
+  assert.equal(endDay(state).ok, true);
+}
+
+for (const ending of ["completed", "skipped"] as const) {
+  test(`after an Imp self-kill the new Demon is not woken again the next night when its wake was ${ending} (TB-IMP-01)`, () => {
+    const state = attackNight();
+    completeRole(state, "imp", { targetIds: ["7"] });
+    assert.equal(state.players["6"].roleId, "imp");
+    const [wake] = wakeSteps(state);
+    assert.ok(wake, "the new Imp is woken the night of the change");
+    const ended =
+      ending === "completed" ? completeStep(state, wake.key, {}) : skipStep(state, wake.key, "");
+    assert.equal(ended.ok, true, JSON.stringify(ended));
+    skipNight(state);
+    if (ending === "completed") {
+      // A death today that is not a Demon's changes nothing.
+      state.day.open = true;
+      appoint(state, "1", "3", ["1", "2", "3", "4"]);
+      assert.equal(execute(state, state.day.nominations[0].id).ok, true);
+      assert.equal(state.players["3"].alive, false);
+    }
+    assert.equal(endDay(state).ok, true);
+
+    assert.equal(state.night.number, 3);
+    assert.deepEqual(wakeSteps(state), [], "no second YOU ARE wake the next night");
+    assert.equal(roleStep(state, "imp")?.actorId, "6", "the new Imp wakes for its own step");
+    assert.equal(state.night.demonChanged, false);
+  });
+}
+
+test("the new Demon's wake is queued as soon as the host names the heir, before the next step (TB-IMP-01)", () => {
+  const state = heirNight();
+  const imp = selfKillWithChoice(state);
+  assert.deepEqual(wakeSteps(state), [], "no heir yet, no wake");
+
+  assert.equal(chooseDemonHeir(state, imp.key, "8").ok, true);
+
+  assert.equal(state.players["8"].roleId, "imp");
+  assert.deepEqual(queueMarks(state), [
+    "n2-0-poisoner-8:done",
+    "n2-3-imp-10:done",
+    "n2-3.5-demonchange-all",
+    "n2-5-empath-3",
+  ]);
+  assert.equal(currentStep(state)?.system, "demonchange", "the host wakes the new Imp next");
+});
+
+test("when the Imp's step was the night's last, the night does not end before the named heir is woken (TB-IMP-01)", () => {
+  const state = heirNight(true);
+  const imp = selfKillWithChoice(state);
+  assert.equal(currentStep(state), null, "no other step is left tonight");
+
+  assert.equal(chooseDemonHeir(state, imp.key, "9").ok, true);
+
+  const [wake] = wakeSteps(state);
+  assert.ok(wake, "the wake is queued the same night");
+  assert.equal(endNight(state).ok, false, "the night waits for the wake");
+  assert.equal(completeStep(state, wake.key, {}).ok, true);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  assert.deepEqual(wakeSteps(state), [], "and it is not repeated the next night");
+});
+
+test("a Scarlet Woman who takes the role by day after a night self-kill is woken the next night, once (TB-SCARLETWOMAN-02)", () => {
+  const state = heirNight();
+  const imp = selfKillWithChoice(state);
+  assert.equal(chooseDemonHeir(state, imp.key, "8").ok, true);
+  assert.equal(completeStep(state, wakeSteps(state)[0]!.key, {}).ok, true);
+  skipNight(state);
+
+  // Day 2: the Poisoner who became the Imp is executed with nine alive. Its
+  // poison ended with the role change, so the Scarlet Woman takes the role.
+  state.day.open = true;
+  appoint(state, "1", "8", ["1", "2", "3", "4", "5"]);
+  assert.equal(execute(state, state.day.nominations[0].id).ok, true);
+  assert.equal(state.players["9"].roleId, "imp");
+  assert.equal(endDay(state).ok, true);
+
+  assert.equal(wakeSteps(state).length, 1, "the new Imp of the day is woken once");
+  assert.equal(completeStep(state, wakeSteps(state)[0]!.key, {}).ok, true);
+  finishNight(state);
+  assert.deepEqual(wakeSteps(state), [], "and not again on the night after");
+});
+
+test("a Demon who died on an earlier day does not make a later night change wake twice (TB-IMP-01, TB-SCARLETWOMAN-02)", () => {
+  // Day 1: the Imp is executed and the Scarlet Woman takes the role. Night 2:
+  // she kills herself and the Poisoner, the last Minion, becomes the Imp; the
+  // night's one wake, after the Imp's step, shows him the token.
+  const state = make({
+    1: "soldier",
+    2: "mayor",
+    3: "empath",
+    4: "chef",
+    5: "virgin",
+    6: "slayer",
+    7: "washerwoman",
+    8: "poisoner",
+    9: "scarletwoman",
+    10: "imp",
+  });
+  toDay(state);
+  state.day.open = true;
+  appoint(state, "1", "10", ["1", "2", "3", "4", "5"]);
+  assert.equal(execute(state, state.day.nominations[0].id).ok, true);
+  assert.equal(state.players["9"].roleId, "imp");
+  assert.equal(endDay(state).ok, true);
+
+  completeRole(state, "imp", { targetIds: ["9"] });
+  assert.equal(state.players["8"].roleId, "imp");
+  assert.equal(wakeSteps(state).length, 1);
+  assert.equal(currentStep(state)?.system, "demonchange");
+  assert.equal(completeStep(state, wakeSteps(state)[0]!.key, {}).ok, true);
+  finishNight(state);
+
+  assert.equal(state.night.number, 3);
+  assert.deepEqual(wakeSteps(state), []);
+});
+
+test("a named heir an older ruleset left unwoken is woken on the next night by a command sent now (TB-IMP-01)", () => {
+  // Under the older ruleset a heir named after the night's last step was not
+  // woken that night; the end of the day still owes the wake.
+  const state = heirNight(true);
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const at = "2030-01-01T00:00:00.000Z";
+  let sent = 0;
+  const send = (type: string, payload: Record<string, unknown> = {}, recorded = true) =>
+    applyCommand(
+      state,
+      {
+        id: "c" + ++sent,
+        type,
+        payload,
+        at,
+        ...(recorded ? { rulesetVersion: REPEATED_DEMON_WAKE_RULESET_VERSION } : {}),
+      },
+      runtime,
+    );
+  assert.equal(
+    send("completeNightStep", { key: roleStep(state, "poisoner").key, targetIds: ["9"] }).status,
+    "allowed",
+  );
+  const imp = roleStep(state, "imp");
+  assert.equal(send("completeNightStep", { key: imp.key, targetIds: ["10"] }).status, "allowed");
+  assert.equal(send("chooseDemonHeir", { stepKey: imp.key, heirId: "8" }).status, "allowed");
+  assert.deepEqual(wakeSteps(state), [], "the older ruleset queued no wake");
+  assert.equal(send("endNight").status, "allowed");
+
+  assert.equal(send("endDay", {}, false).status, "allowed");
+
+  assert.deepEqual(
+    wakeSteps(state).map((step) => step.key),
+    ["n3-3.5-demonchange-all"],
+    "the new Imp is woken on the next night",
+  );
+});
+
+// Recorded commands keep their behavior. Until the ruleset of 2026-11-17 the
+// next night woke the new Demon again after a night change, and a named heir
+// was woken only when a later step of the night was completed or skipped.
+for (const version of [
+  LEGACY_RULESET_VERSION,
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
+]) {
+  test(`an Imp self-kill recorded under the ruleset ${version} keeps the wakes it queued, and the journal replays`, () => {
+    assert.notEqual(RULESET_VERSION, version, "commands sent now carry a later ruleset");
+    const state = heirNight();
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const at = "2030-01-01T00:00:00.000Z";
+    let sent = 0;
+    const send = (type: string, payload: Record<string, unknown> = {}, rulesetVersion = version) =>
+      applyCommand(state, { id: "c" + ++sent, type, payload, at, rulesetVersion }, runtime);
+    const allowed = (result: { status: string }) =>
+      assert.equal(result.status, "allowed", JSON.stringify(result));
+
+    allowed(send("completeNightStep", { key: roleStep(state, "poisoner").key, targetIds: ["9"] }));
+    const imp = roleStep(state, "imp");
+    allowed(send("completeNightStep", { key: imp.key, targetIds: ["10"] }));
+
+    const heirNow = structuredClone(state);
+    allowed(
+      applyCommand(
+        heirNow,
+        { id: "now", type: "chooseDemonHeir", payload: { stepKey: imp.key, heirId: "8" }, at },
+        runtime,
+      ),
+    );
+    assert.equal(wakeSteps(heirNow).length, 1, "a command sent now queues the wake at once");
+
+    allowed(send("chooseDemonHeir", { stepKey: imp.key, heirId: "8" }));
+    assert.deepEqual(wakeSteps(state), [], "the recorded choice queued nothing");
+    allowed(send("completeNightStep", { key: roleStep(state, "empath").key }));
+    const [wake] = wakeSteps(state);
+    assert.ok(wake, "the recorded next step queued the wake");
+    allowed(send("completeNightStep", { key: wake.key }));
+    allowed(send("endNight"));
+
+    const dayNow = structuredClone(state);
+    allowed(applyCommand(dayNow, { id: "now", type: "endDay", payload: {}, at }, runtime));
+    assert.deepEqual(wakeSteps(dayNow), [], "a command sent now does not wake the new Imp again");
+
+    allowed(send("endDay"));
+    assert.equal(wakeSteps(state).length, 1, "the recorded end of day woke the new Imp again");
+    assert.equal(wakeSteps(state)[0]!.key, "n3-3.5-demonchange-all");
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    if (!replayed.ok) return;
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  });
+}
+
+test("a journal recorded while the new Demon was woken twice replays and undoes as written (TB-IMP-01, TB-SCARLETWOMAN-02)", () => {
+  // Generated with createGame/applyCommand at ef55689: ten players, the
+  // Poisoner (8) poisons the Scarlet Woman (9) on night 2, the Imp (10) kills
+  // itself and the host names the Poisoner the heir. The wake was queued when
+  // the Empath's step ended, and the end of day 2 queued it again on night 3,
+  // after the new Imp's attack on the Chef. The game is saved at dawn of day 3.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-demon-wake-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.phase, "day");
+  assert.equal(saved.players["8"].roleId, "imp");
+  assert.equal(saved.players["4"].alive, false);
+  assert.deepEqual(queueMarks(saved), [
+    "n3-3-imp-8:done",
+    "n3-3.5-demonchange-all:done",
+    "n3-5-empath-3:done",
+  ]);
+  assert.deepEqual(
+    [...new Set(saved.journal.entries.map((entry) => entry.rulesetVersion))],
+    [REPEATED_DEMON_WAKE_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  // Undo to the dawn of day 2. The recorded end of day queues the second
+  // wake; the same command sent now does not.
+  const entries = saved.journal.entries;
+  const endOfDay2 = entries.findLastIndex((entry) => entry.type === "endDay");
+  const atDay2 = replay({ ...saved.journal, entries: entries.slice(0, endOfDay2) });
+  assert.equal(atDay2.ok, true, JSON.stringify(atDay2));
+  if (!atDay2.ok) return;
+  assert.equal(atDay2.state.phase, "day");
+  const dayNow = structuredClone(atDay2.state);
+  assert.equal(
+    applyCommand(dayNow, { id: "day-now", type: "endDay", payload: {} }).status,
+    "allowed",
+  );
+  assert.deepEqual(wakeSteps(dayNow), [], "a command sent now does not wake the new Imp again");
+  assert.equal(roleStep(dayNow, "imp")?.actorId, "8");
+  const recordedEnd = entries[endOfDay2]!;
+  assert.equal(
+    applyCommand(atDay2.state, { ...recordedEnd, payload: recordedEnd.payload ?? {} }).status,
+    "allowed",
+    "the recorded end of day applies as it did",
+  );
+  assert.deepEqual(
+    wakeSteps(atDay2.state).map((step) => step.key),
+    ["n3-3.5-demonchange-all"],
+  );
+
+  // Undo to the heir question of night 2. The recorded choice queues no wake;
+  // the same choice sent now queues it at once.
+  const choice = entries.findIndex((entry) => entry.type === "chooseDemonHeir");
+  const atChoice = replay({ ...saved.journal, entries: entries.slice(0, choice) });
+  assert.equal(atChoice.ok, true, JSON.stringify(atChoice));
+  if (!atChoice.ok) return;
+  const choiceNow = structuredClone(atChoice.state);
+  const recordedChoice = entries[choice]!;
+  assert.equal(
+    applyCommand(choiceNow, {
+      id: "choice-now",
+      type: "chooseDemonHeir",
+      payload: recordedChoice.payload ?? {},
+    }).status,
+    "allowed",
+  );
+  assert.deepEqual(
+    wakeSteps(choiceNow).map((step) => step.key),
+    ["n2-3.5-demonchange-all"],
+  );
+  assert.equal(
+    applyCommand(atChoice.state, { ...recordedChoice, payload: recordedChoice.payload ?? {} })
+      .status,
+    "allowed",
+  );
+  assert.deepEqual(wakeSteps(atChoice.state), [], "the recorded choice queued nothing");
+});
+
 test("Scarlet Woman does not inherit below the threshold", () => {
   const state = make({
     1: "chef",
@@ -9078,6 +9885,492 @@ test("a sober Tinker dies from an ability death during the day and the night (BM
   });
   assert.equal(wrong.status, "rejected");
   assert.equal(wrong.errorCode, "error.58");
+});
+
+// A Bad Moon Rising game at the start of night 2, before any command, so a
+// journal written from here replays from this state.
+function tinkerNight(): GameState {
+  const state = makeBmr(
+    { 1: "tinker", 2: "chambermaid", 3: "courtier", 4: "gossip", 5: "assassin", 6: "po" },
+    { count: 8 },
+  );
+  assert.equal(startNight(state).ok, true);
+  nextNight(state);
+  assert.equal(state.night.number, 2);
+  assert.ok(roleStep(state, "tinker"), "the Tinker wakes on night 2");
+  return state;
+}
+
+// The Courtier's three nights of drunkenness, as the Courtier's step writes it.
+function courtierDrunk(targetId: string, night: number) {
+  return {
+    id: "test-drunk-3-" + targetId,
+    kind: "drunk",
+    sourceId: "3",
+    targetId,
+    start: { phase: "night" as const, number: night },
+    expires: { phase: "night" as const, number: night + 3 },
+    active: true,
+  };
+}
+
+test("a drunk or poisoned Tinker does not die on their night step, as by day (BMR-TINKER-01)", () => {
+  // States r1039: "A drunk or poisoned player has no ability." Tinker r1782:
+  // the Tinker dies through their own ability, which an impaired Tinker has
+  // not. The night step's outcome refuses the death as the command does.
+  for (const [label, effect] of [
+    ["poisoned", testPoison("5", "1", 2)],
+    ["drunk", courtierDrunk("1", 2)],
+  ] as const) {
+    const state = tinkerNight();
+    state.effects.push(effect);
+    assert.equal(isImpaired(state, "1"), true, label);
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const key = roleStep(state, "tinker").key;
+    const before = canonicalState(state);
+    const marked = {
+      id: "tinker-" + label,
+      type: "completeNightStep",
+      payload: { key, deathIds: ["1"] },
+      at: "2030-01-01T00:00:00.000Z",
+    };
+
+    const preview = previewCommand(state, marked, runtime);
+    assert.equal(preview.status, "rejected", label + " " + JSON.stringify(preview));
+    assert.equal(rejectionCode(preview), "error.59", label);
+    const refused = applyCommand(state, marked, runtime);
+    assert.equal(refused.status, "rejected", label + " " + JSON.stringify(refused));
+    assert.equal(rejectionCode(refused), "error.59", label);
+    assert.deepEqual(canonicalState(state), before, label + ": the step stays open");
+
+    const lives = applyCommand(
+      state,
+      { id: "tinker-lives-" + label, type: "completeNightStep", payload: { key } },
+      runtime,
+    );
+    assert.equal(lives.status, "allowed", JSON.stringify(lives));
+    const outcome = applyCommand(
+      state,
+      {
+        id: "tinker-outcome-" + label,
+        type: "recordBmrOutcome",
+        payload: { stepKey: key, options: { deathIds: ["1"] } },
+      },
+      runtime,
+    );
+    assert.equal(outcome.status, "rejected", label + " " + JSON.stringify(outcome));
+    assert.equal(rejectionCode(outcome), "error.59", label);
+    const command = applyCommand(
+      state,
+      { id: "tinker-command-" + label, type: "tinkerDeath", payload: { playerId: "1" } },
+      runtime,
+    );
+    assert.equal(command.status, "rejected", label + " " + JSON.stringify(command));
+    assert.equal(rejectionCode(command), "error.59", label);
+    assert.equal(state.players["1"].alive, true, label);
+    assert.deepEqual(state.deaths, [], label);
+
+    skipNight(state);
+    const day = applyCommand(
+      state,
+      { id: "tinker-day-" + label, type: "tinkerDeath", payload: { playerId: "1" } },
+      runtime,
+    );
+    assert.equal(day.status, "rejected", label + " " + JSON.stringify(day));
+    assert.equal(rejectionCode(day), "error.59", label + ": by day as well");
+    assert.equal(state.players["1"].alive, true, label);
+  }
+});
+
+test("only the Tinker dies on the Tinker's step (BMR-TINKER-01)", () => {
+  // Tinker r1782: "At any time, you may decide that the Tinker dies." The step
+  // is the Tinker's ability, so the host marks the Tinker's death there and no
+  // other; another player's death comes from the ability that causes it.
+  const state = tinkerNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const key = roleStep(state, "tinker").key;
+  const before = canonicalState(state);
+  for (const deathIds of [["4"], ["1", "4"], ["4", "1"]]) {
+    const command = {
+      id: "tinker-" + deathIds.join("-"),
+      type: "completeNightStep",
+      payload: { key, deathIds },
+    };
+    const preview = previewCommand(state, command, runtime);
+    assert.equal(preview.status, "rejected", JSON.stringify(preview));
+    assert.equal(rejectionCode(preview), "error.51", deathIds.join(","));
+    const refused = applyCommand(state, command, runtime);
+    assert.equal(refused.status, "rejected", JSON.stringify(refused));
+    assert.equal(rejectionCode(refused), "error.51", deathIds.join(","));
+    assert.deepEqual(canonicalState(state), before, deathIds.join(",") + ": nothing changes");
+  }
+
+  const lives = applyCommand(
+    state,
+    { id: "tinker-lives", type: "completeNightStep", payload: { key } },
+    runtime,
+  );
+  assert.equal(lives.status, "allowed", JSON.stringify(lives));
+  const other = applyCommand(
+    state,
+    {
+      id: "tinker-other",
+      type: "recordBmrOutcome",
+      payload: { stepKey: key, options: { deathIds: ["4"] } },
+    },
+    runtime,
+  );
+  assert.equal(other.status, "rejected", JSON.stringify(other));
+  assert.equal(rejectionCode(other), "error.51");
+  assert.equal(state.players["4"].alive, true);
+
+  const dies = applyCommand(
+    state,
+    {
+      id: "tinker-dies",
+      type: "recordBmrOutcome",
+      payload: { stepKey: key, options: { deathIds: ["1"] } },
+    },
+    runtime,
+  );
+  assert.equal(dies.status, "allowed", JSON.stringify(dies));
+  assert.equal(state.players["1"].alive, false);
+  assert.deepEqual(
+    state.deaths.map((death) => [death.playerId, death.cause, death.ability]),
+    [["1", "ability", "tinker"]],
+  );
+});
+
+// Recorded commands keep their behavior. Until the ruleset after
+// tb-bmr-snv-2026-11-17.1 the Tinker's step took any death the host marked,
+// also while the Tinker was drunk or poisoned.
+for (const version of [
+  LEGACY_RULESET_VERSION,
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
+]) {
+  test(`a Tinker's step recorded under the ruleset ${version} keeps the deaths the host marked, and the journal replays (BMR-TINKER-01)`, () => {
+    assert.notEqual(RULESET_VERSION, version, "commands sent now carry a later ruleset");
+    const state = tinkerNight();
+    state.effects.push(testPoison("5", "1", 2));
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const at = "2030-01-01T00:00:00.000Z";
+    let sent = 0;
+    const send = (type: string, payload: Record<string, unknown>, rulesetVersion = version) =>
+      applyCommand(state, { id: "c" + ++sent, type, payload, at, rulesetVersion }, runtime);
+    const key = roleStep(state, "tinker").key;
+
+    const now = structuredClone(state);
+    for (const deathIds of [["1"], ["4"]]) {
+      const refused = applyCommand(
+        now,
+        { id: "now-" + deathIds[0], type: "completeNightStep", payload: { key, deathIds }, at },
+        runtime,
+      );
+      assert.equal(refused.status, "rejected", "a command sent now is refused");
+    }
+
+    const recorded = send("completeNightStep", { key, deathIds: ["1"] });
+    assert.equal(recorded.status, "allowed", JSON.stringify(recorded));
+    assert.equal(state.players["1"].alive, false, "the poisoned Tinker died as recorded");
+    const other = send("recordBmrOutcome", { stepKey: key, options: { deathIds: ["4"] } });
+    assert.equal(other.status, "allowed", JSON.stringify(other));
+    assert.equal(state.players["4"].alive, false, "the Gossip died on the Tinker's step");
+    assert.deepEqual(
+      state.deaths.map((death) => [death.playerId, death.ability]),
+      [
+        ["1", "tinker"],
+        ["4", "tinker"],
+      ],
+    );
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    if (!replayed.ok) return;
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  });
+}
+
+test("a journal recorded while the Tinker's step took any death replays and undoes as written (BMR-TINKER-01)", () => {
+  // Generated with createGame/applyCommand at e2b8015: eight players. On night
+  // 2 the host marks the Gossip's (4) death on the sober Tinker's (1) step. On
+  // night 3 the Courtier (2) makes the Tinker drunk and the host marks the
+  // drunk Tinker's death on its step. The game is saved at dawn of day 3.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-tinker-night-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.phase, "day");
+  assert.equal(saved.day.number, 3);
+  assert.deepEqual(
+    saved.deaths.map((death) => [death.playerId, death.number, death.ability]),
+    [
+      ["4", 2, "tinker"],
+      ["1", 3, "tinker"],
+    ],
+  );
+  assert.deepEqual(
+    [...new Set(saved.journal.entries.map((entry) => entry.rulesetVersion))],
+    [OPEN_TINKER_STEP_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  const entries = saved.journal.entries;
+  const tinkerSteps = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      ({ entry }) =>
+        entry.type === "completeNightStep" &&
+        String((entry.payload as { key?: string } | undefined)?.key).includes("-tinker-"),
+    );
+  assert.equal(tinkerSteps.length, 2);
+
+  // Undo to the drunk Tinker's step of night 3. The recorded death lands; the
+  // same death sent now is refused.
+  const [night2, night3] = tinkerSteps;
+  const atNight3 = replay({ ...saved.journal, entries: entries.slice(0, night3!.index) });
+  assert.equal(atNight3.ok, true, JSON.stringify(atNight3));
+  if (!atNight3.ok) return;
+  assert.equal(isImpaired(atNight3.state, "1"), true, "the Courtier made the Tinker drunk");
+  const drunkNow = applyCommand(structuredClone(atNight3.state), {
+    id: "drunk-now",
+    type: "completeNightStep",
+    payload: night3!.entry.payload ?? {},
+  });
+  assert.equal(drunkNow.status, "rejected", JSON.stringify(drunkNow));
+  assert.equal(rejectionCode(drunkNow), "error.59");
+  const drunkRecorded = applyCommand(atNight3.state, {
+    ...night3!.entry,
+    payload: night3!.entry.payload ?? {},
+  });
+  assert.equal(drunkRecorded.status, "allowed", "the recorded death applies as it did");
+  assert.equal(atNight3.state.players["1"].alive, false);
+
+  // Undo to the Tinker's step of night 2. The recorded death of the Gossip
+  // lands; the same death sent now is refused.
+  const atNight2 = replay({ ...saved.journal, entries: entries.slice(0, night2!.index) });
+  assert.equal(atNight2.ok, true, JSON.stringify(atNight2));
+  if (!atNight2.ok) return;
+  const otherNow = applyCommand(structuredClone(atNight2.state), {
+    id: "other-now",
+    type: "completeNightStep",
+    payload: night2!.entry.payload ?? {},
+  });
+  assert.equal(otherNow.status, "rejected", JSON.stringify(otherNow));
+  assert.equal(rejectionCode(otherNow), "error.51");
+  const otherRecorded = applyCommand(atNight2.state, {
+    ...night2!.entry,
+    payload: night2!.entry.payload ?? {},
+  });
+  assert.equal(otherRecorded.status, "allowed", "the recorded death applies as it did");
+  assert.equal(atNight2.state.players["4"].alive, false);
+});
+
+// Night 2 of the Tinker's game after the Po (6) killed the Gossip (4) on its
+// step, sent through the command surface.
+function resurrectionNight(runtime: ReturnType<typeof createRuntime>) {
+  const state = tinkerNight();
+  const po = roleStep(state, "po").key;
+  const tinker = roleStep(state, "tinker").key;
+  const killed = applyCommand(
+    state,
+    {
+      id: "po-kills",
+      type: "completeNightStep",
+      payload: { key: po, targetIds: ["4"], deathIds: ["4"] },
+    },
+    runtime,
+  );
+  assert.equal(killed.status, "allowed", JSON.stringify(killed));
+  assert.equal(state.players["4"].alive, false, "the Po killed the Gossip");
+  return { state, po, tinker };
+}
+
+test("a night step whose ability does not resurrect brings no one back (BMR-PROFESSOR-01, BMR-SHABALOTH-01)", () => {
+  // Professor r1775: "choose a dead player: if they are a Townsfolk, they are
+  // resurrected." Shabaloth r1790: "A dead player you chose last night might
+  // be regurgitated." No other Bad Moon Rising ability brings a player back,
+  // so a step whose ability does not resurrect refuses a resurrection, with
+  // the completion or with a later outcome, and nothing changes.
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const { state, po, tinker } = resurrectionNight(runtime);
+  const step = state.night.queue.find((entry) => entry.key === tinker)!;
+  assert.equal(step.canResurrect, false);
+  const before = canonicalState(state);
+  for (const payload of [
+    { key: tinker, resurrectId: "4" },
+    { key: tinker, deathIds: ["1"], resurrectId: "4" },
+  ]) {
+    const command = {
+      id: "tinker-resurrects-" + (payload.deathIds ? "and-dies" : "alone"),
+      type: "completeNightStep",
+      payload,
+    };
+    const preview = previewCommand(state, command, runtime);
+    assert.equal(preview.status, "rejected", JSON.stringify(preview));
+    assert.equal(rejectionCode(preview), "error.51", command.id);
+    const refused = applyCommand(state, command, runtime);
+    assert.equal(refused.status, "rejected", JSON.stringify(refused));
+    assert.equal(rejectionCode(refused), "error.51", command.id);
+    assert.deepEqual(canonicalState(state), before, command.id + ": nothing changes");
+  }
+
+  const lives = applyCommand(
+    state,
+    { id: "tinker-lives", type: "completeNightStep", payload: { key: tinker } },
+    runtime,
+  );
+  assert.equal(lives.status, "allowed", JSON.stringify(lives));
+  for (const [label, stepKey] of [
+    ["the Tinker's step", tinker],
+    ["the Po's step", po],
+  ] as const) {
+    const outcome = applyCommand(
+      state,
+      {
+        id: "outcome-" + stepKey,
+        type: "recordBmrOutcome",
+        payload: { stepKey, options: { resurrectId: "4" } },
+      },
+      runtime,
+    );
+    assert.equal(outcome.status, "rejected", label + " " + JSON.stringify(outcome));
+    assert.equal(rejectionCode(outcome), "error.51", label);
+  }
+  assert.equal(state.players["4"].alive, false, "the Gossip stays dead");
+  assert.equal(state.players["1"].alive, true, "the Tinker lives");
+  assert.deepEqual(
+    state.deaths.map((death) => [death.playerId, death.cause, death.ability]),
+    [["4", "ability", "po"]],
+  );
+});
+
+// Recorded commands keep their behavior. Until the ruleset after
+// tb-bmr-snv-2026-11-17.2 every Bad Moon Rising step took any resurrection the
+// host marked.
+for (const version of [
+  LEGACY_RULESET_VERSION,
+  ANY_ROLE_ZERO_RULESET_VERSION,
+  REPEATED_DEMON_WAKE_RULESET_VERSION,
+  OPEN_TINKER_STEP_RULESET_VERSION,
+  ANY_STEP_RESURRECTS_RULESET_VERSION,
+]) {
+  test(`a resurrection recorded under the ruleset ${version} on a step that cannot resurrect still brings the player back, and the journal replays (BMR-PROFESSOR-01, BMR-SHABALOTH-01)`, () => {
+    assert.notEqual(RULESET_VERSION, version, "commands sent now carry a later ruleset");
+    const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+    const { state, po, tinker } = resurrectionNight(runtime);
+    const at = "2030-01-01T00:00:00.000Z";
+    let sent = 0;
+    const send = (type: string, payload: Record<string, unknown>) =>
+      applyCommand(
+        state,
+        { id: "c" + ++sent, type, payload, at, rulesetVersion: version },
+        runtime,
+      );
+
+    const now = structuredClone(state);
+    const refused = applyCommand(
+      now,
+      { id: "now", type: "completeNightStep", payload: { key: tinker, resurrectId: "4" }, at },
+      runtime,
+    );
+    assert.equal(refused.status, "rejected", "a command sent now is refused");
+
+    const recorded = send("completeNightStep", { key: tinker, resurrectId: "4" });
+    assert.equal(recorded.status, "allowed", JSON.stringify(recorded));
+    assert.equal(state.players["4"].alive, true, "the Gossip came back on the Tinker's step");
+    const again = send("completeNightStep", {
+      key: roleStep(state, "assassin").key,
+      targetIds: ["4"],
+      deathIds: ["4"],
+    });
+    assert.equal(again.status, "allowed", JSON.stringify(again));
+    assert.equal(state.players["4"].alive, false, "the Assassin killed the Gossip");
+    const outcome = send("recordBmrOutcome", { stepKey: po, options: { resurrectId: "4" } });
+    assert.equal(outcome.status, "allowed", JSON.stringify(outcome));
+    assert.equal(state.players["4"].alive, true, "the Gossip came back on the Po's step");
+
+    const replayed = replay(state.journal, runtime);
+    assert.equal(replayed.ok, true, JSON.stringify(replayed));
+    if (!replayed.ok) return;
+    assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+  });
+}
+
+test("a journal recorded while any night step resurrected replays and undoes as written (BMR-PROFESSOR-01, BMR-SHABALOTH-01)", () => {
+  // Generated with createGame/applyCommand at f10e1ac: eight players. On night
+  // 2 the Po (8) kills the Gossip (4) and the host brings the Gossip back on the
+  // Tinker's (1) step. On night 3 the Po kills the Chambermaid (3) and the host
+  // brings her back with a later outcome of the Po's step. The game is saved
+  // at dawn of day 3.
+  const imported = importGame(
+    readFileSync(
+      new URL("./fixtures/legacy-night-resurrection-game.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.phase, "day");
+  assert.equal(saved.day.number, 3);
+  assert.deepEqual(
+    saved.deaths.map((death) => [death.playerId, death.number, death.ability]),
+    [
+      ["4", 2, "po"],
+      ["3", 3, "po"],
+    ],
+  );
+  assert.equal(saved.players["4"].alive, true);
+  assert.equal(saved.players["3"].alive, true);
+  assert.deepEqual(
+    [...new Set(saved.journal.entries.map((entry) => entry.rulesetVersion))],
+    [ANY_STEP_RESURRECTS_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  const entries = saved.journal.entries;
+  const tinkerAt = entries.findIndex(
+    (entry) =>
+      entry.type === "completeNightStep" &&
+      (entry.payload as { resurrectId?: string } | undefined)?.resurrectId === "4",
+  );
+  const outcomeAt = entries.findIndex((entry) => entry.type === "recordBmrOutcome");
+  assert.ok(tinkerAt > 0 && outcomeAt > tinkerAt);
+
+  // Undo to each resurrection. The recorded command brings the player back;
+  // the same command sent now is refused.
+  for (const [label, index, playerId] of [
+    ["the Tinker's step of night 2", tinkerAt, "4"],
+    ["the Po's outcome of night 3", outcomeAt, "3"],
+  ] as const) {
+    const before = replay({ ...saved.journal, entries: entries.slice(0, index) });
+    assert.equal(before.ok, true, JSON.stringify(before));
+    if (!before.ok) return;
+    assert.equal(before.state.players[playerId].alive, false, label);
+    const entry = entries[index]!;
+    const now = applyCommand(structuredClone(before.state), {
+      id: "now-" + index,
+      type: entry.type,
+      payload: entry.payload ?? {},
+    });
+    assert.equal(now.status, "rejected", label + " " + JSON.stringify(now));
+    assert.equal(rejectionCode(now), "error.51", label);
+    const recorded = applyCommand(before.state, { ...entry, payload: entry.payload ?? {} });
+    assert.equal(recorded.status, "allowed", label + ": the recorded command applies as it did");
+    assert.equal(before.state.players[playerId].alive, true, label);
+  }
 });
 
 test("the Klutz public choice runs through the command surface", () => {
