@@ -6,8 +6,18 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
+### Added
+
+- Add one lifecycle policy that declares every command's allowed phase and one guard helper for the documented transition owners; a wrong-phase command is rejected atomically, so a stale tab can no longer rebuild the day, re-deal a running game or leave the documented path (#215)
+- Reject `manualOnly: true` on a single-edition custom script at import and migrate a legacy saved flag to the automatic engine on load, since manual mode is reserved for a pool that mixes editions (#215)
+- Prove the coordinator order for protection, death, execution, transformation and win with a source-backed cross-role acceptance suite, and add an executable ownership check that only the coordinator modules call the shared death, execution, transformation, effect and win writers (#212)
+
 ### Changed
 
+- Make the table one measured stadium: two straight sides and two semicircular caps carry the rail, the felt surface and every seat centre; seats sit at equal arc distance for five to fifteen players, labels stay inside the box, and the table reads vertical on a phone and horizontal on a desktop (#266)
+- Apply the obsidian and antique gold palette to the shared token layer so every route reads it, restyle the seats as identity blocks and the dock as a fixed action dock, and apply the shared component standard to the setup and secrets screens (#266)
 - Move the night steps of the Sailor, Innkeeper, Devil's Advocate, Exorcist, Tinker, Po and Shabaloth from the engine into their role capabilities, with behavior pinned by tests before each move; the night-step contract gains the `endsOnUse` and `givenBy` arm fields, the `drunk`, `safe` and `survives-execution` timed effects, and the `record-choice`, `record-choices`, `record-no-one` and `block-demon` intents (#200)
 - Move the night steps of the four Sects & Violets Demons (Fang Gu, No Dashii, Vigormortis and Vortox) from legacy fields to their role capabilities, with behavior pinned by tests before the move; the Sects & Violets step completion now hands a role that owns a resolver to the shared capability coordinator, as the Bad Moon Rising one does (#200)
 - Move the Cerenovus's night step to its role capability, with behavior pinned by tests before the move; the night-step contract gains the `madness` intent, which writes the madness token with the id saved games already hold (#200)
@@ -58,6 +68,7 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Add the public and player projections that omit secret roles, bluffs and notes from shared views
 
-[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hose1021/grimoria/releases/tag/v0.2.0
 [0.1.1]: https://github.com/hose1021/grimoria/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hose1021/grimoria/releases/tag/v0.1.0
