@@ -6,6 +6,16 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-18
+
+### Changed
+
+- Replace the table setup card with a roster board on the setup stage: a four-step rail derived from the saved state, one chip per seat with its number and claimed or unclaimed name, one primary action per step, and the manual-script warning, the secrets error list and the first-night caution kept with the board (#291)
+
+### Fixed
+
+- Make a replacement persistence failure atomic: `reset`, `replaceState` and `importGame` no longer publish a state they could not save, and every accepted record-only command stays idempotent after journal coalescing, undo, redo and reload (#213)
+
 ## [0.3.0] - 2026-11-18
 
 ### Changed
@@ -80,7 +90,8 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Add the public and player projections that omit secret roles, bluffs and notes from shared views
 
-[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hose1021/grimoria/releases/tag/v0.4.0
 [0.3.0]: https://github.com/hose1021/grimoria/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hose1021/grimoria/releases/tag/v0.2.0
 [0.1.1]: https://github.com/hose1021/grimoria/releases/tag/v0.1.1
