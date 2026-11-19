@@ -32,11 +32,19 @@ type PendingChoice = { caseId: Parameters<typeof recordHostChoice>[1]; detail: s
 // The host answer must be one of the offered options. Validation happens before
 // any mutation; the journal line is written only after the step succeeds.
 function validateGiven(
+  state: GameState,
   step: NightStep,
-  info: { needsChoice?: boolean; options?: unknown[]; impaired?: boolean },
+  info: { kind?: string; needsChoice?: boolean; options?: unknown[]; impaired?: boolean },
   options: NightOptions,
+  version?: string,
 ): { rejection: Record<string, unknown> } | { pending: PendingChoice | null } {
   const hasOptions = Array.isArray(info.options) && info.options.length > 0;
+  const pairKind = info.kind === "role-pair" || info.kind === "player-pair";
+  // A checked pair without a legal option must not fall through to the
+  // free-text path: an empty list can never admit an answer.
+  if (pairKind && info.needsChoice && !hasOptions) {
+    return { rejection: givenRejected(info) };
+  }
   if (info.needsChoice && !options.given) {
     return { rejection: { ok: false as const, needsChoice: true, info } };
   }
@@ -47,8 +55,8 @@ function validateGiven(
   if (hasOptions && options.given) {
     return {
       pending: {
-        caseId: caseForStep(step, info),
-        detail: describeGiven(options.given),
+        caseId: caseForStep(step, info, version),
+        detail: describeGiven(options.given, state),
       },
     };
   }
@@ -517,7 +525,13 @@ export function completeStep(
   if (step.sv) {
     let pending: PendingChoice | null = null;
     if (step.infoKind !== "none") {
-      const checked = validateGiven(step, infoForStep(state, step, options), options);
+      const checked = validateGiven(
+        state,
+        step,
+        infoForStep(state, step, options, ports),
+        options,
+        ports.rulesetVersion,
+      );
       if ("rejection" in checked) return checked.rejection;
       pending = checked.pending;
     }
@@ -562,7 +576,13 @@ export function completeStep(
     if (step.infoKind !== "none") {
       // A note-only Bad Moon Rising answer is free-form narration; a step that
       // computes options is held to them like every other information step.
-      const checked = validateGiven(step, infoForStep(state, step, options, ports), options);
+      const checked = validateGiven(
+        state,
+        step,
+        infoForStep(state, step, options, ports),
+        options,
+        ports.rulesetVersion,
+      );
       if ("rejection" in checked) return checked.rejection;
       pending = checked.pending;
     }
@@ -646,7 +666,7 @@ export function completeStep(
       step.given = info;
       return finishStep(state, step, options, targets, at, ports);
     }
-    const checked = validateGiven(step, info, options);
+    const checked = validateGiven(state, step, info, options, ports.rulesetVersion);
     if ("rejection" in checked) return checked.rejection;
     const finished = finishStep(state, step, options, targets, at, ports);
     recordPending(state, checked.pending, step, ports);
