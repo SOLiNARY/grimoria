@@ -129,6 +129,8 @@ export default {
   completeStep: "Addım tamamlandı",
   confirmTarget: "Hədəfi təsdiqlə",
   skipWake: "Oyanışı keç",
+  noOne: "Heç kim",
+  noOneHint: "Açıq «heç kim» seçimi: növbəti gecə Po üç hədəf seçə biləcək.",
   why: "Niyə?",
   hostAction: "Aparıcı",
   playerAction: "Oyunçu",
@@ -701,6 +703,7 @@ export default {
   "error.77": "Pis Əkizin tərəfdaşını seçin: tərəfdaş olmadan gecə bitməyəcək.",
   "error.78": "Hazırda gecə deyil.",
   "error.79": "Yalnız aparıcı rejimi yalnız qarışıq nəşr ssenarisi üçün mövcuddur.",
+  "error.80": "Yaşayan oyunçunun məcburi gecə addımı keçilə bilməz.",
   "error.73": "Bu dəlilik bu gecə verilib: qərar növbəti gün və ya ondan sonrakı gecə verilir.",
 
   "error.62": "Oyunçuda aktiv dəlilik yoxdur.",

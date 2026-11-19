@@ -5,6 +5,7 @@ import {
   attackNeedsRedirect,
   bmrDrunkEffect,
   butlerMaster,
+  canSkipStep,
   characterChoices,
   currentStep,
   demonChangePending,
@@ -57,6 +58,7 @@ export function nominatorChoices(state: GameState): Player[] {
 
 export interface TableProjection {
   step: NightStep | null;
+  skippable: boolean;
   progress: { done: number; total: number };
   pendingDemonChange: NightStep | null;
   living: number;
@@ -66,8 +68,10 @@ export interface TableProjection {
 
 export function tableProjection(state: GameState): TableProjection {
   const living = livingPlayers(state).length;
+  const step = currentStep(state);
   return {
-    step: currentStep(state),
+    step,
+    skippable: step ? canSkipStep(state, step) : false,
     progress: progressProjection(state),
     pendingDemonChange: demonChangePending(state),
     living,
