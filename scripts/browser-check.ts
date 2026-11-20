@@ -49,6 +49,7 @@ const focusedChecks: Record<string, () => Promise<void>> = {
   "lunatic-setup": lunaticSetupControls,
   "verification-contracts": verificationContracts,
   "setup-zero": setupZeroIsTheLibrariansAlone,
+  washerwoman: washerwomanFalseInformationCard,
   "demon-wake": newDemonWakesOnce,
   "pukka-goon": pukkaChoosesGoonWhileSelfPoisoned,
   "mayor-redirect": mayorRedirectIsAsked,
@@ -1859,6 +1860,213 @@ async function setupZeroIsTheLibrariansAlone() {
     }),
     { done: true, roleId: "chef", pair: ["4", "5"], zero: false },
     "the Washerwoman learns the prepared character and players",
+  );
+}
+
+async function washerwomanFalseInformationCard() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const text = "P2 или P3 — Монах.";
+
+  const seed = async (poisoned: boolean) => {
+    const result = await page.evaluate(async (poisoned) => {
+      const { model, engine, store } = await window.PG_MODULES();
+      const assignment = {
+        1: "washerwoman",
+        2: "librarian",
+        3: "investigator",
+        4: "saint",
+        5: "chef",
+        6: "empath",
+        7: "poisoner",
+        8: "imp",
+      };
+      const game = model.createGame(8);
+      Object.entries(assignment).forEach(([id]) => {
+        game.players[id].name = "P" + id;
+        game.players[id].claimed = true;
+      });
+      game.setup.count = 8;
+      game.setup.roles = [...new Set(Object.values(assignment))];
+      game.setup.bluffs = ["monk", "virgin", "mayor"];
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      engine.autoSecrets(game);
+      game.setup.info.washerwoman = { roleId: "chef", pair: ["6", "5"], matchIndex: 1 };
+      game.phase = "seat";
+      const start = engine.startNight(game);
+      if (!start.ok) return start;
+      for (const system of ["minioninfo", "demoninfo"]) {
+        const step = game.night.queue.find((entry) => entry.system === system);
+        if (!step) return { ok: false, errors: [{ code: "step", message: system }] };
+        engine.completeStep(game, step.key, {});
+      }
+      const poisoner = game.night.queue.find((entry) => entry.roleId === "poisoner");
+      if (!poisoner) return { ok: false, errors: [{ code: "step", message: "poisoner" }] };
+      const poisonedTarget = poisoned ? "1" : "4";
+      engine.completeStep(game, poisoner.key, { targetIds: [poisonedTarget] });
+      const errors = model.validateState(game);
+      if (errors.length) return { ok: false, errors };
+      store.replaceState(game);
+      dispatchEvent(new PopStateEvent("popstate"));
+      return { ok: true };
+    }, poisoned);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    await settled();
+    await route("/table");
+  };
+
+  const recorded = () =>
+    page.evaluate(async () => {
+      const { store } = await window.PG_MODULES();
+      const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+      const given = step?.given as Record<string, unknown> | null | undefined;
+      return {
+        done: Boolean(step?.done),
+        roleId: given?.roleId ?? null,
+        pair: given?.pair ?? null,
+        answerText: given?.answerText ?? null,
+      };
+    });
+
+  await seed(true);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  assert.equal(
+    await page.locator('[data-act="show-info"]').count(),
+    0,
+    "a poisoned actor is never offered the computed card",
+  );
+  await page.locator('select[data-given-kind="role"]').selectOption("monk");
+  await page.locator('[data-player-pair="0"]').selectOption("2");
+  await page.locator('[data-player-pair="1"]').selectOption("3");
+  assert.equal(
+    await page.locator('[data-act="show-template"]').isDisabled(),
+    false,
+    "a chosen answer alone opens the card",
+  );
+  await page.locator('[data-act="show-template"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  const chosen = await page.locator("[data-player-card-text]").innerText();
+  assert.match(chosen, /Monk|Монах/, "the card shows the chosen Townsfolk");
+  assert.match(chosen, /P2/, "the card shows the chosen first player");
+  assert.match(chosen, /P3/, "the card shows the chosen second player");
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "monk", pair: ["2", "3"], answerText: null },
+    "the command records the chosen role and both players",
+  );
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("pg.stepDraft")),
+    "",
+    "the completed step leaves no draft behind",
+  );
+  await openTableMenu();
+  const firstJournal = await page.locator("[data-menu]").innerText();
+  assert.match(firstJournal, /Monk|Монах/, "the journal names the chosen Townsfolk");
+  assert.match(firstJournal, /P2/, "the journal names the first player");
+  assert.match(firstJournal, /P3/, "the journal names the second player");
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P3/,
+    "the recorded pair survives a reload",
+  );
+  await page.keyboard.press("Escape");
+
+  // The same answer with the Storyteller's own wording: one draft, one
+  // command, and the wording is what the journal and the card show.
+  await seed(true);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  await page.locator('select[data-given-kind="role"]').selectOption("monk");
+  await page.locator('[data-player-pair="0"]').selectOption("2");
+  await page.locator('[data-player-pair="1"]').selectOption("3");
+  await page.locator("[data-info-template]").fill(text);
+  await page.locator('[data-act="show-template"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  assert.equal(
+    await page.locator("[data-player-card-text]").innerText(),
+    text,
+    "the card shows the Storyteller's wording",
+  );
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  assert.equal(
+    await page.locator("[data-info-template]").inputValue(),
+    text,
+    "the wording survives closing the sheet",
+  );
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "monk", pair: ["2", "3"], answerText: text },
+    "the command records the role, both players and the wording",
+  );
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P2 или P3 — Монах\./,
+    "the journal shows the recorded wording",
+  );
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P2 или P3 — Монах\./,
+    "the recorded answer survives a reload",
+  );
+  await page.keyboard.press("Escape");
+
+  // A healthy Washerwoman keeps the prepared answer and never shows a
+  // false-information control.
+  await seed(false);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="show-info"]');
+  assert.equal(
+    await page.locator("[data-info-template]").count(),
+    0,
+    "a healthy actor has no false-information control",
+  );
+  await page.locator('[data-act="show-info"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  const card = await page.locator("[data-player-card-text]").innerText();
+  assert.match(card, /Chef|Повар/, "the card names the prepared Townsfolk");
+  assert.match(card, /P6/, "the card names the prepared player");
+  await page.keyboard.press("Escape");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "chef", pair: ["6", "5"], answerText: null },
+    "the healthy answer is the prepared one",
   );
 }
 
@@ -7052,6 +7260,7 @@ async function fullChecks() {
   await timed("lunatic-setup", lunaticSetupControls);
   await timed("verification-contracts", verificationContracts);
   await timed("setup-zero", setupZeroIsTheLibrariansAlone);
+  await timed("washerwoman", washerwomanFalseInformationCard);
   await timed("demon-wake", newDemonWakesOnce);
   await timed("pukka-goon", pukkaChoosesGoonWhileSelfPoisoned);
   await timed("mayor-redirect", mayorRedirectIsAsked);
