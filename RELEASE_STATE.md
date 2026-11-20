@@ -3,18 +3,20 @@
 Canonical handoff for epic #200 and release 0.6.0. Updated 2026-11-20.
 
 - Release PR: #366 (`dev` → `main`), owner-controlled. Do not merge, tag or close parent issues without the owner's decision.
-- Baseline `dev`: `40f6830cbffb762bc154ac01764fb082e376a066`.
-- Current defect-fix branch: `fix/release-defect-reachability`, based on `40f6830`; PR #421.
+- Current `dev`: `3a385b49734de86621f23c4b852d0021f6eb3e27`.
+- Previous baseline: `40f6830cbffb762bc154ac01764fb082e376a066`.
+- Defect-fix PR: #421, squashed into `dev` at `3a385b4`.
 - OpenSpec change: `release-defect-reachability`.
 
-## Current exact-branch evidence
+## Current `dev` evidence (`3a385b4`)
 
-Everything in this section was run on the defect-fix branch, not carried over from the baseline.
+Everything in this section was run on the defect-fix branch and rechecked by PR #421 CI; it is not carried over from the baseline.
 
 | Check | Result |
 | --- | --- |
 | `npm test` | 1386/1386 pass |
 | `npm run verify` | pass (typecheck, lint, format, tests, build, fallback, offline, source policy, provenance 82, acceptance 72 roles / 52 files, version, ownership) |
+| `npm run verification:mutation` | 10/10 critical mutations detected |
 | `node scripts/openspec-check.ts` | pass, 27 specs / 12 active changes |
 | `openspec validate --changes --strict` | 12/12 pass |
 | `PG_BROWSER_CHECK=pithag-deaths` | pass on `/table` at 390 px |
@@ -24,7 +26,11 @@ Everything in this section was run on the defect-fix branch, not carried over fr
 
 Browser evidence uses the built production artifact and the real `/table` route. Focused checks are also registered in the full suite.
 
-## Confirmed defects closed on this branch
+- PR #421 CI on `fe093dd`: every job green.
+- PR #366 CI on `3a385b4`: every applicable job green; Specifications is skipped for the release PR by design.
+- `RELEASE_STATE.md` was merged in #421; this file records the post-merge SHA.
+
+## Confirmed defects closed on `dev` (`3a385b4`)
 
 ### Pit-Hag arbitrary deaths (SNV #219)
 
