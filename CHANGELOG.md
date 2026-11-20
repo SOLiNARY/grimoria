@@ -6,6 +6,50 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Add an engine-derived Storyteller reference at `/reference` and `/reference/:roleId`: all 72 supported characters, the engine's rule decisions, the host's decisions, verified scenarios, official interactions and a complete Russian translation (#396)
+
+## [0.6.0] - 2026-11-20
+
+### Fixed
+
+- Let a character created mid-game start knowing at that point: a Pit-Hag-created Clockmaker or a Barber swap onto a start-knowing character wakes immediately, a dead created character does not, and a living Vortox falsifies the answer (#314)
+- Refuse the same seat twice in every multi-target night step: Innkeeper, Shabaloth, Po, Barber, Fortune Teller and Chambermaid (#316)
+- Use a borrowed day ability for the Philosopher: the Slayer shoots, the Tinker dies and the Virgin triggers, while a Drunk's shown ability stays inert (#320)
+- Give the Klutz death choice a day control, reachable after the execution ended the day (#319)
+- Derive the Pacifist survival control from the engine rule and clear it when the target or the day changes (#317)
+- Offer shown-role and effect corrections, with the reason in the journal (#325)
+- Show a seat that is drunk and poisoned as both, and delete the duplicate public projections and the unreachable hidden card mode (#331)
+- Make the `/secrets` tick and role options agree with the engine's secrets errors (#324)
+- Commit the host notes after a pause, on blur and on unmount, instead of once per character (#330)
+- Match the dead-execution requirement to States r1039: a dead target is executed and the day's execution is spent (#327)
+- Treat a Pukka self-target as a host-adjudicated default and record a different reading through the correction dialog (#200)
+- Let the Storyteller choose which living Demon makes the Barber swap, while still rejecting a swap between two Demons (#219)
+- Judge the Moonchild's impairment at the night resolution, so a choice made while poisoned still kills when the Moonchild is sober and healthy at night, and a Pukka's night poison stops a sober choice (#218)
+- Reveal a daytime Scarlet Woman succession before the new Demon's Imp step, so the new Demon acts that night; a night self-kill still wakes the heir after its spent action (#217)
+- End a dead source's persistent drunk effect when its ability created it before the death; keep the Sweetheart's on-death drunk and the Goon's permanent drunk (#218)
+- Let an impaired Librarian give the zero as false information, and ask for setup when a prepared pair relies on an impaired Spy or Recluse registration (#217)
+- Suspend the Cerenovus's madness while its source is drunk or poisoned, end it when the source dies, and resume it when the source is healthy; a Vigormortis-retained Cerenovus keeps it (#219)
+- Record a Vortox's mandatory false answer as false information in the Storyteller journal instead of a Spy or Recluse registration ambiguity (#220)
+
+### Added
+
+- Verify every supported role's ability in the ru, en and az catalogs and the audited mechanical terms, and correct the Russian Juggler and Tinker wording (#326, #332)
+- Close the verification register: every UI contract has gate-covered evidence, the queue panel and the Klutz control are tested, and the findings gate is green (#332)
+- Add the storefront welcome page at `/`: one yellow action, the first night as a shelf of real role tapes with one struck victim, the three scripts as staff picks, the offline and no-account facts, and a membership card; the page never changes the saved game (#384)
+- Add a visible close control to the night step sheet and the heir sheet, so the sheet no longer depends on Escape or the backdrop (#384)
+
+### Changed
+
+- Run CI and the documented verification commands on Node.js 26 LTS (#349)
+- Replace the Arcane Instrument system with the store system: tube black, bone print, one rental-yellow action, rent red, signal blue, cream labels, hazard strips, self-hosted Oswald, Golos Text and PT Mono, and one shelf entrance (#384)
+- Move the app bar's inline navigation breakpoint from 1440 to 1200 CSS pixels and add the Home tab (#384)
+
+### Removed
+
+- Remove the `/public` screen and its navigation link; `/public` now falls back to `/table`, and the `publicGameView` projection and its privacy tests stay (#384)
+
 ## [0.5.0] - 2026-11-20
 
 ### Fixed
@@ -129,7 +173,8 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Add the public and player projections that omit secret roles, bluffs and notes from shared views
 
-[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/hose1021/grimoria/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hose1021/grimoria/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/hose1021/grimoria/releases/tag/v0.4.1
 [0.4.0]: https://github.com/hose1021/grimoria/releases/tag/v0.4.0

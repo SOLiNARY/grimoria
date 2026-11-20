@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
       - run: npm ci
       - name: Trace, architecture and action scope
         env:
@@ -49,16 +49,20 @@ jobs:
         run: node scripts/check-acceptance.ts
 
   findings:
-    name: Known findings (red until linked issues are fixed)
+    name: Known findings register
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
       - run: npm ci
       - name: Known non-compliant contracts and regressions
+        env:
+          VERIFICATION_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
         run: node scripts/verification/gates.ts --scope=findings
 
   mutation:
@@ -70,7 +74,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
       - run: npm ci
       - name: Run mutation probes in a temporary copy
         run: node scripts/verification/mutation.ts

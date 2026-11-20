@@ -103,14 +103,15 @@ node --test --test-name-pattern="at least half" src/core/engine/engine.test.ts  
   `public/assets/data/*.js` are outside it.
 - `sw.js` and `404.html` are generated into `dist/` and never committed.
   Regenerate after asset edits (`npm run fallback`, `npm run offline`).
-- Node 24, `node:test` + `node:assert/strict`. Tests import `.ts` directly.
+- Node 26 LTS, `node:test` + `node:assert/strict`. Tests import `.ts` directly.
 
 ## Boundaries
 
 ### Never
 
-- Merge a PR, enable auto-merge, approve your own changes, or bypass a required
-  check. Only an owner message `merge PR #N` authorizes merging that one PR.
+- Merge a PR into `main`, enable auto-merge, approve your own changes, or bypass
+  a required check. A PR into `dev` may be squash-merged once CI is green; a
+  merge into `main` needs an owner message `merge PR #N`.
 - Commit directly to `main` or `dev`, or create long-lived branches other than
   `dev` (`develop`, `release/*`).
 - Edit a requirement or weaken/delete a test to make CI pass.
@@ -142,7 +143,8 @@ node --test --test-name-pattern="at least half" src/core/engine/engine.test.ts  
 
 ## Workflow
 
-Pipeline: `GitHub issue → OpenSpec change → branch + PR → CI → owner merge → sync/archive`.
+Pipeline: `GitHub issue → OpenSpec change → branch + PR → CI → merge → sync/archive`;
+the agent merges into `dev`, the owner merges into `main`.
 
 1. **Issue.** New functionality starts from a GitHub issue. Doc-only and typo
    changes that alter no behavior may skip the OpenSpec change, but the PR still
@@ -169,14 +171,16 @@ Pipeline: `GitHub issue → OpenSpec change → branch + PR → CI → owner mer
    proves the result instead.
 5. **PR.** Targets `dev`, or the base branch of the dependency it stacks on
    (step 3). Only a `hotfix/*` PR and a release PR (`dev` → `main`) target
-   `main`. Open it, run checks, report CI, then **stop and wait**. Review fixes
-   go to the same branch. The body SHALL keep the `Issue: #N` line the
-   specification check reads. A PR that closes its issue SHALL also carry a
-   closing keyword line (`Closes #N`); the issue reference in the title alone is
-   not enough. Write the closing line every time, and keep it when the body is
-   edited. GitHub resolves the keyword on the default branch (`main`), so a PR
-   into `dev` still states it. Before any merge verify the current HEAD SHA, CI result
-   and the owner's permission for that exact PR. A release PR (`dev` → `main`)
+   `main`. Open it and run the checks; once CI is green, squash-merge a
+   `dev`-targeted PR. A PR targeting `main` is reported and **left for the
+   owner**. Review fixes go to the same branch. The body SHALL keep the
+   `Issue: #N` line the specification check reads. A PR that closes its issue
+   SHALL also carry a closing keyword line (`Closes #N`); the issue reference
+   in the title alone is not enough. Write the closing line every time, and
+   keep it when the body is edited. GitHub resolves the keyword on the default
+   branch (`main`), so a PR into `dev` still states it. Before any merge verify
+   the current HEAD SHA and the green CI result on it; a merge into `main` also
+   needs the owner's permission for that exact PR. A release PR (`dev` → `main`)
    and a back-merge PR (`main` → `dev`) name no issue and no OpenSpec change in
    the body, and skip the `Specifications` job: the changes were validated in
    `dev` before the release. The title keeps the issue reference line only
@@ -222,9 +226,9 @@ includes the bump in the merged PR. Use Semantic Versioning:
 - minor: a release that adds a capability from `dev`;
 - patch: a hotfix, or a release of fixes only (`1.0.0` → `1.0.1`).
 
-The owner's `merge PR #N` is the only decision. The tag and the `main` → `dev`
-merge follow the merge: the release workflow performs them, or the agent does
-when no workflow is configured. The owner approves nothing else.
+For `main`, the owner's `merge PR #N` is the only decision. The tag and the
+`main` → `dev` merge follow the merge: the release workflow performs them, or
+the agent does when no workflow is configured. The owner approves nothing else.
 
 - Release: the `dev` → `main` PR moves `## [Unreleased]` entries under
   `## [X.Y.Z] - <date>` and carries the minor or major bump.
@@ -383,4 +387,4 @@ Before reporting a task complete:
 - [ ] The PR targets `dev`; only a `hotfix/*` PR or the `dev` release PR targets `main`.
 - [ ] `openspec validate --changes --strict` passes; PR names the issue and the OpenSpec change, unless it is a release or back-merge PR.
 - [ ] PR title is a valid Conventional Commit and ends with the issue reference `(#N)`.
-- [ ] PR opened, CI result reported, agent stopped. No merge.
+- [ ] PR opened and CI reported; a `dev` PR merged only from the verified HEAD SHA with green CI, a `main` PR left to the owner.

@@ -150,7 +150,6 @@ export interface Used {
   jugglerGuesses?: string[];
   lunaticTarget?: string;
   moonchildResolved?: boolean;
-  moonchildImpaired?: boolean;
   moonchildTarget?: string;
   philosopher?: boolean;
   poNoOne?: boolean;
@@ -362,6 +361,9 @@ export interface Effect {
   day?: number;
   deathIds?: string[];
   demon?: boolean;
+  // Created by the source's own death (the Sweetheart's drunk). Unlike an
+  // ordinary persistent effect, it outlives its dead source.
+  onDeath?: boolean;
   [key: string]: unknown;
 }
 
@@ -434,6 +436,8 @@ export interface JugglerGuess {
 
 export interface Juggler {
   day: number;
+  /** The seat whose guesses this record holds. */
+  holderId?: string;
   guesses: JugglerGuess[] | Record<string, RoleId>;
   /** Correct guesses at the moment the guesses were recorded. */
   correct?: number;
@@ -512,6 +516,8 @@ export interface GameState {
   herringId: string | null;
   gossip: Gossip | null;
   juggler: Juggler | null;
+  /** Per-holder guess ledgers; `juggler` is the latest for compatibility. */
+  jugglers?: Record<string, Juggler>;
   artist: ArtistRecord | null;
   savant: SavantRecord | null;
   /** Every Savant visit, including a borrowed copy; `savant` is the latest. */

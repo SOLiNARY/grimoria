@@ -9,12 +9,7 @@ import {
   stepProjection,
   tableProjection,
 } from "../../../application/read-models/table.ts";
-import {
-  effectiveRoleId,
-  orderedPlayers,
-  playerById,
-  realTeamOf,
-} from "../../../core/model/state.ts";
+import { hasAbility, orderedPlayers, playerById, realTeamOf } from "../../../core/model/state.ts";
 import { roleTeam } from "../../../core/model/rules.ts";
 import { Dialog, DialogClose } from "../../components/dialog.tsx";
 import {
@@ -25,6 +20,7 @@ import {
   previewIdentity,
   rejectionText,
   roleNameOf,
+  cardRoleId,
   shownCardText,
   stepTitle,
 } from "./helpers.ts";
@@ -218,7 +214,7 @@ function PlayerInfoCard({ view }: { view: TableView }) {
   const shown = draftGiven || recorded || derived.info;
   const given = draftGiven || recorded;
   const actor = step.actorId ? playerById(state, step.actorId) : null;
-  const roleId = actor ? actor.shownRoleId || actor.roleId : step.roleId;
+  const roleId = actor ? cardRoleId(actor) : step.roleId;
   const role = roleId ? ports.roles.byId(roleId) : null;
   const generic = step.system === "minioninfo" || step.system === "demoninfo" ? step.system : null;
   const text = shownCardText(
@@ -326,6 +322,32 @@ function PlayerInfoCard({ view }: { view: TableView }) {
   );
 }
 
+function SheetClose({ onClose, label }: { onClose(): void; label: string }) {
+  return (
+    <div className="mb-2 flex justify-end">
+      <button
+        className="btn btn--quiet min-h-11 !border-edge-2 !px-3 !text-[12px] text-text hover:!bg-crypt-3"
+        type="button"
+        data-act="close"
+        onClick={onClose}
+      >
+        <svg
+          className="size-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+        {label}
+      </button>
+    </div>
+  );
+}
+
 function StepSheet({ view }: { view: TableView }) {
   const { state, drafts, ports, actions } = view;
   const t = ports.strings.t;
@@ -343,6 +365,7 @@ function StepSheet({ view }: { view: TableView }) {
         footer={<></>}
         bare
       >
+        <SheetClose onClose={actions.closeOverlay} label={t("close")} />
         <div className="grid gap-3 rounded-md border border-edge-2 bg-crypt-2 p-4 shadow-lg">
           <NightCard view={view} flat />
         </div>
@@ -367,6 +390,7 @@ function StepSheet({ view }: { view: TableView }) {
       footer={<></>}
       bare
     >
+      <SheetClose onClose={actions.closeOverlay} label={t("close")} />
       <div className="grid gap-3 rounded-md border border-edge-2 bg-crypt-2 p-4 shadow-lg">
         <NightCard view={view} flat />
         {context.blockers.length ? (
@@ -493,6 +517,7 @@ function PlayerSheet({ view }: { view: TableView }) {
             data-act="player-execute"
             onClick={() => {
               drafts.setExecuteTarget(drafts.executeTarget === player.id ? "" : player.id);
+              drafts.setExecuteSurvives(false);
               actions.closeOverlay();
             }}
           >
@@ -501,7 +526,7 @@ function PlayerSheet({ view }: { view: TableView }) {
               : t("ui.selectForExecution")}
           </button>
         ) : null}
-        {effectiveRoleId(player) === "slayer" && player.alive && !player.used.slayer ? (
+        {hasAbility(player, "slayer") && player.alive && !player.used.slayer ? (
           <SlayerPanel view={view} slayerId={player.id} />
         ) : null}
         <div className="grid grid-cols-2 gap-2">
@@ -628,7 +653,7 @@ function PlayerRoleCard({ view }: { view: TableView }) {
   const { state, drafts, ports, actions } = view;
   const t = ports.strings.t;
   const player = drafts.playerCardId ? playerById(state, drafts.playerCardId) : null;
-  const roleId = player ? player.shownRoleId || player.roleId : null;
+  const roleId = cardRoleId(player);
   const role = roleId ? ports.roles.byId(roleId) : null;
   if (!player || !role) return null;
   return (
@@ -920,7 +945,16 @@ function CorrectionDialog({ view }: { view: TableView }) {
             ? { ...base, kind: "twin" as const, value: current.value }
             : current.kind === "reminder"
               ? { ...base, kind: "reminder" as const, value: current.value }
-              : { kind: "clear-winner" as const, reason: current.reason };
+              : current.kind === "shown"
+                ? { ...base, kind: "shown" as const, value: current.value || null }
+                : current.kind === "effect"
+                  ? {
+                      kind: "effect" as const,
+                      effectId: current.value,
+                      value: false,
+                      reason: current.reason,
+                    }
+                  : { kind: "clear-winner" as const, reason: current.reason };
     const result = actions.run({ type: "manualCorrection", payload: { change } });
     if (result.status === "allowed") actions.closeOverlay();
   };
@@ -950,7 +984,7 @@ function CorrectionDialog({ view }: { view: TableView }) {
       }
     >
       <label className={FIELD_BOX}>
-        <span className="label">Игрок</span>
+        <span className="label">{t("ui.correctPlayer")}</span>
         <select
           className="field"
           data-correct="player"
@@ -970,7 +1004,7 @@ function CorrectionDialog({ view }: { view: TableView }) {
         </select>
       </label>
       <label className={FIELD_BOX}>
-        <span className="label">Действие</span>
+        <span className="label">{t("ui.correctAction")}</span>
         <select
           className="field"
           data-correct="kind"
@@ -990,12 +1024,14 @@ function CorrectionDialog({ view }: { view: TableView }) {
             <option value="twin">{t("twinPartner")}</option>
           ) : null}
           <option value="reminder">{t("addReminder")}</option>
+          <option value="shown">{t("correctShownRole")}</option>
+          <option value="effect">{t("correctEffect")}</option>
           <option value="clear-winner">{t("rollback")}</option>
         </select>
       </label>
       {current.kind === "alive" ? (
         <label className={FIELD_BOX}>
-          <span className="label">Статус</span>
+          <span className="label">{t("ui.correctStatus")}</span>
           <select
             className="field"
             data-correct="alive-value"
@@ -1044,6 +1080,54 @@ function CorrectionDialog({ view }: { view: TableView }) {
               .map((player) => (
                 <option key={player.id} value={player.id}>
                   {player.seat} · {displayName(player, t)}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
+      {current.kind === "shown" ? (
+        <label className={FIELD_BOX}>
+          <span className="label">{t("correctShownRole")}</span>
+          <select
+            className="field"
+            data-correct="shown"
+            value={current.value}
+            onChange={(event) => update({ value: event.target.value })}
+          >
+            <option value="">—</option>
+            {(state.script?.roles ?? []).map((id) => (
+              <option key={id} value={id}>
+                {roleNameOf(id, ports.roles.byId)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {current.kind === "effect" ? (
+        <label className={FIELD_BOX}>
+          <span className="label">{t("correctEffect")}</span>
+          <select
+            className="field"
+            data-correct="effect"
+            value={current.value}
+            onChange={(event) => update({ value: event.target.value })}
+          >
+            <option value="">—</option>
+            {(state.effects || [])
+              .filter(
+                (effect) =>
+                  effect.active !== false &&
+                  (effect.targetId === current.playerId ||
+                    (current.playerId === "" && effect.targetId == null)),
+              )
+              .map((effect) => (
+                <option key={effect.id} value={effect.id}>
+                  {effect.sourceId
+                    ? displayName(playerById(state, effect.sourceId), t) + " → "
+                    : ""}
+                  {effect.targetId ? displayName(playerById(state, effect.targetId), t) : "—"}
+                  {": "}
+                  {effect.kind}
                 </option>
               ))}
           </select>

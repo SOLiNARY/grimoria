@@ -52,7 +52,7 @@ import { lifecycleGuard } from "./lifecycle.ts";
 import { systemPorts } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, evilTwinPair, kill, setWinner } from "./death.ts";
-import { activeEffects, isImpaired } from "./effects.ts";
+import { activeEffects, bmrCannotDie, isImpaired } from "./effects.ts";
 import { vigormortisActive } from "./retention.ts";
 import { firstNightStepOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
@@ -294,8 +294,18 @@ function svStepKey(
 // The Juggler's public guesses. The command stores a list of pairs because the
 // same player may be guessed more than once with different characters; a saved
 // game may still carry the legacy player-id map, which both shapes are read for.
-function jugglerGuesses(state: GameState): JugglerGuess[] {
-  const stored = state.juggler ? state.juggler.guesses : null;
+function jugglerRecord(state: GameState, actorId: string | null | undefined) {
+  if (!actorId) return state.juggler;
+  const scoped = state.jugglers?.[actorId];
+  if (scoped) return scoped;
+  const legacy = state.juggler;
+  if (!legacy) return null;
+  if (legacy.holderId) return legacy.holderId === actorId ? legacy : null;
+  return Object.keys(state.jugglers || {}).length ? null : legacy;
+}
+
+function jugglerGuesses(state: GameState, actorId: string | null | undefined): JugglerGuess[] {
+  const stored = jugglerRecord(state, actorId)?.guesses ?? null;
   if (!stored) return [];
   if (Array.isArray(stored)) {
     return stored
@@ -500,10 +510,21 @@ function requeueForCharacter(
   if (suppressWake && roleTeam(player.roleId) === "demon") return;
   const night = nightAt(state).number;
   const roleId = player.roleId;
-  const spec = nightStepFor(roleModule(roleId), night);
-  const index = nightSequence(night, "snv").indexOf(roleId);
-  if (!spec || index === -1 || index <= order) return;
+  const declared = roleModule(roleId);
+  const current = nightStepFor(declared, night);
+  // INFO-006 and Barber r1757: a character created mid-game starts knowing at
+  // the point of creation, so a role with only a first-night step wakes right
+  // after the step that created it. A role that already woke tonight keeps its
+  // own printed slot.
+  const spec = current ?? (night > 1 ? firstNightStepOf(declared) : undefined);
+  if (!spec) return;
   if (!player.alive) return;
+  let index = nightSequence(night, "snv").indexOf(roleId);
+  if (current) {
+    if (index === -1 || index <= order) return;
+  } else {
+    index = order + 0.1;
+  }
   const actor = spec.actor
     ? spec.actor(state, night, player)
     : stillWakes(state, player)
@@ -793,7 +814,7 @@ export function svInfoForStep(
     };
   }
   if (role === "clockmaker") {
-    const demon = livingPlayers(state).find((player) => roleTeam(player.roleId || "") === "demon");
+    const demon = orderedPlayers(state).find((player) => roleTeam(player.roleId || "") === "demon");
     // Glossary "In play": a character exists in the current game, alive or
     // dead. The distance ends at the nearest Minion in play, not only a living
     // one (Clockmaker r2967).
@@ -1113,8 +1134,8 @@ export function svInfoForStep(
     };
   }
   if (role === "juggler") {
-    const guesses = jugglerGuesses(state);
-    const stored = state.juggler ? state.juggler.correct : undefined;
+    const guesses = jugglerGuesses(state, step.actorId);
+    const stored = jugglerRecord(state, step.actorId)?.correct;
     const value =
       typeof stored === "number"
         ? stored
@@ -1514,13 +1535,14 @@ export function completeSvStep(
   if (step.roleId === "barber") {
     const [first, second] = targets.map((id) => playerById(state, id));
     if (!first || !second || first.id === second.id) return { ok: true };
-    const demon = orderedPlayers(state).find(
-      (player) => roleTeam(player.roleId || "") === "demon" && player.alive,
+    // Barber r1757: the Demon chooses two players and may choose itself, but
+    // not another Demon. With several living Demons the Storyteller chooses
+    // which one makes the swap, so the chosen Demon is the one among the two
+    // targets; only a second Demon in the same swap is illegal.
+    const demonTargets = [first, second].filter(
+      (player) => roleTeam(player.roleId || "") === "demon",
     );
-    const differentDemon = [first, second].find(
-      (player) => roleTeam(player.roleId || "") === "demon" && (!demon || player.id !== demon.id),
-    );
-    if (differentDemon) {
+    if (demonTargets.length > 1) {
       return { ok: false, errorCode: "error.53", error: "Нельзя выбрать другого Демона." };
     }
     swapCharacters(state, first, second, { order, currentKey: step.key });
@@ -1553,9 +1575,6 @@ export function completeSvStep(
     if (!first || !second) {
       return { ok: false, errorCode: "error.41", error: "Выберите двух разных игроков." };
     }
-    if (first.id === second.id) {
-      return { ok: false, errorCode: "error.42", error: "Нужны два разных игрока." };
-    }
     if (first.id === actor.id || second.id === actor.id) {
       return { ok: false, errorCode: "error.40", error: "Нельзя выбрать себя." };
     }
@@ -1584,10 +1603,12 @@ export function completeSvStep(
       sourceId: actor.id,
       targetId: targets[0],
       // Sweetheart r2704: "1 player is drunk from now on". The window starts
-      // at the death, not at the Sweetheart's night slot.
+      // at the death, not at the Sweetheart's night slot. Glossary r3168: a
+      // dead player's persistent effects end, but this one begins at the death.
       start: actor.deadAt || at,
       expires: null,
       active: true,
+      onDeath: true,
     });
   }
   if (step.roleId === "mathematician") state.abnormal = [];
@@ -1664,7 +1685,8 @@ export function recordSvOutcome(
       target.alive &&
       roleTeam(target.roleId || "") === "outsider" &&
       !isImpaired(state, oldDemon.id, at) &&
-      !fangguJumpUsed(state)
+      !fangguJumpUsed(state) &&
+      !bmrCannotDie(state, target.id, at, { cause: "ability" })
     ) {
       jumped = true;
       state.fangguJumped = true;

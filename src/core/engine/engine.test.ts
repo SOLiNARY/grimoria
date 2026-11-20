@@ -25,7 +25,6 @@ import {
   exportGame,
   migrateV2,
   publicGameView,
-  publicRoleView,
   orderedPlayers,
   livingPlayers,
 } from "../model/state.ts";
@@ -67,6 +66,7 @@ import {
   registersAsOutsider,
   registersAsTownsfolk,
   registrationError,
+  legalRegistrations,
   applyCommand,
   canonicalState,
   createRuntime,
@@ -89,7 +89,7 @@ import { moduleInfoForStep } from "./information.ts";
 import type { InformationContext, InformationDecision } from "../roles/ability.ts";
 import type { RoleModule } from "../roles/types.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
-import type { DeadAt, GameState, NightStep, Nomination, Role, RoleId } from "../model/types.ts";
+import type { DeadAt, GameState, NightStep, Nomination, RoleId } from "../model/types.ts";
 
 type StepOptions = {
   targetIds?: string[];
@@ -360,13 +360,6 @@ test("Drunk keeps the real role and the shown role apart", () => {
   assert.equal(state.players["1"].roleId, "drunk");
   assert.equal(state.players["1"].shownRoleId, "washerwoman");
   assert.equal(state.players["2"].roleId, "empath");
-  const view = publicRoleView(state.players["1"], {
-    name: "Washerwoman",
-    team: "townsfolk",
-    ability: "One of two.",
-  } as Role)!;
-  assert.equal(view.role, "Washerwoman");
-  assert.equal(Object.hasOwn(view, "roleId"), false);
   const result = startNight(state);
   assert.equal(result.ok, true);
   assert.ok(
@@ -2044,7 +2037,7 @@ test("a redirected Imp attack kills the host's choice and journals the redirect 
         id: "log-" + (logged + 2) + "-k3000",
         at: "2030-01-01T00:00:03.000Z",
         kind: "choice",
-        detail: "P4",
+        detail: "Погибает: P4",
         playerId: "7",
         case: "mayor-redirect",
       },
@@ -2136,6 +2129,11 @@ test("an Imp self-kill passes the role to the only living Minion inside the atta
     "n2-3.5-demonchange-all",
     "n2-5-empath-3",
   ]);
+  assert.ok(
+    queueMarks(state).indexOf("n2-3.5-demonchange-all") >
+      queueMarks(state).indexOf("n2-3-imp-7:done"),
+    "a night self-kill is woken after the Imp's step and does not act again",
+  );
   assert.equal(state.night.demonChanged, true);
   assert.equal(state.winner, null);
 });
@@ -3176,7 +3174,7 @@ test("the Fortune Teller step needs two different players and changes nothing wi
   assert.deepEqual(completeStep(state, step.key, { targetIds: ["7", "7"] }, ports), {
     ok: false,
     errorCode: "error.42",
-    error: "Нужны два разных игрока.",
+    error: "Выберите разных игроков.",
   });
   assert.deepEqual(completeStep(state, step.key, { targetIds: ["99", "1"] }, ports), {
     ok: false,
@@ -4722,7 +4720,7 @@ test("a character registration sent with the Undertaker step is refused (TB-RECL
   const before = JSON.stringify(canonicalState(state));
 
   for (const given of [undefined, { kind: "character", roleId: "poisoner" }]) {
-    assert.deepEqual(completeStep(state, step.key, { registrations: { "2": "minion" }, given }), {
+    assert.deepEqual(completeStep(state, step.key, { registrations: { "2": "poisoner" }, given }), {
       ok: false,
       errorCode: "error.67",
       error: "Недопустимое значение регистрации.",
@@ -4734,6 +4732,11 @@ test("a character registration sent with the Undertaker step is refused (TB-RECL
     characterAnswer("recluse", "2", RECLUSE_MAY_BE),
     "a registration does not change what the Undertaker is offered",
   );
+  const accepted = completeStep(state, step.key, {
+    registrations: { "2": "minion" },
+    given: { kind: "character", roleId: "poisoner" },
+  });
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
 });
 
 test("a Drunk shown the Undertaker gets the same host question and record (SYS-EFFECTS-01, TB-DRUNK-01)", () => {
@@ -5941,7 +5944,7 @@ for (const scenario of [
   {
     ...ONE_OF_TWO[1],
     type: "Outsider",
-    info: falsePair("saint", ["4", "8"], OUTSIDERS),
+    info: falsePair("saint", ["4", "8"], [...OUTSIDERS, "zero"]),
     refused: "chef",
     answer: "drunk",
   },
@@ -5979,16 +5982,18 @@ for (const scenario of [
       rejected,
       "a character of another type is not offered",
     );
-    assert.deepEqual(
-      completeStep(
-        state,
-        step.key,
-        { given: { ...scenario.info, zero: true, roleId: null } },
-        ports,
-      ),
-      rejected,
-      "the zero is not offered around a prepared pair",
-    );
+    if (scenario.roleId !== "librarian") {
+      assert.deepEqual(
+        completeStep(
+          state,
+          step.key,
+          { given: { ...scenario.info, zero: true, roleId: null } },
+          ports,
+        ),
+        rejected,
+        "the zero is not offered around a prepared pair",
+      );
+    }
     assert.deepEqual(
       completeStep(state, step.key, { given: { kind: "number", value: 1 } }, ports),
       rejected,
@@ -6122,7 +6127,7 @@ test("a poisoned Librarian with a prepared zero is offered every Outsider and th
 
 for (const scenario of [
   { ...ONE_OF_TWO[0], shown: "chef", options: TOWNSFOLK, answer: "mayor" },
-  { ...ONE_OF_TWO[1], shown: "saint", options: OUTSIDERS, answer: "recluse" },
+  { ...ONE_OF_TWO[1], shown: "saint", options: [...OUTSIDERS, "zero"], answer: "recluse" },
   { ...ONE_OF_TWO[2], shown: "spy", options: MINIONS, answer: "baron" },
 ]) {
   test(`a Drunk shown the ${scenario.roleId} gets the answer prepared for the Drunk as a host question (TB-DRUNK-01, SYS-EFFECTS-01)`, () => {
@@ -7379,6 +7384,43 @@ test("the new Demon is woken the night after a daytime Scarlet Woman succession 
   assert.equal(state.night.queue.find((step) => step.key === change.key)!.done, true);
 });
 
+test("a daytime Scarlet Woman succession reveals the new Demon before its Imp step (TB-SCARLETWOMAN-02)", () => {
+  const state = make({ 1: "chef", 2: "monk", 3: "mayor", 4: "scarletwoman", 5: "imp" });
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  appoint(state, "2", "5", ["2", "3", "4"]);
+  assert.equal(execute(state, state.day.nominations[0].id).ok, true);
+  assert.equal(state.players["4"].roleId, "imp");
+
+  assert.equal(endDay(state).ok, true);
+  const keys = state.night.queue.map((step) => step.key);
+  const change = state.night.queue.find((step) => step.system === "demonchange");
+  const imp = state.night.queue.find((step) => step.roleId === "imp" && step.actorId === "4");
+  assert.ok(change, "the new Imp is woken after a daytime succession");
+  assert.ok(imp, "the new Imp has its own step");
+  // Scarlet Woman r3117, How to Run: "That night, wake the new Imp, show them
+  // the YOU ARE info token, then show them the Imp token." The official night
+  // order puts Scarlet Woman before Imp, so the reveal precedes the action.
+  assert.ok(
+    keys.indexOf(change.key) < keys.indexOf(imp.key),
+    "the YOU ARE reveal precedes the Imp step",
+  );
+  assert.equal(change.noteKey, "note.demonChangedDay");
+
+  assert.equal(completeStep(state, change.key, {}).ok, true);
+  const attack = completeStep(state, imp.key, { targetIds: ["1"] });
+  assert.equal(attack.ok, true, JSON.stringify(attack));
+  assert.equal(state.players["1"].alive, false, "the new Demon acts that night");
+});
+
 // Imp r3116, How to Run: "If the Imp killed themself at night, choose an alive
 // Minion ... Wake the new Imp, show them the YOU ARE info token, then show them
 // the Imp token." The new Demon is woken once, the night the change happens.
@@ -8197,9 +8239,6 @@ test("migration, export/import and public projection keep secrets out of public 
   const bad = importGame({ format: "pocket-grimoire", version: 3, game: { v: 3, players: {} } });
   assert.equal(bad.ok, false);
 
-  const role = { name: "Empath", team: "townsfolk", ability: "Learn a number." } as Role;
-  const publicRole = publicRoleView(migrated.players["1"], role);
-  assert.equal(JSON.stringify(publicRole).includes("roleId"), false);
   const publicGame = publicGameView(migrated);
   const text = JSON.stringify(publicGame);
   assert.equal(text.includes("empath"), false);
@@ -8924,7 +8963,7 @@ test("a Librarian impaired with no Outsider in play may give the true zero answe
   assert.equal(falseRecorded.roleId, "saint");
 });
 
-test("a paired impaired Librarian rejects the zero answer (TB-LIBRARIAN-01)", () => {
+test("a paired impaired Librarian may be shown the zero as false information (TB-LIBRARIAN-01)", () => {
   const state = make({
     1: "librarian",
     2: "saint",
@@ -8938,11 +8977,77 @@ test("a paired impaired Librarian rejects the zero answer (TB-LIBRARIAN-01)", ()
   const step = roleStep(state, "librarian");
   const info = infoForStep(state, step, {});
   assert.equal(info.impaired, true);
-  assert.equal(info.zero, undefined, "an Outsider is in play, so zero is not a legal true answer");
-  assert.equal(info.options!.includes("zero"), false);
-  const rejected = completeStep(state, step.key, { given: { ...info, zero: true, roleId: null } });
+  assert.equal(info.zero, undefined, "the true answer is an Outsider pair");
+  assert.ok(info.options!.includes("zero"), "the zero is a legal false answer");
+  const accepted = completeStep(state, step.key, { given: { ...info, zero: true, roleId: null } });
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
+  const recorded = state.night.queue.find((candidate) => candidate.roleId === "librarian")!.given!;
+  assert.equal(recorded.zero, true);
+  assert.equal(recorded.roleId, null);
+});
+
+test("a poisoned Recluse cannot be the prepared Minion the Investigator sees (TB-INVESTIGATOR-01)", () => {
+  const state = make({
+    1: "investigator",
+    2: "recluse",
+    3: "chef",
+    4: "empath",
+    5: "poisoner",
+    6: "imp",
+  });
+  state.setup.info.investigator = { roleId: "baron", pair: ["2", "3"], matchIndex: 0 };
+  startNight(state);
+  completeRole(state, "poisoner", { targetIds: ["2"] });
+  const step = roleStep(state, "investigator");
+  const info = infoForStep(state, step, {});
+  assert.equal(info.missing, true, "the prepared Minion relied on a poisoned Recluse");
+  const rejected = completeStep(state, step.key, {
+    given: { ...info, roleId: "baron", pair: ["2", "3"] },
+  });
   assert.equal(rejected.ok, false);
-  assert.equal("errorCode" in rejected ? rejected.errorCode : null, "error.66");
+});
+
+test("a poisoned Spy cannot be the prepared Townsfolk the Washerwoman sees (TB-WASHERWOMAN-01)", () => {
+  const state = make({
+    1: "washerwoman",
+    2: "spy",
+    3: "chef",
+    4: "empath",
+    5: "monk",
+    6: "virgin",
+    7: "slayer",
+    8: "soldier",
+    9: "poisoner",
+    10: "imp",
+  });
+  state.setup.info.washerwoman = { roleId: "mayor", pair: ["2", "3"], matchIndex: 0 };
+  startNight(state);
+  completeRole(state, "poisoner", { targetIds: ["2"] });
+  const step = roleStep(state, "washerwoman");
+  const info = infoForStep(state, step, {});
+  assert.equal(info.missing, true, "the prepared Townsfolk relied on a poisoned Spy");
+});
+
+test("a poisoned Spy cannot be the prepared Outsider the Librarian sees (TB-LIBRARIAN-01)", () => {
+  const state = make({
+    1: "librarian",
+    2: "spy",
+    3: "chef",
+    4: "empath",
+    5: "monk",
+    6: "virgin",
+    7: "slayer",
+    8: "soldier",
+    9: "poisoner",
+    10: "imp",
+    11: "saint",
+  });
+  state.setup.info.librarian = { roleId: "butler", pair: ["2", "3"], matchIndex: 0 };
+  startNight(state);
+  completeRole(state, "poisoner", { targetIds: ["2"] });
+  const step = roleStep(state, "librarian");
+  const info = infoForStep(state, step, {});
+  assert.equal(info.missing, true, "the prepared Outsider relied on a poisoned Spy");
 });
 
 test("a Recluse registers as evil, a Minion or a Demon and a Spy as good, a Townsfolk or an Outsider even when dead (TB-RECLUSE-02, TB-SPY-01)", () => {
@@ -8964,6 +9069,12 @@ test("a Recluse registers as evil, a Minion or a Demon and a Spy as good, a Town
   assert.equal(alignmentOf(state, recluse, {}), "good");
   assert.equal(alignmentOf(state, recluse, { 1: "evil" }), "evil");
   assert.equal(registersAsMinion(state, recluse, { 1: "minion" }), true);
+  assert.deepEqual(
+    [...legalRegistrations("recluse")],
+    ["evil", "demon", "minion"],
+    "the declared options match the Recluse r3007 ability",
+  );
+  assert.equal(registrationError(state, { 1: "minion" }), null);
   assert.equal(registersAsDemon(state, recluse, { 1: "demon" }), true);
   assert.equal(registersAsDemon(state, recluse, { 1: "evil" }), false);
   assert.equal(registersAsDemon(state, recluse, {}), false);
@@ -9132,10 +9243,13 @@ test("every Trouble Brewing first-night information role offers allowed false in
     assert.equal(info.needsChoice, true, roleId);
     assert.ok(info.options!.length > 0, roleId);
     assert.equal(
-      info.options!.every((id) => roleTeam(id as string) === team),
+      info.options!.every((id) => id === "zero" || roleTeam(id as string) === team),
       true,
       roleId,
     );
+    if (roleId === "librarian") {
+      assert.ok(info.options!.includes("zero"), "the Librarian's zero stays a legal false answer");
+    }
   }
 
   const chef = infoForStep(state, roleStep(state, "chef"), {});
@@ -9366,6 +9480,11 @@ test("a sober Spy registered as a Townsfolk triggers the Virgin (TB-VIRGIN-01, T
   assert.equal(nomination.ok, true, JSON.stringify(nomination));
   assert.equal(Boolean(nomination.virgin), true, "the registered Townsfolk Spy triggers");
   assert.equal(state.players["2"].alive, false, "the Spy is executed at once");
+  assert.equal(
+    state.log.some((line) => line.case === "registration"),
+    true,
+    "the Spy registration is a recorded host choice",
+  );
   assert.equal(state.players["1"].used.virgin, true);
 });
 

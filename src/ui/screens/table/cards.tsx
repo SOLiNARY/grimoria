@@ -10,11 +10,13 @@ import {
   secretsProjection,
   seatProjection,
   shownRoleChoices,
+  survivalProjection,
   tableProjection,
 } from "../../../application/read-models/table.ts";
 import { useEffect, useState } from "react";
 import {
-  effectiveRoleId,
+  hasAbility,
+  hasTrueAbility,
   livingPlayers,
   orderedPlayers,
   playerById,
@@ -24,6 +26,7 @@ import { roleSupportEntries } from "../../../core/model/support.ts";
 import type { ArtistAnswer, NightStep, SavantTruth } from "../../../core/model/types.ts";
 import {
   applyGiven,
+  canMarkStepDeaths,
   causeText,
   dayHelpForms,
   displayName,
@@ -798,7 +801,12 @@ function BmrOutcome({
           </div>
         </div>
       ) : null}
-      {step.canKill && step.roleId !== "tinker" ? (
+      {canMarkStepDeaths(
+        state,
+        step.roleId,
+        drafts.bmrRoles.get(draftKey) || null,
+        Boolean(step.canKill),
+      ) && step.roleId !== "tinker" ? (
         <div className="grid gap-1 rounded-sm border border-edge p-2" data-bmr-decision="marking">
           <div className={TARGET_GRID}>
             {orderedPlayers(state)
@@ -927,13 +935,13 @@ export function DayCard({
   );
   const virgin = !manual
     ? orderedPlayers(state).find(
-        (player) => player.roleId === "virgin" && player.alive && !player.used.virgin,
+        (player) => hasTrueAbility(player, "virgin") && player.alive && !player.used.virgin,
       )
     : null;
   const slayer =
     !manual && !day.execution && !day.ended
       ? orderedPlayers(state).find(
-          (player) => effectiveRoleId(player) === "slayer" && player.alive && !player.used.slayer,
+          (player) => hasAbility(player, "slayer") && player.alive && !player.used.slayer,
         )
       : null;
   const artist = !manual ? artistProjection(state) : null;
@@ -962,7 +970,10 @@ export function DayCard({
               className="field min-w-[180px]"
               data-exec-target
               value={drafts.executeTarget}
-              onChange={(event) => drafts.setExecuteTarget(event.target.value)}
+              onChange={(event) => {
+                drafts.setExecuteTarget(event.target.value);
+                drafts.setExecuteSurvives(false);
+              }}
             >
               <option value="">{t("ui.noExecution")}</option>
               {orderedPlayers(state).map((player) => (
@@ -995,11 +1006,7 @@ export function DayCard({
               {t("execute")}
             </button>
           </div>
-          {state.script &&
-          Array.isArray(state.script.roles) &&
-          state.script.roles.some((id) =>
-            ["pacifist", "sailor", "fool", "devilsadvocate", "zombuul"].includes(id),
-          ) ? (
+          {survivalProjection(state, drafts.executeTarget) ? (
             <label className={CHECK}>
               <input
                 type="checkbox"
@@ -1007,7 +1014,7 @@ export function DayCard({
                 checked={drafts.executeSurvives}
                 onChange={(event) => drafts.setExecuteSurvives(event.target.checked)}
               />
-              <span>{pacifistSupport ? t("ui.pacifistSurvives") : t("survivesExecution")}</span>
+              <span>{t("ui.pacifistSurvives")}</span>
             </label>
           ) : null}
           {pacifistSupport ? (
@@ -1077,6 +1084,7 @@ export function DayCard({
       {forms.includes("gossip") ? <GossipPanel view={view} /> : null}
       {forms.includes("juggler") ? <JugglerPanel view={view} /> : null}
       {forms.includes("moonchild") ? <MoonchildPanel view={view} /> : null}
+      {forms.includes("klutz") ? <KlutzPanel view={view} /> : null}
       {forms.includes("mastermind") ? mastermindPanel(view) : null}
     </section>
   );
@@ -1101,7 +1109,7 @@ export function DayActionsPanel({ view }: { view: TableView }) {
   const manual = isManualScript(state.script);
   const tinker =
     state.script && Array.isArray(state.script.roles) && state.script.roles.includes("tinker")
-      ? orderedPlayers(state).find((player) => player.roleId === "tinker" && player.alive)
+      ? orderedPlayers(state).find((player) => hasTrueAbility(player, "tinker") && player.alive)
       : null;
   if (!madnessReviews.length && !manual && !tinker && !canAbnormal) return null;
   return (
@@ -1340,7 +1348,7 @@ export function SlayerPanel({ view, slayerId }: { view: TableView; slayerId: str
         </select>
         {selected &&
         selected.roleId === "recluse" &&
-        playerById(state, slayerId)?.roleId === "slayer" ? (
+        hasAbility(playerById(state, slayerId), "slayer") ? (
           <label className={CHECK}>
             <input
               type="checkbox"
@@ -1545,7 +1553,7 @@ function JugglerPanel({ view }: { view: TableView }) {
   const t = ports.strings.t;
   const juggler =
     state.script && Array.isArray(state.script.roles) && state.script.roles.includes("juggler")
-      ? orderedPlayers(state).find((player) => player.roleId === "juggler" && player.alive)
+      ? orderedPlayers(state).find((player) => hasAbility(player, "juggler") && player.alive)
       : null;
   const storedDay =
     state.juggler && typeof state.juggler.day === "number" ? state.juggler.day : null;
@@ -1647,6 +1655,55 @@ function JugglerPanel({ view }: { view: TableView }) {
   );
 }
 
+function KlutzPanel({ view }: { view: TableView }) {
+  const { state, drafts, ports, actions } = view;
+  const t = ports.strings.t;
+  const klutz =
+    state.phase === "day"
+      ? orderedPlayers(state).find(
+          (player) => hasAbility(player, "klutz") && !player.alive && !player.used.klutz,
+        )
+      : null;
+  if (!klutz) return null;
+  return (
+    <div className="my-2.5 grid gap-1.5 rounded-sm border border-edge p-2.5">
+      <span className="label">{t("klutzPanel")}</span>
+      <p className={MUTED}>
+        {displayName(klutz, t)}: {t("klutzHint")}
+      </p>
+      <div className={INLINE}>
+        <select
+          className="field"
+          data-klutz-target
+          value={drafts.klutzTarget}
+          onChange={(event) => drafts.setKlutzTarget(event.target.value)}
+        >
+          <option value="">{t("chooseTarget")}</option>
+          {livingPlayers(state).map((player) => (
+            <option key={player.id} value={player.id}>
+              {player.seat} · {displayName(player, t)}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn"
+          type="button"
+          data-act="klutz-choice"
+          disabled={!drafts.klutzTarget}
+          onClick={() =>
+            actions.run({
+              type: "recordKlutzChoice",
+              payload: { targetId: drafts.klutzTarget },
+            })
+          }
+        >
+          {t("recordChoice")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MoonchildPanel({ view }: { view: TableView }) {
   const { state, drafts, ports, actions } = view;
   const t = ports.strings.t;
@@ -1654,7 +1711,7 @@ function MoonchildPanel({ view }: { view: TableView }) {
     state.phase === "day"
       ? orderedPlayers(state).find(
           (player) =>
-            player.roleId === "moonchild" &&
+            hasTrueAbility(player, "moonchild") &&
             !player.alive &&
             !(player.used && player.used.moonchildTarget),
         )

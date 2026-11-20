@@ -46,6 +46,12 @@ const focusedChecks: Record<string, () => Promise<void>> = {
   "player-card": playerCardHasNoCountdown,
   "seat-lock": seatOrderIsFixedAfterStart,
   "drunk-slayer": drunkSlayerFromTable,
+  "queue-panel": queuePanelReachable,
+  "notes-debounce": notesDebounce,
+  "secrets-checks": secretsChecks,
+  corrections: correctionSurface,
+  "pacifist-survival": pacifistSurvivalControl,
+  "day-reset": dayChangeClearsExecutionDrafts,
   "lunatic-setup": lunaticSetupControls,
   "verification-contracts": verificationContracts,
   "setup-zero": setupZeroIsTheLibrariansAlone,
@@ -56,12 +62,20 @@ const focusedChecks: Record<string, () => Promise<void>> = {
   "heir-question": heirQuestionLeadsTheNight,
   "heir-sheet": heirQuestionLeadsAnOpenSheet,
   "chef-label": chefRegistrationIsLabelled,
+  "pithag-deaths": pithagArbitraryDeathReachable,
+  "tinker-first-night": tinkerFirstNightDeathReachable,
+  "journal-pairs": journalInformationPairsInspectable,
   "tinker-night": tinkerNightDeathNeedsTheAbility,
   "night-resurrection": nightResurrectionNeedsTheAbility,
   "notes-4000": notesInputStaysCompact,
+  "klutz-day": klutzDayChoice,
   "step-action": stepActionOpensReadyStep,
   "mandatory-skip": mandatoryStepHasNoSkip,
   "execute-stale": executionConfirmRejectsStaleSelection,
+  "storefront-welcome": storefrontWelcomeAt390,
+  "heir-reload": heirChoiceSurvivesReload,
+  "vortox-label": vortoxFalseInformationLabel,
+  "cerenovus-privacy": cerenovusMadnessStaysPrivate,
 };
 if (focusedName && !focusedChecks[focusedName]) {
   throw new Error("Unknown browser check: " + focusedName);
@@ -158,10 +172,14 @@ await context.addInitScript(() => {
 });
 const page = await context.newPage();
 const errors: string[] = [];
+const failed: string[] = [];
 context.on("page", (tab) => tab.on("pageerror", (error) => errors.push(error.message)));
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("console", (message) => {
   if (message.type() === "error") errors.push(message.text());
+});
+page.on("response", (response) => {
+  if (response.status() >= 400) failed.push(`${response.status()} ${response.url()}`);
 });
 const screenshots = join(tmpdir(), "pocket-grimoire-check");
 await mkdir(screenshots, { recursive: true });
@@ -1188,9 +1206,10 @@ async function notesInputStaysCompact() {
   assert.equal(measured.compact, true, "applied entries use compact identities");
   assert.equal(measured.intermediate, false, "applied entries keep no intermediate text");
   await page.locator("[data-notes]").fill("Browser verification");
-  await page.waitForFunction(
-    async () => (await window.PG_MODULES()).store.state.notes === "Browser verification",
-  );
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem("pg.game.v4");
+    return raw ? JSON.parse(raw).notes === "Browser verification" : false;
+  });
   const persisted = await page.evaluate(() => {
     const raw = localStorage.getItem("pg.game.v4");
     return raw ? JSON.parse(raw).notes : null;
@@ -1423,11 +1442,6 @@ async function verificationContracts() {
       .filter((role) => ["po", "lunatic", "imp"].includes(role.id))
       .map((role) => role.name),
   );
-  await route("/public");
-  const publicText = await page.locator(".public").innerText();
-  for (const name of names) {
-    assert.equal(publicText.includes(name), false, `the public screen leaks ${name}`);
-  }
   await route("/player");
   await page.locator("[data-seat]:not([disabled])").first().click();
   const card = page.locator(".player-card");
@@ -2119,6 +2133,518 @@ async function drunkSlayerFromTable() {
 // Night 2 of a ten-player game with a Poisoner, a Scarlet Woman and the Imp.
 // Two Minions, so the host names the heir; only seat 3 (the Empath, or the
 // Fortune Teller, who takes targets) wakes after the Imp.
+async function klutzDayChoice() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "klutz",
+      2: "clockmaker",
+      3: "dreamer",
+      4: "artist",
+      5: "savant",
+      6: "witch",
+      7: "fanggu",
+    };
+    const game = model.createGame(7);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects and Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    for (const id of Object.keys(assignment)) {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    }
+    game.setup.count = 7;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [...rules.SNV_ALL]
+      .filter((id) => !game.setup.roles.includes(id))
+      .slice(0, 3);
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const executed = engine.executeByDecision(game, "1");
+    if (!executed.ok) return executed;
+    if (game.players["1"].alive) return { ok: false, errorCode: "klutz-alive" };
+    if (game.players["1"].used.klutz) return { ok: false, errorCode: "klutz-preused" };
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-act="day-help"]').click();
+  const panel = page.locator("[data-klutz-target]");
+  await panel.waitFor();
+  assert.equal(
+    await page.evaluate(
+      async () => (await window.PG_MODULES()).store.state.players["1"].used.klutz,
+    ),
+    undefined,
+    "the executed Klutz has not chosen yet",
+  );
+  await panel.selectOption("6");
+  await page.locator('[data-act="klutz-choice"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.winner?.reason === "klutz",
+  );
+  const result = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return {
+      winner: store.state.winner,
+      used: store.state.players["1"].used.klutzTarget,
+      log: store.state.log
+        .map((entry) => entry.title)
+        .filter((title) => title.startsWith("Растяпа")),
+    };
+  });
+  assert.equal(result.winner?.team, "evil", "an evil target loses the game for the Klutz's team");
+  assert.equal(result.used, "6", "the choice is recorded");
+  assert.ok(result.log.length >= 1, "the journal names the Klutz choice");
+  await settled();
+  await page.reload();
+  await page.waitForSelector(".host");
+  await route("/table");
+  assert.equal(
+    await page.locator("[data-klutz-target]").count(),
+    0,
+    "a recorded choice does not offer the panel again",
+  );
+}
+
+async function pacifistSurvivalControl() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seed = async (variant: "healthy" | "dead" | "impaired" | "absent") => {
+    const result = await page.evaluate(async (variant) => {
+      const { model, engine, store, rules } = await window.PG_MODULES();
+      const assignment = {
+        1: "pacifist",
+        2: "chambermaid",
+        3: "sailor",
+        4: "fool",
+        5: "exorcist",
+        6: "goon",
+        7: "assassin",
+        8: "po",
+      } as Record<string, string>;
+      const game = model.createGame(8);
+      game.scriptId = "bmr";
+      game.script = {
+        ...game.script,
+        id: "bmr",
+        name: "Bad Moon Rising",
+        edition: "bmr",
+        roles: [...rules.BMR_ALL],
+      };
+      for (const id of Object.keys(assignment)) {
+        game.players[id].name = "P" + id;
+        game.players[id].claimed = true;
+      }
+      game.setup.count = 8;
+      game.setup.roles = [...new Set(Object.values(assignment))];
+      game.setup.bluffs = [...rules.BMR_ALL]
+        .filter((id) => !game.setup.roles.includes(id))
+        .slice(0, 3);
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      engine.autoSecrets(game);
+      game.phase = "seat";
+      const started = engine.startNight(game);
+      if (!started.ok) return started;
+      while (engine.currentStep(game)) {
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+      }
+      const night = engine.endNight(game);
+      if (!night.ok) return night;
+      if (variant === "dead") game.players["1"].alive = false;
+      if (variant === "impaired")
+        game.effects.push({
+          id: "pacifist-check-drunk",
+          kind: "drunk",
+          sourceId: "7",
+          targetId: "1",
+          start: { phase: "day", number: 1 },
+          expires: null,
+          active: true,
+        });
+      if (variant === "absent") game.players["1"].roleId = "minstrel";
+      return store.replaceState(game);
+    }, variant);
+    assert.equal(result.ok, true, variant + ": " + JSON.stringify(result));
+    await settled();
+    await route("/table");
+    await page.keyboard.press("Escape");
+    await settled();
+    await page.locator('[data-seat-open="2"]').click();
+    await page.locator('[data-act="player-execute"]').click();
+    return page.locator("[data-exec-survives]").count();
+  };
+
+  assert.equal(
+    await seed("healthy"),
+    1,
+    "a living healthy Pacifist offers survival for a good target",
+  );
+  await page.locator('[data-seat-open="7"]').click();
+  await page.locator('[data-act="player-execute"]').click();
+  assert.equal(
+    await page.locator("[data-exec-survives]").count(),
+    0,
+    "an evil target cannot survive",
+  );
+  assert.equal(await seed("dead"), 0, "a dead Pacifist offers no control");
+  assert.equal(await seed("impaired"), 0, "an impaired Pacifist offers no control");
+  assert.equal(await seed("absent"), 0, "a script without a living Pacifist offers no control");
+}
+
+async function dayChangeClearsExecutionDrafts() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment = {
+      1: "pacifist",
+      2: "chambermaid",
+      3: "sailor",
+      4: "fool",
+      5: "exorcist",
+      6: "goon",
+      7: "assassin",
+      8: "po",
+    } as Record<string, string>;
+    const game = model.createGame(8);
+    game.scriptId = "bmr";
+    game.script = {
+      ...game.script,
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [
+        ...rules.BMR.townsfolk,
+        ...rules.BMR.outsider,
+        ...rules.BMR.minion,
+        ...rules.BMR.demon,
+      ],
+    };
+    for (const id of Object.keys(assignment)) {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    }
+    game.setup.count = 8;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [
+      ...rules.BMR.townsfolk,
+      ...rules.BMR.outsider,
+      ...rules.BMR.minion,
+      ...rules.BMR.demon,
+    ]
+      .filter((id) => !game.setup.roles.includes(id))
+      .slice(0, 3);
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-seat-open="2"]').click();
+  await page.locator('[data-act="player-execute"]').click();
+  await page.locator("[data-exec-survives]").check();
+  assert.equal(await page.locator("[data-exec-survives]").isChecked(), true);
+
+  const changed = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const next = structuredClone(store.state);
+    next.day.number += 1;
+    return store.replaceState(next);
+  });
+  assert.equal(changed.ok, true);
+  await settled();
+  assert.equal(
+    await page.locator("[data-exec-survives]").count(),
+    0,
+    "the survival flag does not survive a new day",
+  );
+  assert.equal(
+    await page.locator('[data-act="execute"]').isDisabled(),
+    true,
+    "the previous execution target is cleared",
+  );
+}
+
+async function correctionSurface() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment = {
+      1: "chef",
+      2: "empath",
+      3: "soldier",
+      4: "poisoner",
+      5: "imp",
+      6: "butler",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.scriptId = "tb";
+    game.script = {
+      ...game.script,
+      id: "tb",
+      name: "Trouble Brewing",
+      edition: "tb",
+      roles: [...rules.TB.townsfolk, ...rules.TB.outsider, ...rules.TB.minion, ...rules.TB.demon],
+    };
+    for (const id of Object.keys(assignment)) {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    }
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    game.effects.push({
+      id: "eff-check-poison",
+      kind: "poison",
+      sourceId: "4",
+      targetId: "2",
+      start: { phase: "day", number: 1 },
+      expires: null,
+      active: true,
+    });
+    game.players["3"].shownRoleId = "chef";
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+
+  await page.locator('[data-seat-open="2"]').click();
+  await page.locator('[data-act="player-correct"]').click();
+  await page.locator('[data-correct="kind"]').selectOption("effect");
+  await page.locator('[data-correct="effect"]').selectOption("eff-check-poison");
+  await page.locator('[data-correct="reason"]').fill("The effect ended.");
+  await page.locator('[data-act="apply-correction"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const effect = store.state.effects.find((item) => item.id === "eff-check-poison");
+    return effect ? effect.active === false : false;
+  });
+
+  await page.locator('[data-seat-open="3"]').click();
+  await page.locator('[data-act="player-correct"]').click();
+  await page.locator('[data-correct="kind"]').selectOption("shown");
+  await page.locator('[data-correct="shown"]').selectOption("soldier");
+  await page.locator('[data-correct="reason"]').fill("The shown card was wrong.");
+  await page.locator('[data-act="apply-correction"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.players["3"].shownRoleId === "soldier",
+  );
+  const journal = await page.evaluate(async () =>
+    (await window.PG_MODULES()).store.state.log.map((entry) => entry.title),
+  );
+  assert.ok(
+    journal.some((title) => title.includes("правк") || title.includes("Правк")),
+    "the journal records the correction reason: " + JSON.stringify(journal.slice(-4)),
+  );
+}
+
+async function secretsChecks() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "washerwoman",
+      2: "chef",
+      3: "soldier",
+      4: "saint",
+      5: "spy",
+      6: "imp",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.phase = "seat";
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/secrets");
+  const label = () =>
+    page
+      .locator('[data-obligation="washerwoman"]')
+      .innerText()
+      .then((value) => value || "");
+  assert.match(await label(), /○/, "an unanswered obligation is not done");
+
+  const setInfo = (roleId: string, pair: string[]) =>
+    page.evaluate(
+      async ({ roleId, pair }) => {
+        const { store } = await window.PG_MODULES();
+        return store.dispatch({
+          id: "secrets-" + crypto.randomUUID(),
+          type: "setSetupInfo",
+          payload: { roleId: "washerwoman", info: { roleId, pair } },
+        });
+      },
+      { roleId, pair },
+    );
+
+  assert.equal((await setInfo("empath", ["1", "2"])).status, "allowed");
+  assert.match(await label(), /○/, "a not-in-play role without the Spy is not done");
+  assert.equal((await setInfo("chef", ["1", "2"])).status, "allowed");
+  assert.match(await label(), /✓/, "the real Chef with a fitting pair is done");
+  assert.equal((await setInfo("empath", ["1", "5"])).status, "allowed");
+  assert.match(await label(), /✓/, "the Spy in the pair makes the not-in-play role legal");
+}
+
+async function notesDebounce() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "chef",
+      2: "empath",
+      3: "soldier",
+      4: "poisoner",
+      5: "imp",
+      6: "butler",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-act="menu"]').click();
+  await page.locator("[data-notes]").waitFor();
+  const before = await page.evaluate(
+    async () => (await window.PG_MODULES()).store.state.journal.entries.length,
+  );
+  const text = "Заметка ведущего ".repeat(6).slice(0, 100);
+  const field = page.locator("[data-notes]");
+  for (let index = 10; index <= text.length; index += 10) {
+    await field.fill(text.slice(0, index));
+  }
+  await field.fill(text);
+  await page.waitForTimeout(1200);
+  const after = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return { entries: store.state.journal.entries.length, notes: store.state.notes };
+  });
+  assert.equal(after.notes, text, "the debounced commit stores the whole note");
+  assert.ok(
+    after.entries - before <= 1,
+    "100 typed characters journal at most one command, got " + (after.entries - before),
+  );
+  await page.reload();
+  await page.waitForSelector(".host");
+  await route("/table");
+  await page.locator('[data-act="menu"]').click();
+  assert.equal(await page.locator("[data-notes]").inputValue(), text, "the note survives a reload");
+}
+
+async function queuePanelReachable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "chef",
+      2: "empath",
+      3: "soldier",
+      4: "poisoner",
+      5: "imp",
+      6: "butler",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-act="menu"]').click();
+  await page.locator('[data-panel="queue"]').waitFor();
+  assert.equal(await page.locator('[data-panel="queue"]').count(), 1, "the queue is reachable");
+  await page.locator('[data-act="show-order"]').click();
+  assert.equal(
+    await page.locator('[data-act="show-order"]').getAttribute("aria-expanded"),
+    "true",
+    "the night order opens",
+  );
+  assert.ok(
+    (await page.locator('[data-panel="queue"] ol li').count()) > 0,
+    "the order lists steps",
+  );
+}
+
 async function seedImpHeirNight2(third: "empath" | "fortuneteller" = "empath") {
   const result = await page.evaluate(async (third) => {
     const { model, engine, store } = await window.PG_MODULES();
@@ -2505,6 +3031,10 @@ async function heirQuestionLeadsAnOpenSheet() {
 
   const other = await context.newPage();
   await other.goto(url);
+  await other.evaluate(() => {
+    history.pushState(null, "", "/pocket/table");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
   await other.waitForSelector(".host");
   const recorded = await other.evaluate(async () => {
     const { engine, store } = await window.PG_MODULES();
@@ -2611,6 +3141,487 @@ async function chefRegistrationIsLabelled() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "chef-registration-label-390.png") });
   await page.keyboard.press("Escape");
+}
+
+// Pit-Hag r2998: "If a Demon is made, deaths tonight are arbitrary." The death
+// control must appear after the host drafts a not-in-play Demon, and the
+// outcome must land a real death that the journal replays and undo returns.
+async function pithagArbitraryDeathReachable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const roles = [
+      "clockmaker",
+      "dreamer",
+      "artist",
+      "juggler",
+      "sweetheart",
+      "klutz",
+      "barber",
+      "pithag",
+      "fanggu",
+    ];
+    const game = model.createGame(roles.length);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    game.setup.count = roles.length;
+    game.setup.roles = [...roles];
+    game.setup.bluffs = ["sage", "oracle", "savant"];
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    const assignment = Object.fromEntries(game.order.map((id, index) => [id, roles[index]]));
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const endedNight = engine.endNight(game);
+    if (!endedNight.ok) return { ok: false, step: "night 1", endedNight };
+    const endedDay = engine.endDay(game);
+    if (!endedDay.ok) return { ok: false, step: "day 1", endedDay };
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 2 did not start" };
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "pithag") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    if (engine.currentStep(game)?.roleId !== "pithag") {
+      return {
+        ok: false,
+        error: "the Pit-Hag does not wake",
+        queue: game.night.queue.map((s) => s.roleId),
+      };
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+
+  await page.locator('[data-target][data-id="1"]').click();
+  await settled();
+  await page.locator('[data-act="complete"]').click();
+  await page.locator("[data-bmr-role]").waitFor();
+  // A character already in play is a legal no-op and must not expose deaths.
+  await page.locator("[data-bmr-role]").selectOption("clockmaker");
+  await settled();
+  assert.equal(
+    await page.locator('[data-bmr-decision="marking"]').count(),
+    0,
+    "an in-play character exposes no arbitrary death",
+  );
+  const refused = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((candidate) => candidate.roleId === "pithag")!;
+    const preview = engine.previewCommand(store.state, {
+      id: "browser-pithag-in-play",
+      type: "completeNightStep",
+      payload: { key: step.key, targetIds: ["1"], roleId: "clockmaker", deathIds: ["2"] },
+    });
+    return {
+      status: preview.status,
+      errorCode: "errorCode" in preview ? (preview.errorCode ?? null) : null,
+    };
+  });
+  assert.deepEqual(
+    refused,
+    { status: "rejected", errorCode: "error.51" },
+    "an arbitrary death without a created Demon is refused",
+  );
+
+  await page.locator("[data-bmr-role]").selectOption("nodashii");
+  await settled();
+  assert.equal(
+    await page.locator('[data-bmr-decision="marking"]').count(),
+    1,
+    "a drafted not-in-play Demon exposes the death control",
+  );
+  await page.locator('[data-bmr-death][data-id="2"]').click();
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+
+  const after = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const { state } = store;
+    return {
+      roleId: state.players["1"].roleId,
+      victimAlive: state.players["2"].alive,
+      deaths: state.deaths.map((death) => death.playerId),
+      current: engine.currentStep(state)?.roleId ?? null,
+      journal: state.journal.entries.length,
+    };
+  });
+  assert.deepEqual(
+    after,
+    {
+      roleId: "nodashii",
+      victimAlive: false,
+      deaths: ["2"],
+      current: "fanggu",
+      journal: 1,
+    },
+    "the created Demon and the arbitrary death are applied together",
+  );
+  const lifecycle = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const journal = structuredClone(store.state.journal);
+    const replayed = engine.replay(journal);
+    const same =
+      replayed.ok &&
+      JSON.stringify(engine.canonicalState(replayed.state)) ===
+        JSON.stringify(engine.canonicalState(store.state));
+    const undone = store.undo();
+    const afterUndo = {
+      roleId: store.state.players["1"].roleId,
+      victimAlive: store.state.players["2"].alive,
+    };
+    const redone = store.redo();
+    const afterRedo = {
+      roleId: store.state.players["1"].roleId,
+      victimAlive: store.state.players["2"].alive,
+    };
+    return { same, undone, afterUndo, redone, afterRedo };
+  });
+  assert.deepEqual(
+    lifecycle,
+    {
+      same: true,
+      undone: true,
+      afterUndo: { roleId: "clockmaker", victimAlive: true },
+      redone: true,
+      afterRedo: { roleId: "nodashii", victimAlive: false },
+    },
+    "the Pit-Hag outcome replays and undo and redo restore both seats",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "pithag-arbitrary-death-390.png") });
+}
+
+// Tinker r1782: "You might die at any time." The first night has a Tinker step,
+// the host marks the death there, and a protected Tinker cannot die from it.
+async function tinkerFirstNightDeathReachable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seed = (protectedByTeaLady: boolean) =>
+    page.evaluate(async (protectedByTeaLady) => {
+      const { model, engine, store, rules } = await window.PG_MODULES();
+      const roles = protectedByTeaLady
+        ? ["tinker", "tealady", "chambermaid", "courtier", "gossip", "fool", "assassin", "po"]
+        : ["tinker", "chambermaid", "courtier", "gossip", "fool", "sailor", "assassin", "po"];
+      const game = model.createGame(roles.length);
+      game.scriptId = "bmr";
+      game.script = {
+        ...game.script,
+        id: "bmr",
+        name: "Bad Moon Rising",
+        edition: "bmr",
+        roles: [...rules.BMR_ALL],
+      };
+      game.setup.count = roles.length;
+      game.setup.roles = [...roles];
+      game.setup.bluffs = ["innkeeper", "grandmother", "minstrel"];
+      game.order.forEach((id) => {
+        game.players[id].name = "Player " + id;
+        game.players[id].claimed = true;
+      });
+      const assignment = Object.fromEntries(game.order.map((id, index) => [id, roles[index]]));
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      engine.autoSecrets(game);
+      game.phase = "seat";
+      if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+      while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "tinker") {
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+      }
+      if (engine.currentStep(game)?.roleId !== "tinker") {
+        return { ok: false, error: "the Tinker has no first-night step", night: game.night.number };
+      }
+      const errors = model.validateState(game);
+      if (errors.length) return { ok: false, errors };
+      store.replaceState(game);
+      dispatchEvent(new PopStateEvent("popstate"));
+      return { ok: true };
+    }, protectedByTeaLady);
+  const read = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const { state } = store;
+      const step = state.night.queue.find((candidate) => candidate.roleId === "tinker");
+      return {
+        night: state.night.number,
+        current: engine.currentStep(state)?.roleId ?? null,
+        alive: state.players["1"].alive,
+        done: step?.done ?? false,
+        deaths: state.deaths.map((death) => death.playerId),
+        prevented: state.log.some((entry) => entry.consequence === "prevented"),
+        winner: state.winner ? state.winner.reason : null,
+      };
+    });
+
+  const sober = await seed(false);
+  assert.equal(sober.ok, true, JSON.stringify(sober));
+  await settled();
+  await route("/table");
+  assert.deepEqual(
+    await read(),
+    {
+      night: 1,
+      current: "tinker",
+      alive: true,
+      done: false,
+      deaths: [],
+      prevented: false,
+      winner: null,
+    },
+    "night 1 opens on the Tinker's step",
+  );
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-tinker-decision="die"]').click();
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+  assert.deepEqual(
+    await read(),
+    {
+      night: 1,
+      current: null,
+      alive: false,
+      done: true,
+      deaths: ["1"],
+      prevented: false,
+      winner: null,
+    },
+    "the first-night Tinker dies and the step advances",
+  );
+  await overflow();
+
+  const protectedSeed = await seed(true);
+  assert.equal(protectedSeed.ok, true, JSON.stringify(protectedSeed));
+  await settled();
+  await route("/table");
+  assert.equal((await read()).current, "tinker");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-tinker-decision="die"]').click();
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+  assert.deepEqual(
+    await read(),
+    {
+      night: 1,
+      current: null,
+      alive: true,
+      done: true,
+      deaths: [],
+      prevented: true,
+      winner: null,
+    },
+    "the Tea Lady protects the Tinker from the first-night ability death",
+  );
+  await page.screenshot({ path: join(screenshots, "tinker-first-night-390.png") });
+}
+
+// Dreamer r2904 and Sage r3009 record host-shown pairs in the journal. The
+// full history stays inspectable after the preview limit, and reload keeps it.
+async function journalInformationPairsInspectable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const roles = [
+      "dreamer",
+      "clockmaker",
+      "sage",
+      "artist",
+      "sweetheart",
+      "klutz",
+      "witch",
+      "fanggu",
+    ];
+    const game = model.createGame(roles.length);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    game.setup.count = roles.length;
+    game.setup.roles = [...roles];
+    game.setup.bluffs = ["oracle", "savant", "mutant"];
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    const assignment = Object.fromEntries(game.order.map((id, index) => [id, roles[index]]));
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "dreamer") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const dreamerStep = engine.currentStep(game);
+    if (!dreamerStep) return { ok: false, error: "the Dreamer does not wake" };
+    const dreamerInfo = engine.infoForStep(game, dreamerStep, { targetIds: ["2"] });
+    if (
+      !dreamerInfo.needsChoice ||
+      !Array.isArray(dreamerInfo.options) ||
+      !dreamerInfo.options.length
+    )
+      return { ok: false, error: "the Dreamer has no pair to show" };
+    const dreamerPair = String(dreamerInfo.options[0]).split("|");
+    const dreamerBase = structuredClone(game);
+    delete (dreamerBase as Partial<typeof dreamerBase>).journal;
+    dreamerBase.applied = {};
+    game.journal = { base: dreamerBase, entries: [] };
+    game.applied = {};
+    const dreamerResult = engine.applyCommand(game, {
+      id: "journal-dreamer-pair",
+      type: "completeNightStep",
+      payload: {
+        key: dreamerStep.key,
+        targetIds: ["2"],
+        given: { kind: dreamerInfo.kind, pair: dreamerPair },
+      },
+    });
+    if (dreamerResult.status !== "allowed") return { ok: false, dreamerResult };
+    const dreamerReplay = engine.replay(game.journal);
+    const dreamerReplayedPair = dreamerReplay.ok
+      ? dreamerReplay.state.log.filter((entry) => entry.case === "information-pair").length
+      : -1;
+
+    // Sage r3009: the Demon killed the Sage, so the host records the pair the
+    // dead Sage is shown. The kill is a direct engine call in this fixture; the
+    // answer still goes through the command boundary and its own journal base.
+    game.night.number = 2;
+    const death = engine.kill(
+      game,
+      "3",
+      "ability",
+      { phase: "night", number: 2 },
+      { demon: true, ability: "fanggu" },
+    );
+    if (!death) return { ok: false, error: "the Sage did not die" };
+    engine.appendConditionalSteps(game);
+    const sageStep = game.night.queue.find(
+      (candidate) => candidate.roleId === "sage" && !candidate.done && !candidate.skipped,
+    );
+    if (!sageStep) return { ok: false, error: "the dead Sage has no step" };
+    const sageInfo = engine.infoForStep(game, sageStep);
+    if (!sageInfo.needsChoice || !Array.isArray(sageInfo.options) || !sageInfo.options.length)
+      return { ok: false, error: "the Sage has no pair to show" };
+    const sagePair = String(sageInfo.options[0]).split("|");
+    const sageBase = structuredClone(game);
+    delete (sageBase as Partial<typeof sageBase>).journal;
+    sageBase.applied = {};
+    game.journal = { base: sageBase, entries: [] };
+    game.applied = {};
+    const sageResult = engine.applyCommand(game, {
+      id: "journal-sage-pair",
+      type: "completeNightStep",
+      payload: { key: sageStep.key, given: { kind: sageInfo.kind, pair: sagePair } },
+    });
+    if (sageResult.status !== "allowed") return { ok: false, sageResult };
+    const sageReplay = engine.replay(game.journal);
+    const sageReplayedPair = sageReplay.ok
+      ? sageReplay.state.log.filter((entry) => entry.case === "information-pair").length
+      : -1;
+
+    // Push both answers beyond the eight-line preview with ordinary journal
+    // lines, using the same log writer the engine uses.
+    const ports = {
+      clock: { now: () => new Date().toISOString() },
+      rng: { next: () => 0.5 },
+      idFactory: { suffix: (length: number) => "f".repeat(length) },
+    };
+    for (let index = 0; index < 12; index += 1) {
+      engine.addLog(
+        game,
+        { secret: true, kind: "game", title: "Journal filler " + index, detail: "Filler." },
+        ports,
+      );
+    }
+    const pairIndexes = game.log
+      .map((entry, index) => (entry.case === "information-pair" ? index : -1))
+      .filter((index) => index >= 0);
+    const hidden =
+      pairIndexes.length >= 2 && pairIndexes.every((index) => game.log.length - index > 8);
+    const sageLabel = sagePair.map((id) => game.players[id].name).join(" / ");
+    const publicView = JSON.stringify(model.publicGameView(game));
+    const pairHiddenInPublic =
+      !publicView.includes(dreamerPair.join("|")) && !publicView.includes(sagePair.join("|"));
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return {
+      ok: true,
+      hidden,
+      sageLabel,
+      dreamerReplayedPair,
+      sageReplayedPair,
+      pairHiddenInPublic,
+    };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  const result = seeded as {
+    hidden: boolean;
+    pairHiddenInPublic: boolean;
+    dreamerReplayedPair: number;
+    sageReplayedPair: number;
+    sageLabel: string;
+  };
+  await settled();
+  await route("/table");
+  assert.equal(result.hidden, true, "both answers are older than the preview window");
+  assert.equal(result.pairHiddenInPublic, true, "the public projection omits both pairs");
+  assert.equal(result.dreamerReplayedPair, 1, "the Dreamer pair survives replay");
+  assert.equal(result.sageReplayedPair, 2, "the Sage pair survives replay");
+
+  await openTableMenu();
+  assert.equal(await page.locator("[data-log]").count(), 1, "the journal panel is present");
+  const pairEntries = page.locator('[data-entry-case="information-pair"]');
+  assert.equal(await pairEntries.count(), 0, "the preview hides both historical pairs");
+  const toggle = page.locator("[data-log-toggle]");
+  assert.equal(await toggle.count(), 1, "the journal offers the full history");
+  await toggle.click();
+  await settled();
+  assert.equal(await pairEntries.count(), 2, "both historical pairs are inspectable");
+  const pairTexts = await pairEntries.allTextContents();
+  assert.ok(
+    pairTexts.some((text: string) => text.includes(result.sageLabel)),
+    "the Sage pair names the two players it was shown",
+  );
+  await overflow();
+
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await settled();
+  await openTableMenu();
+  await page.locator("[data-log-toggle]").click();
+  await settled();
+  assert.equal(await pairEntries.count(), 2, "both pairs survive reload");
+  await page.screenshot({ path: join(screenshots, "journal-pairs-390.png") });
+  await page.keyboard.press("Escape");
+  await settled();
 }
 
 async function currentScriptRoleCorrections() {
@@ -3131,10 +4142,397 @@ async function playerCardHasNoCountdown() {
   await page.clock.resume();
 }
 
+// Storefront r384: `/` is the welcome page. At 390 px the language switch
+// works, the yellow action opens the setup route, a saved game continues into
+// the table, and the page never scrolls sideways.
+async function storefrontWelcomeAt390() {
+  // `route` keys off the path without its leading slash, so the root route
+  // (whose key is "home") gets its own navigation here.
+  const home = async () => {
+    await page.evaluate(() => {
+      history.pushState(null, "", "/pocket/");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await page.waitForFunction(() => document.body.dataset.route === "home");
+    await settled();
+  };
+  await page.setViewportSize({ width: 390, height: 844 });
+  await home();
+  await page.waitForSelector("main h1");
+  assert.equal(await page.evaluate(() => document.body.dataset.route), "home");
+  await chooseLanguage("en");
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en");
+  assert.equal(
+    ((await page.locator("main h1").textContent()) ?? "").trim(),
+    "One session. The whole town.",
+    "the storefront headline follows the language switch",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "storefront-welcome-en-390.png") });
+
+  // The yellow action is the setup entry, not the table.
+  await page.locator("main button.btn--accent").click();
+  await page.waitForFunction(() => document.body.dataset.route === "bag");
+  assert.match(await page.evaluate(() => location.pathname), /\/bag$/);
+  await overflow();
+
+  // A live saved game offers its continuation, which opens the table.
+  await seed(7);
+  await home();
+  await page.waitForSelector("main h1");
+  const resume = page.locator('main button:has-text("Continue the session")');
+  assert.equal(await resume.count(), 1, "a live game offers the continuation");
+  await resume.click();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "storefront-continue-390.png") });
+}
+
+// Imp r3116: a night self-kill leaves the heir unanswered in the save. A
+// reload keeps the question, offers no end-night, keeps roles out of the
+// public views and still wakes the named heir once.
+async function heirChoiceSurvivesReload() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedImpHeirNight2("fortuneteller");
+  await settled();
+  await route("/table");
+  const confirmWith = async (targetId: string) => {
+    await page.locator(`[data-target][data-id="${targetId}"]`).click();
+    await completeStep();
+    await settled();
+  };
+  await confirmWith("9");
+  await confirmWith("10");
+  await page.waitForSelector("[data-dock-heir] [data-heir]");
+
+  await page.reload();
+  await page.waitForSelector(".host");
+  await page.waitForSelector("[data-dock-heir] [data-heir]");
+  const pending = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const clone = structuredClone(store.state);
+    const ended = engine.endNight(clone);
+    return {
+      phase: store.state.phase,
+      night: store.state.night.number,
+      winner: store.state.winner,
+      pending: Boolean(engine.demonChangePending(store.state)),
+      heirs: [...document.querySelectorAll("[data-dock-heir] [data-heir]")].map((node) =>
+        node.getAttribute("data-id"),
+      ),
+      endNight: document.querySelectorAll('[data-table-dock] [data-act="end-night"]').length,
+      confirm: document.querySelectorAll('[data-act="step-confirm"]').length,
+      endNightRefused: !ended.ok,
+      endNightPhase: clone.phase,
+    };
+  });
+  assert.deepEqual(pending, {
+    phase: "night",
+    night: 2,
+    winner: null,
+    pending: true,
+    heirs: ["8", "9"],
+    endNight: 0,
+    confirm: 0,
+    endNightRefused: true,
+    endNightPhase: "night",
+  });
+
+  // The public seat view and the player handoff carry no role, note or effect.
+  const secrets = await page.evaluate(async () => {
+    const { model, store } = await window.PG_MODULES();
+    const view = model.publicGameView(store.state);
+    const ids = new Set(
+      store.state.order.map((id) => store.state.players[id].roleId).filter(Boolean),
+    );
+    return {
+      keys: Object.keys(view).sort(),
+      text: JSON.stringify(view),
+      roleNames: (window.PG?.roles ?? [])
+        .filter((role) => ids.has(role.id))
+        .map((role) => role.name),
+    };
+  });
+  assert.deepEqual(secrets.keys, ["day", "deaths", "living", "night", "phase", "total", "winner"]);
+  for (const field of ["roleId", "shownRoleId", "effects", "notes", "demonchange"]) {
+    assert.equal(secrets.text.includes(field), false, `the public view leaks ${field}`);
+  }
+  assert.ok(secrets.roleNames.length >= 3, "the fixture hides the evil team's roles");
+  for (const where of ["/seat", "/player"]) {
+    await route(where);
+    await settled();
+    const body = await page.evaluate(() => document.body.innerText);
+    for (const name of secrets.roleNames) {
+      assert.equal(body.includes(name), false, `${where} shows the role ${name}`);
+    }
+    assert.equal(await page.locator("[data-madness-review]").count(), 0);
+  }
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "heir-reload-public-390.png") });
+
+  // The named heir is woken once, and the wake is the visible story step.
+  await route("/table");
+  await page.waitForSelector("[data-dock-heir] [data-heir]");
+  await page.locator('[data-dock-heir] [data-heir][data-id="8"]').click();
+  await settled();
+  const wake = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    return {
+      system: engine.currentStep(store.state)?.system ?? null,
+      wakes: store.state.night.queue.filter((step) => step.system === "demonchange").length,
+      heir: store.state.players["8"].roleId,
+    };
+  });
+  assert.deepEqual(wake, { system: "demonchange", wakes: 1, heir: "imp" });
+  assert.match(
+    await page.locator("[data-dock-step]").innerText(),
+    /Смена Демона|Demon changed|Demon dəyişdi/,
+    "the dock names the new Demon's wake",
+  );
+  await page.locator('[data-act="complete"]').click();
+  const stepNote = page.locator("[data-step-note]").first();
+  await stepNote.waitFor({ state: "attached" });
+  assert.match(
+    ((await stepNote.textContent()) ?? "").trim(),
+    /Чёрт|Imp|İmp|Demon|Devil/,
+    "the wake tells the Storyteller to show the new Demon",
+  );
+  assert.equal(await page.locator('[data-act="step-confirm"]').count(), 1);
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "heir-reload-wake-390.png") });
+  await page.keyboard.press("Escape");
+}
+
+// Vortox r3017: a living Vortox makes a Townsfolk answer false. The host
+// prompt is labelled false information, the true answer is not offered, and
+// the recorded answer stays out of the public views.
+async function vortoxFalseInformationLabel() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "clockmaker",
+      2: "cerenovus",
+      3: "vortox",
+      4: "mutant",
+      5: "savant",
+      6: "dreamer",
+      7: "oracle",
+      8: "artist",
+    };
+    const game = model.createGame(Object.keys(assignment).length);
+    game.script = {
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      source: "official",
+      roles: rules.SNV_ALL.slice(),
+    };
+    game.scriptId = "snv";
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["sage", "mathematician", "seamstress"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "clockmaker")
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await route("/table");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('select[data-given-kind="number"]');
+  const label = (
+    (await page.locator('label:has(select[data-given-kind="number"]) > .label').textContent()) ?? ""
+  ).trim();
+  assert.match(label, /^(Ложная информация|False information|Yanlış məlumat)$/);
+  assert.doesNotMatch(label, /Регистрация|Registration|Qeydəalma/);
+  assert.equal(
+    await page.locator("[data-madness-review]").count(),
+    0,
+    "the false answer is not a madness review",
+  );
+
+  const options = await page
+    .locator('select[data-given-kind="number"] option')
+    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
+  const info = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const step = engine.currentStep(store.state)!;
+    const result = engine.infoForStep(store.state, step);
+    return { value: result.value, options: result.options, falsified: result.falsifiedSuffix };
+  });
+  assert.equal(info.falsified, true, "a living Vortox makes the answer mandatory false");
+  assert.equal(info.options!.includes(info.value), false, "the true answer is not offered");
+  const chosen = options.find((value) => value !== "" && value !== String(info.value));
+  assert.ok(chosen, "the host has a false answer to give");
+  await page.locator('select[data-given-kind="number"]').selectOption(chosen!);
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    return Boolean(store.state.night.queue.find((step) => step.roleId === "clockmaker")?.done);
+  });
+
+  const recorded = await page.evaluate(async () => {
+    const { model, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "clockmaker");
+    const view = model.publicGameView(store.state);
+    return {
+      value: (step?.given as { value?: unknown } | null | undefined)?.value ?? null,
+      keys: Object.keys(view).sort(),
+      text: JSON.stringify(view),
+    };
+  });
+  assert.equal(recorded.value, Number(chosen));
+  assert.deepEqual(recorded.keys, ["day", "deaths", "living", "night", "phase", "total", "winner"]);
+  for (const field of ["given", "journal", "clockmaker", "vortox"]) {
+    assert.equal(recorded.text.includes(field), false, `the public view leaks ${field}`);
+  }
+
+  for (const where of ["/seat", "/player"]) {
+    await route(where);
+    await settled();
+    const body = await page.evaluate(() => document.body.innerText);
+    assert.doesNotMatch(body, /Ложная информация|False information|Yanlış məlumat/);
+    assert.doesNotMatch(body, /Часовщик|Clockmaker|Вортокс|Vortox/);
+    assert.equal(await page.locator("[data-given]").count(), 0);
+  }
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "vortox-false-label-390.png") });
+}
+
+// Cerenovus: the madness role, the source and every note/effect stay out of
+// the public seat view and the player handoff; the Storyteller keeps the
+// review at the table.
+async function cerenovusMadnessStaysPrivate() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const note = "CERENOVUS SECRET NOTE: seat 2 is mad about the Clockmaker.";
+  const seeded = await page.evaluate(async (note) => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "clockmaker",
+      2: "savant",
+      3: "dreamer",
+      4: "oracle",
+      5: "artist",
+      6: "cerenovus",
+      7: "nodashii",
+      8: "mutant",
+    };
+    const game = model.createGame(Object.keys(assignment).length);
+    game.script = {
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      source: "official",
+      roles: rules.SNV_ALL.slice(),
+    };
+    game.scriptId = "snv";
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["sage", "mathematician", "seamstress"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.notes = note;
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      const step = engine.currentStep(game)!;
+      if (step.roleId === "cerenovus") {
+        const completed = engine.completeStep(game, step.key, {
+          targetIds: ["2"],
+          roleId: "clockmaker",
+        });
+        if (!completed.ok) return completed;
+      } else {
+        window.fixtureSkip(engine, game, step.key, "browser check");
+      }
+    }
+    const ended = engine.endNight(game);
+    if (!ended.ok) return ended;
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return {
+      ok: true,
+      effect: game.effects.some((effect) => effect.madness === "cerenovus"),
+    };
+  }, note);
+  assert.deepEqual(seeded, { ok: true, effect: true }, JSON.stringify(seeded));
+
+  const secrets = await page.evaluate(async () => {
+    const { model, store } = await window.PG_MODULES();
+    const view = model.publicGameView(store.state);
+    const ids = new Set(
+      store.state.order.map((id) => store.state.players[id].roleId).filter(Boolean),
+    );
+    return {
+      keys: Object.keys(view).sort(),
+      text: JSON.stringify(view),
+      roleNames: (window.PG?.roles ?? [])
+        .filter((role) => ids.has(role.id))
+        .map((role) => role.name),
+    };
+  });
+  assert.deepEqual(secrets.keys, ["day", "deaths", "living", "night", "phase", "total", "winner"]);
+  for (const field of [
+    "roleId",
+    "shownRoleId",
+    "effects",
+    "notes",
+    "madness",
+    "cerenovus",
+    "clockmaker",
+  ]) {
+    assert.equal(secrets.text.includes(field), false, `the public view leaks ${field}`);
+  }
+  assert.ok(secrets.roleNames.length >= 7, "the fixture hides every role");
+  for (const where of ["/seat", "/player"]) {
+    await route(where);
+    await settled();
+    const body = await page.evaluate(() => document.body.innerText);
+    for (const name of secrets.roleNames) {
+      assert.equal(body.includes(name), false, `${where} shows the role ${name}`);
+    }
+    assert.equal(body.includes(note), false, `${where} shows the host note`);
+    assert.equal(body.includes("cerenovus"), false, `${where} shows the madness source`);
+    assert.equal(await page.locator("[data-madness-review]").count(), 0);
+  }
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "cerenovus-privacy-390.png") });
+
+  await route("/table");
+  await openTableMenu();
+  const review = page.locator('[data-madness-player="2"]');
+  await review.waitFor();
+  assert.equal(await review.getAttribute("data-madness-status"), "pending");
+  assert.match(await review.innerText(), /Player 2/);
+  assert.match(await review.innerText(), /Clockmaker|Часовщик/);
+  assert.match(await page.locator("[data-madness-review]").innerText(), /Madness review|ПРОВЕРКА/i);
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "cerenovus-review-390.png") });
+  await page.keyboard.press("Escape");
+}
+
 async function fullChecks() {
   phaseStarted = Date.now();
   await page.goto(url);
-  await page.waitForSelector(".host");
+  await route("/table");
   assert.equal(
     await page.locator("#update-banner").isVisible(),
     false,
@@ -3256,7 +4654,12 @@ async function fullChecks() {
     const tab = await cold.newPage();
     await tab.goto(new URL("/outside", url).href);
     await tab.waitForSelector("#screen > *", { timeout: 15000 });
-    assert.equal(tab.url(), url + "table");
+    assert.equal(tab.url(), url, "an outside path lands on the base welcome page");
+    assert.equal(
+      await tab.evaluate(() => document.body.dataset.route),
+      "home",
+      "the base renders the welcome page, not the table",
+    );
     await cold.close();
   }
 
@@ -3412,7 +4815,10 @@ async function fullChecks() {
     );
     assert.equal(felt.length, 1, `${width}px: the table renders one felt surface`);
     assert.match(felt[0]!.image, /radial-gradient/, `${width}px: the felt is one soft gradient`);
-    assert.notEqual(felt[0]!.shadow, "none", `${width}px: the felt carries its centre glow`);
+    const railShadow = await page
+      .locator("[data-table-rail]")
+      .evaluate((node) => getComputedStyle(node).boxShadow);
+    assert.notEqual(railShadow, "none", `${width}px: the rail carries the surface shadow`);
     assert.ok(
       (await cornerRadius('[data-act="roster"]')) <= 4,
       `${width}px: the dock icon control is squared, not a pill`,
@@ -5230,23 +6636,6 @@ async function fullChecks() {
     "Alice",
   );
 
-  // A public tab is read-only and updates live.
-  const publicPage = await context.newPage();
-  await publicPage.goto(url + "#/public");
-  await publicPage.waitForSelector(".public");
-  await page.evaluate(async () => {
-    const store = (await window.PG_MODULES()).store;
-    store.run((game) => {
-      game.players["2"].alive = false;
-      return { ok: true };
-    });
-  });
-  await publicPage.waitForFunction(
-    () => document.querySelector(".public-count b")?.textContent === "5",
-  );
-  assert.equal(await publicPage.locator(".host-role, .host-bluffs, .host-notes").count(), 0);
-  await publicPage.close();
-
   // A bluff token opens the role card, and notes follow the store when another
   // game replaces this one.
   await openTableMenu();
@@ -5450,7 +6839,10 @@ async function fullChecks() {
     return { backgroundImage: style.backgroundImage, boxShadow: style.boxShadow };
   });
   assert.match(seatFelt.backgroundImage, /radial-gradient/, "the seat felt is one radial surface");
-  assert.ok(seatFelt.boxShadow !== "none", "the seat felt keeps its inset depth");
+  const seatRailShadow = await page
+    .locator("#seat-ring [data-table-rail]")
+    .evaluate((node) => getComputedStyle(node).boxShadow);
+  assert.ok(seatRailShadow !== "none", "the seat ring rail carries the surface shadow");
   const medallions = await page.locator("[data-seat-medallion]").evaluateAll((nodes) =>
     nodes.map((node) => {
       const style = getComputedStyle(node);
@@ -5711,7 +7103,11 @@ async function fullChecks() {
   const menuHrefs = await menuPanel
     .locator("a")
     .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href") || ""));
-  for (const name of ["table", "bag", "seat", "secrets", "player", "sheet", "public", "help"]) {
+  assert.ok(
+    menuHrefs.includes(new URL(url).pathname),
+    `the panel links the home page: ${JSON.stringify(menuHrefs)}`,
+  );
+  for (const name of ["table", "bag", "seat", "secrets", "player", "sheet", "help"]) {
     assert.ok(
       menuHrefs.some((href) => href.endsWith("/" + name)),
       `the panel links /${name}: ${JSON.stringify(menuHrefs)}`,
@@ -5836,16 +7232,6 @@ async function fullChecks() {
     "the panel language change keeps the route",
   );
   await page.keyboard.press("Escape");
-
-  await route("/public");
-  await page.waitForSelector(".public");
-  assert.equal(
-    await page.locator("[data-app-bar-toggle]").count(),
-    0,
-    "the public screen has no burger",
-  );
-  assert.equal(await page.locator("[data-app-bar-menu]").count(), 0);
-  assert.equal(await page.locator(".lang-switch").isVisible(), true);
 
   // Role sheet scenario selector (issue #14): edition filtering, a separate
   // Travellers toggle, language/reload persistence and game-state isolation.
@@ -6138,7 +7524,7 @@ async function fullChecks() {
   });
   assert.equal(surface.fontSize, "14px", "the body font size is unchanged");
   assert.equal(surface.lineHeight, "20.3px", "the body line height is unchanged");
-  assert.match(surface.fontFamily, /Inter/, "the body font family is unchanged");
+  assert.match(surface.fontFamily, /Golos Text/, "the body uses the store prose face");
   assert.equal(surface.margin, "0px", "the base layer keeps the margin reset");
 
   // Shared dialog contract: focus in, Escape, overlay and close control,
@@ -6304,6 +7690,14 @@ async function fullChecks() {
   const publish = (cache: string) => {
     releaseOverride = versionSource(cache);
   };
+  // The banner can turn visible while the service worker swaps documents.
+  // A DOM predicate survives that swap; a CSS selector wait can resolve and
+  // still time out on the stale document.
+  const waitForBanner = (target: Page = page) =>
+    target.waitForFunction(() => {
+      const banner = document.getElementById("update-banner");
+      return Boolean(banner && !banner.hidden);
+    });
   const deploy = async (cache: string) => {
     publish(cache);
     await page.evaluate(async () => {
@@ -6314,7 +7708,7 @@ async function fullChecks() {
       async () => !!(await navigator.serviceWorker.getRegistration())?.waiting,
       { timeout: 20000 },
     );
-    await page.waitForSelector("#update-banner:not([hidden])");
+    await waitForBanner();
   };
   const waitForLoads = (target: Page, expected: number) =>
     target.waitForFunction(
@@ -6419,7 +7813,7 @@ async function fullChecks() {
     async () => !!(await navigator.serviceWorker.getRegistration())?.waiting,
     { timeout: 15000 },
   );
-  await page.waitForSelector("#update-banner:not([hidden])");
+  await waitForBanner();
   assert.match((await page.locator("#update-message").textContent()) ?? "", /update is ready/i);
   assert.equal(
     await workerVersion(),
@@ -6560,29 +7954,34 @@ async function fullChecks() {
   });
 
   // Two windows reload once each, with no save coordination between them.
-  const publicTab = await context.newPage();
-  await publicTab.goto(url + "#/public");
-  await publicTab.waitForSelector(".public");
+  const otherTab = await context.newPage();
+  await otherTab.goto(url);
+  await otherTab.evaluate(() => {
+    history.pushState(null, "", "/pocket/sheet");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await otherTab.waitForSelector(".sheet-page");
   await deploy(fifthCache);
-  await publicTab.waitForSelector("#update-banner:not([hidden])");
+  await waitForBanner(otherTab);
   const hostLoads = await loadCount();
-  const publicLoads = await loadCount(publicTab);
-  await page.locator("#update-now").click();
+  const otherLoads = await loadCount(otherTab);
+  // Activation reloads this window, so a Playwright retry can race the hidden
+  // banner; the handler itself is the behavior under test.
+  await page.evaluate(() => {
+    const button = document.getElementById("update-now");
+    if (button instanceof HTMLButtonElement) button.click();
+  });
   await waitForLoads(page, hostLoads + 1);
   await page.waitForSelector(".host");
-  await waitForLoads(publicTab, publicLoads + 1);
-  await publicTab.waitForSelector(".public");
+  await waitForLoads(otherTab, otherLoads + 1);
+  await otherTab.waitForSelector(".sheet-page");
   // Deliberate: both windows get this window to prove each reloads exactly once.
   await page.waitForTimeout(1200);
   assert.equal(await loadCount(), hostLoads + 1, "the applying window reloads exactly once");
-  assert.equal(
-    await loadCount(publicTab),
-    publicLoads + 1,
-    "the other window reloads exactly once",
-  );
+  assert.equal(await loadCount(otherTab), otherLoads + 1, "the other window reloads exactly once");
   assert.equal(await workerVersion(), fifthCache, "the new worker controls the reloaded app");
-  assert.equal(await workerVersion(publicTab), fifthCache, "every window runs the new worker");
-  await publicTab.close();
+  assert.equal(await workerVersion(otherTab), fifthCache, "every window runs the new worker");
+  await otherTab.close();
 
   // The pre-#11 client scenario needed the unbundled source tree. The worker
   // protocol it exercised (activation, cache pruning) is covered by
@@ -7136,7 +8535,7 @@ async function fullChecks() {
   );
   assert.match(
     await page.locator('[data-act="reset-step"]').innerText(),
-    /Очистить выбор|Clear selection|Seçimi təmizlə/,
+    /Очистить выбор|Clear selection|Seçimi təmizlə/i,
     "the draft reset is not labelled as undo",
   );
   while (!(await page.locator('[data-table-dock] [data-act="skip"]').count())) {
@@ -7258,6 +8657,13 @@ async function fullChecks() {
   await timed("player-card", playerCardHasNoCountdown);
   await timed("seat-lock", seatOrderIsFixedAfterStart);
   await timed("drunk-slayer", drunkSlayerFromTable);
+  await timed("queue-panel", queuePanelReachable);
+  await timed("notes-debounce", notesDebounce);
+  await timed("secrets-checks", secretsChecks);
+  await timed("corrections", correctionSurface);
+  await timed("klutz-day", klutzDayChoice);
+  await timed("pacifist-survival", pacifistSurvivalControl);
+  await timed("day-reset", dayChangeClearsExecutionDrafts);
   await timed("lunatic-setup", lunaticSetupControls);
   await timed("verification-contracts", verificationContracts);
   await timed("setup-zero", setupZeroIsTheLibrariansAlone);
@@ -7268,9 +8674,17 @@ async function fullChecks() {
   await timed("heir-question", heirQuestionLeadsTheNight);
   await timed("heir-sheet", heirQuestionLeadsAnOpenSheet);
   await timed("chef-label", chefRegistrationIsLabelled);
+  await timed("pithag-deaths", pithagArbitraryDeathReachable);
+  await timed("tinker-first-night", tinkerFirstNightDeathReachable);
+  await timed("journal-pairs", journalInformationPairsInspectable);
   await timed("tinker-night", tinkerNightDeathNeedsTheAbility);
   await timed("night-resurrection", nightResurrectionNeedsTheAbility);
-  assert.deepEqual(errors, []);
+  await timed("storefront-welcome", storefrontWelcomeAt390);
+  await timed("heir-reload", heirChoiceSurvivesReload);
+  await timed("vortox-label", vortoxFalseInformationLabel);
+  await timed("cerenovus-privacy", cerenovusMadnessStaysPrivate);
+  if (errors.length) console.log("FAILED RESPONSES: " + failed.join(" | "));
+  assert.deepEqual(errors, [], `console: ${errors.join(" | ")}; failed: ${failed.join(" | ")}`);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
   );
@@ -7281,9 +8695,9 @@ try {
   if (focusedName) {
     const check = focusedChecks[focusedName];
     await page.goto(url);
-    await page.waitForSelector(".host");
+    await route("/table");
     await timed(focusedName, check);
-    assert.deepEqual(errors, []);
+    assert.deepEqual(errors, [], `console: ${errors.join(" | ")}; failed: ${failed.join(" | ")}`);
     console.log("Browser check passed: " + focusedName);
   } else {
     await fullChecks();

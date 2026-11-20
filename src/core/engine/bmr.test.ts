@@ -36,6 +36,7 @@ import {
   nominate,
   recordVotes,
   recordBmrOutcome,
+  resetVotes,
   resurrectPlayer,
   setupErrors,
   skipStep,
@@ -124,6 +125,11 @@ function make(assignment: Record<string, RoleId>, options: MakeOptions = {}): Ga
   assert.equal(result.ok, true, JSON.stringify(result));
   for (const id of state.order) state.players[id].name = "P" + id;
   return state;
+}
+
+/** The typed rejection code of a completeStep result, for assertions on failures. */
+function rejectionCode(value: unknown): string | undefined {
+  return (value as { errorCode?: string }).errorCode;
 }
 
 function aliveExcept(
@@ -1008,6 +1014,29 @@ test("an impaired Assassin spends the ability without killing (BMR-ASSASSIN-02)"
   assert.equal(state.players["2"].alive, true, "a drunk or poisoned Assassin kills nobody");
   assert.equal(state.players["6"].used.assassin, true, "the chosen ability is spent");
   assert.equal(step.noteKey, "note.abilityFailed");
+  assert.equal(
+    state.night.queue.some((candidate) => candidate.roleId === "assassin" && !candidate.done),
+    false,
+    "no later step is built after an impaired use",
+  );
+});
+
+test("an impaired Assassin does not kill when the outcome is recorded (BMR-ASSASSIN-02)", () => {
+  const state = assassinNightTwo();
+  state.effects.push({
+    id: "test-poison-assassin-outcome",
+    kind: "poison",
+    sourceId: "5",
+    targetId: "6",
+    start: { phase: "night", number: 2 },
+    expires: { phase: "night", number: 3 },
+    active: true,
+  });
+  const step = assassinStep(state);
+  assert.ok(step);
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(recordBmrOutcome(state, step.key, { deathIds: ["2"] }).ok, false);
+  assert.equal(state.players["2"].alive, true, "an impaired Assassin kills nobody");
 });
 
 test("a resurrected Assassin regains the once-per-game ability (BMR-ASSASSIN-02)", () => {
@@ -1102,6 +1131,14 @@ test("a registered-dead Zombuul cannot nominate and its vote spends the token (B
     3,
     "the threshold keeps the game's own living count",
   );
+  assert.equal(resetVotes(state, first, "recount").ok, true);
+  assert.equal(
+    state.players["1"].voteToken,
+    true,
+    "a recount returns the registered-dead voter's token",
+  );
+  assert.equal(recordVotes(state, first, ["1"]).ok, true);
+  assert.equal(state.players["1"].voteToken, false, "the recount spends the token again");
 
   const second = nominate(state, "4", "3");
   assert.equal(second.ok, true);
@@ -1112,6 +1149,51 @@ test("a registered-dead Zombuul cannot nominate and its vote spends the token (B
     0,
     "the spent dead vote is not counted",
   );
+});
+
+test("a registered-dead Zombuul still wakes and kills (BMR-ZOMBUUL-01)", () => {
+  const state = make(
+    {
+      1: "chambermaid",
+      2: "courtier",
+      3: "sailor",
+      4: "gossip",
+      5: "devilsadvocate",
+      6: "zombuul",
+      7: "fool",
+    },
+    { count: 8 },
+  );
+  state.players["6"].registeredDead = true;
+  nextNight(state);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "zombuul");
+  assert.ok(step, "the secretly alive Zombuul still wakes");
+  assert.equal(completeStep(state, step.key, { targetIds: ["1"] }).ok, true);
+  assert.equal(recordBmrOutcome(state, step.key, { deathIds: ["1"] }).ok, true);
+  assert.equal(state.players["1"].alive, false, "the registered-dead Zombuul still kills");
+});
+
+test("the Zombuul's second death is real and wins for good (BMR-ZOMBUUL-01)", () => {
+  const state = make(
+    {
+      1: "chambermaid",
+      2: "courtier",
+      3: "sailor",
+      4: "gossip",
+      5: "devilsadvocate",
+      6: "zombuul",
+      7: "fool",
+    },
+    { count: 8 },
+  );
+  state.players["6"].registeredDead = true;
+  state.players["6"].used.zombuul = true;
+  const death = kill(state, "6", "ability", { phase: "night", number: 2 });
+  assert.ok(death, "the second death is real");
+  assert.equal(state.players["6"].alive, false);
+  checkWin(state);
+  assert.equal(state.winner?.team, "good");
+  assert.equal(state.winner?.reason, "demon-dead");
 });
 
 test("the Zombuul kills at night when nobody died today", () => {
@@ -1160,6 +1242,65 @@ test("official Mastermind extension includes the intervening night before its ex
   const winner = checkWin(state);
   assert.equal(winner?.team, "good");
   assert.equal(winner?.reason, "mastermind");
+});
+
+function enterMastermindExtraDay(extra: Record<string, RoleId> = {}): GameState {
+  const state = make(
+    {
+      1: "chambermaid",
+      2: "courtier",
+      3: "mastermind",
+      4: "sailor",
+      5: "gossip",
+      6: "po",
+      7: "fool",
+      ...extra,
+    },
+    { count: 8 },
+  );
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  assert.equal(executeByDecision(state, "6").ok, true);
+  assert.equal(state.mastermind?.active, true, "the Mastermind arms the extra day");
+  assert.equal(state.mastermind?.extraDay, false);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(state.phase, "night");
+  skipRemaining(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(state.day.number, 2, "the extra day follows the intervening night");
+  assert.equal(state.mastermind?.extraDay, true, "the extra day is active");
+  return state;
+}
+
+test("the Mastermind extra day ends good when nobody is executed (BMR-MASTERMIND-01)", () => {
+  const state = enterMastermindExtraDay();
+  assert.equal(endDay(state).ok, true);
+  assert.equal(state.winner?.team, "good");
+  assert.equal(state.winner?.reason, "demon-dead", "no execution gives good the game");
+});
+
+test("a good player who survives the Mastermind extra-day execution still loses (BMR-MASTERMIND-01)", () => {
+  const state = enterMastermindExtraDay({ 7: "pacifist" });
+  assert.equal(executeByDecision(state, "1", { survives: true }).ok, true);
+  assert.equal(state.players["1"].alive, true, "the Pacifist spares the good player");
+  assert.equal(state.winner?.team, "evil");
+  assert.equal(state.winner?.reason, "mastermind", "the good player was still executed");
+});
+
+test("an evil player executed on the Mastermind extra day loses for evil (BMR-MASTERMIND-01)", () => {
+  const state = enterMastermindExtraDay();
+  assert.equal(executeByDecision(state, "3").ok, true);
+  assert.equal(state.players["3"].alive, false, "the executed Mastermind dies");
+  assert.equal(state.winner?.team, "good");
+  assert.equal(state.winner?.reason, "mastermind");
 });
 
 test("the Mastermind extends the game by one day after a Demon execution (BMR-MASTERMIND-01)", () => {
@@ -1245,6 +1386,72 @@ test("a Minion execution makes everyone except the Minstrel drunk (BMR-MINSTREL-
     drunk.some((effect) => effect.targetId === "5"),
     "a player resurrected later is already drunk",
   );
+});
+
+test("a drunk or poisoned Minstrel does not make the town drunk when a Minion is executed (BMR-MINSTREL-01)", () => {
+  for (const impairment of ["drunk", "poison"] as const) {
+    const state = make(
+      {
+        1: "chambermaid",
+        2: "courtier",
+        3: "sailor",
+        4: "gossip",
+        5: "devilsadvocate",
+        6: "po",
+        7: "minstrel",
+      },
+      { count: 9 },
+    );
+    state.phase = "day";
+    state.day = {
+      number: 1,
+      morning: [],
+      nominations: [],
+      activeNominationId: null,
+      execution: null,
+      ended: false,
+      open: true,
+    };
+    addEffect(state, impairment, "7");
+    assert.equal(executeByDecision(state, "5").ok, true);
+    assert.equal(
+      state.effects.filter((effect) => effect.kind === "drunk" && effect.sourceId === "7").length,
+      0,
+      "an impaired Minstrel creates no drunk effects",
+    );
+  }
+});
+
+test("a Minstrel killed at night ends everyone's drunkenness (BMR-MINSTREL-01)", () => {
+  const state = make(
+    {
+      1: "chambermaid",
+      2: "courtier",
+      3: "sailor",
+      4: "gossip",
+      5: "devilsadvocate",
+      6: "po",
+      7: "minstrel",
+    },
+    { count: 9 },
+  );
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  assert.equal(executeByDecision(state, "5").ok, true);
+  const at = { phase: "night" as const, number: 2 };
+  assert.equal(isImpaired(state, "1", at), true, "the living Minstrel's drunk is active");
+  kill(state, "7", "ability", at);
+  assert.equal(state.players["7"].alive, false, "the Minstrel died");
+  // Glossary r3168: a dead player's persistent ability effects end immediately.
+  assert.equal(isImpaired(state, "1", at), false, "the dead Minstrel's drunk ends");
 });
 
 test("the Professor resurrects a dead Townsfolk only (BMR-PROFESSOR-01)", () => {
@@ -1834,6 +2041,27 @@ test("a good but drunk or poisoned Tea Lady neighbour is still protected", () =>
   assert.equal(kill(state, "5", "ability", at), null);
 });
 
+test("a drunk or poisoned Tea Lady protects nobody (BMR-TEALADY-01)", () => {
+  const at = { phase: "night" as const, number: 1 };
+  for (const [impairment, target] of [
+    ["poison", "3"],
+    ["drunk", "5"],
+  ] as const) {
+    const state = make(
+      {
+        3: "gossip",
+        4: "tealady",
+        5: "courtier",
+        8: "po",
+      },
+      { count: 8 },
+    );
+    addEffect(state, impairment, "4");
+    assert.equal(isImpaired(state, "4", at), true);
+    assert.ok(kill(state, target, "ability", at), "an impaired Tea Lady protects no neighbour");
+  }
+});
+
 test("the Tea Lady does not protect when a living neighbour is evil", () => {
   const state = make(
     {
@@ -1848,6 +2076,64 @@ test("the Tea Lady does not protect when a living neighbour is evil", () => {
   const death = kill(state, "5", "ability", at);
   assert.ok(death, "an evil neighbour cancels the Tea Lady's protection");
   assert.equal(state.players["5"].alive, false);
+});
+
+test("a Tea Lady's protected neighbour survives an execution (BMR-TEALADY-01)", () => {
+  const state = make(
+    { 1: "chambermaid", 2: "gossip", 3: "tealady", 4: "courtier", 5: "assassin", 8: "po" },
+    { count: 8 },
+  );
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  assert.equal(executeByDecision(state, "2").ok, true);
+  assert.equal(state.players["2"].alive, true, "the protected neighbour survives execution");
+});
+
+test("a dead Tea Lady protects nobody (BMR-TEALADY-01)", () => {
+  const state = make(
+    { 1: "chambermaid", 2: "gossip", 3: "tealady", 4: "courtier", 5: "assassin", 8: "po" },
+    { count: 8 },
+  );
+  kill(state, "3", "ability", { phase: "night", number: 1 });
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  assert.equal(executeByDecision(state, "2").ok, true);
+  assert.equal(state.players["2"].alive, false, "no protection comes from the grave");
+});
+
+test("the Tea Lady does not protect a non-neighbour from execution (BMR-TEALADY-01)", () => {
+  const state = make(
+    { 1: "chambermaid", 2: "gossip", 3: "tealady", 4: "courtier", 5: "assassin", 8: "po" },
+    { count: 8 },
+  );
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  assert.equal(executeByDecision(state, "1").ok, true);
+  assert.equal(state.players["1"].alive, false, "only the two neighbours are protected");
 });
 
 test("the Sailor cannot die while healthy but dies while poisoned or drunk", () => {
@@ -2288,6 +2574,31 @@ test("the Courtier makes the chosen character drunk for three nights and days, o
   );
 });
 
+test("a Courtier killed after choosing ends the target's drunkenness (BMR-COURTIER-01)", () => {
+  const state = make(
+    {
+      1: "courtier",
+      2: "chambermaid",
+      3: "sailor",
+      4: "gossip",
+      5: "devilsadvocate",
+      6: "po",
+      7: "fool",
+    },
+    { count: 8 },
+  );
+  startNight(state);
+  const courtier = state.night.queue.find((step) => step.roleId === "courtier")!;
+  assert.ok(courtier);
+  assert.equal(completeStep(state, courtier.key, { roleId: "fool" }).ok, true);
+  const at = { phase: "night" as const, number: 1 };
+  assert.equal(isImpaired(state, "7", at), true, "the living Courtier's drunk is active");
+  kill(state, "1", "ability", at);
+  assert.equal(state.players["1"].alive, false, "the Courtier died");
+  // Glossary r3168: a dead player's persistent ability effects end immediately.
+  assert.equal(isImpaired(state, "7", at), false, "the dead Courtier's drunk ends");
+});
+
 test("the Innkeeper protects both targets tonight and makes one of them drunk until dusk", () => {
   const state = make(
     {
@@ -2321,6 +2632,38 @@ test("the Innkeeper protects both targets tonight and makes one of them drunk un
   const dawn = { phase: "night" as const, number: 3 };
   assert.equal(isImpaired(state, "2", dawn), false, "drunk ends at dusk");
   assert.ok(kill(state, "2", "ability", dawn), "protection ends at dawn");
+});
+
+test("an Innkeeper killed after choosing ends the target's drunkenness (BMR-INNKEEPER-01)", () => {
+  const state = make(
+    {
+      1: "innkeeper",
+      2: "chambermaid",
+      3: "gossip",
+      4: "fool",
+      5: "devilsadvocate",
+      6: "po",
+    },
+    { count: 8 },
+  );
+  startNight(state);
+  finishNight(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+
+  const innkeeper = state.night.queue.find((step) => step.roleId === "innkeeper")!;
+  assert.ok(innkeeper);
+  assert.equal(
+    completeStep(state, innkeeper.key, { targetIds: ["2", "3"], drunkId: "2" }).ok,
+    true,
+  );
+
+  const at = { phase: "night" as const, number: 2 };
+  assert.equal(isImpaired(state, "2", at), true, "the living Innkeeper's drunk is active");
+  kill(state, "1", "ability", at);
+  assert.equal(state.players["1"].alive, false, "the Innkeeper died");
+  // Glossary r3168: a dead player's persistent ability effects end immediately.
+  assert.equal(isImpaired(state, "2", at), false, "the dead Innkeeper's drunk ends");
 });
 
 test("the Sailor makes the chosen recipient drunk until dusk and supports choosing themself (BMR-SAILOR-01, BMR-SAILOR-02)", () => {
@@ -2703,8 +3046,8 @@ test("the Moonchild kills the chosen good player on the next night (BMR-MOONCHIL
   assert.equal(state.players["4"].used.moonchildResolved, true);
 });
 
-test("the Moonchild's ability is judged when they die, not at the night resolution (BMR-MOONCHILD-01)", () => {
-  const impaired = make(
+test("a Moonchild sober at night kills the chosen good player even when poisoned at the choice (BMR-MOONCHILD-01)", () => {
+  const state = make(
     {
       1: "moonchild",
       2: "chambermaid",
@@ -2716,8 +3059,8 @@ test("the Moonchild's ability is judged when they die, not at the night resoluti
     },
     { count: 9 },
   );
-  impaired.players["1"].alive = false;
-  impaired.effects.push({
+  state.players["1"].alive = false;
+  state.effects.push({
     id: "moonchild-death-poison",
     kind: "poison",
     sourceId: "2",
@@ -2726,8 +3069,8 @@ test("the Moonchild's ability is judged when they die, not at the night resoluti
     expires: { phase: "night", number: 2 },
     active: true,
   });
-  impaired.phase = "day";
-  impaired.day = {
+  state.phase = "day";
+  state.day = {
     number: 1,
     morning: [],
     nominations: [],
@@ -2736,19 +3079,25 @@ test("the Moonchild's ability is judged when they die, not at the night resoluti
     ended: false,
     open: true,
   };
-  assert.equal(moonchildChoice(impaired, "2").ok, true);
-  assert.equal(impaired.players["1"].used.moonchildImpaired, true);
-  assert.equal(endDay(impaired).ok, true);
-  const step = impaired.night.queue.find((candidate) => candidate.roleId === "moonchild");
+  assert.equal(isImpaired(state, "1"), true, "the Moonchild is poisoned when they choose");
+  assert.equal(moonchildChoice(state, "2").ok, true);
+  // A legacy save may still carry the old stored flag; the night-time state
+  // must decide (Moonchild r1783).
+  state.players["1"].used.moonchildImpaired = true;
+  assert.equal(endDay(state).ok, true);
+  assert.equal(isImpaired(state, "1"), false, "the poison has expired at the resolution");
+  const step = state.night.queue.find((candidate) => candidate.roleId === "moonchild");
   assert.ok(step);
-  assert.equal(completeStep(impaired, step.key).ok, true);
+  assert.equal(completeStep(state, step.key).ok, true);
   assert.equal(
-    impaired.players["2"].alive,
-    true,
-    "the choice was made while poisoned, so the target does not die after recovery",
+    state.players["2"].alive,
+    false,
+    "the Moonchild is sober and healthy at night, so the chosen good player dies",
   );
+});
 
-  const soberChoice = make(
+test("a Moonchild poisoned at night does not kill a sober choice (BMR-MOONCHILD-01, BMR-PUKKA-04)", () => {
+  const state = make(
     {
       1: "moonchild",
       2: "chambermaid",
@@ -2760,9 +3109,9 @@ test("the Moonchild's ability is judged when they die, not at the night resoluti
     },
     { count: 9 },
   );
-  soberChoice.players["1"].alive = false;
-  soberChoice.phase = "day";
-  soberChoice.day = {
+  state.players["1"].alive = false;
+  state.phase = "day";
+  state.day = {
     number: 1,
     morning: [],
     nominations: [],
@@ -2771,8 +3120,9 @@ test("the Moonchild's ability is judged when they die, not at the night resoluti
     ended: false,
     open: true,
   };
-  assert.equal(moonchildChoice(soberChoice, "2").ok, true);
-  soberChoice.effects.push({
+  assert.equal(isImpaired(state, "1"), false, "the choice is made while sober and healthy");
+  assert.equal(moonchildChoice(state, "2").ok, true);
+  state.effects.push({
     id: "moonchild-night-poison",
     kind: "poison",
     sourceId: "3",
@@ -2781,14 +3131,15 @@ test("the Moonchild's ability is judged when they die, not at the night resoluti
     expires: null,
     active: true,
   });
-  assert.equal(endDay(soberChoice).ok, true);
-  const nightStep = soberChoice.night.queue.find((candidate) => candidate.roleId === "moonchild");
-  assert.ok(nightStep);
-  assert.equal(completeStep(soberChoice, nightStep.key).ok, true);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(isImpaired(state, "1"), true, "the Pukka has poisoned the Moonchild at night");
+  const step = state.night.queue.find((candidate) => candidate.roleId === "moonchild");
+  assert.ok(step);
+  assert.equal(completeStep(state, step.key).ok, true);
   assert.equal(
-    soberChoice.players["2"].alive,
-    false,
-    "a sober choice still kills when the Moonchild is impaired at the resolution",
+    state.players["2"].alive,
+    true,
+    "Pukka r3074: a Moonchild poisoned at night does not kill a sober choice",
   );
 });
 
@@ -2899,6 +3250,8 @@ test("the Moonchild does not kill an evil target (BMR-MOONCHILD-02)", () => {
   assert.ok(step);
   assert.equal(completeStep(state, step.key).ok, true);
   assert.equal(state.players["6"].alive, true);
+  assert.equal(recordBmrOutcome(state, step.key, { deathIds: ["6"] }).ok, false);
+  assert.equal(state.players["6"].alive, true, "the outcome path spares the evil target too");
 });
 
 test("the Moonchild rejects a target that differs from the public choice", () => {
@@ -3042,6 +3395,90 @@ test("an impaired Professor does not resurrect", () => {
   const outcome = recordBmrOutcome(state, step.key, { resurrectId: "2" });
   assert.equal(outcome.ok, false, "the outcome also respects the impairment");
   assert.equal(state.players["2"].alive, false);
+});
+
+test("a Professor who chooses a non-Townsfolk spends the ability (BMR-PROFESSOR-01)", () => {
+  const state = make(
+    {
+      1: "professor",
+      2: "moonchild",
+      3: "chambermaid",
+      4: "courtier",
+      5: "sailor",
+      6: "gossip",
+      7: "po",
+    },
+    { count: 8 },
+  );
+  state.players["2"].alive = false;
+  startNight(state);
+  finishNight(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  const step = state.night.queue.find((candidate) => candidate.roleId === "professor");
+  assert.ok(step);
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(
+    state.players["1"].used!.professor,
+    true,
+    "Professor r1775: a non-Townsfolk choice spends the ability",
+  );
+  const outcome = recordBmrOutcome(state, step.key, { resurrectId: "2" });
+  assert.equal(outcome.ok, false, "an Outsider is not resurrected");
+  assert.equal(state.players["2"].alive, false);
+  finishNight(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(
+    state.night.queue.some((candidate) => candidate.roleId === "professor"),
+    false,
+    "the spent Professor does not wake again",
+  );
+});
+
+test("an impaired Professor spends the once-per-game ability without resurrecting (BMR-PROFESSOR-01)", () => {
+  const state = make(
+    {
+      1: "professor",
+      2: "chambermaid",
+      3: "courtier",
+      4: "sailor",
+      5: "gossip",
+      6: "po",
+    },
+    { count: 8 },
+  );
+  state.players["2"].alive = false;
+  startNight(state);
+  finishNight(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  state.effects.push({
+    id: "test-professor-poison",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: { phase: "night" as const, number: 2 },
+    expires: { phase: "night" as const, number: 3 },
+    active: true,
+  });
+  const step = state.night.queue.find((candidate) => candidate.roleId === "professor");
+  assert.ok(step);
+  assert.equal(completeStep(state, step.key, { targetIds: ["2"] }).ok, true);
+  assert.equal(
+    state.players["1"].used!.professor,
+    true,
+    "the once-per-game is spent even while impaired",
+  );
+  assert.equal(state.players["2"].alive, false, "the impaired ability does not resurrect");
+  finishNight(state);
+  assert.equal(endNight(state).ok, true);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(
+    state.night.queue.some((candidate) => candidate.roleId === "professor"),
+    false,
+    "the spent Professor does not wake again",
+  );
 });
 
 test("the Lunatic's target is reported to the real Demon (BMR-LUNATIC-01)", () => {
@@ -3662,11 +4099,18 @@ test("the Moonchild's stored choice still kills the Goon", () => {
 // ---------------------------------------------------------------------------
 
 // An impairment that starts on the given night and ends on the next one.
-function impair(state: GameState, kind: "drunk" | "poison", targetId: string, night: number) {
+function impair(
+  state: GameState,
+  kind: "drunk" | "poison",
+  targetId: string,
+  night: number,
+  sourceId?: string,
+) {
   state.effects.push({
     id: "audit-" + kind + "-" + targetId + "-" + night,
     kind,
-    sourceId: state.order.find((id) => id !== targetId && state.players[id].roleId !== "goon")!,
+    sourceId:
+      sourceId || state.order.find((id) => id !== targetId && state.players[id].roleId !== "goon")!,
     targetId,
     start: { phase: "night" as const, number: night },
     expires: { phase: "night" as const, number: night + 1 },
@@ -4142,7 +4586,8 @@ test("a drunk or poisoned Grandmother survives the grandchild's death (BMR20)", 
   const grandmother = state.night.queue.find((step) => step.roleId === "grandmother")!;
   assert.equal(completeStep(state, grandmother.key, { targetIds: ["1"] }).ok, true);
   nextNight(state);
-  impair(state, "drunk", "4", 2);
+  // The source must outlive the grandchild; the generic helper would pick "1".
+  impair(state, "drunk", "4", 2, "3");
   const po = state.night.queue.find((step) => step.roleId === "po")!;
   assert.equal(completeStep(state, po.key, { targetIds: ["1"] }).ok, true);
   assert.equal(recordBmrOutcome(state, po.key, { deathIds: ["1"] }).ok, true);
@@ -4342,6 +4787,44 @@ test("an Exorcist blocking the Shabaloth still lets it regurgitate (BMR26)", () 
   const resurrect = recordBmrOutcome(state, blocked.key, { resurrectId: "2" });
   assert.equal(resurrect.ok, true, JSON.stringify(resurrect));
   assert.equal(state.players["2"].alive, true);
+});
+
+test("a Shabaloth blocked after prior choices still regurgitates last night's target (BMR-EXORCIST-01, BMR-SHABALOTH-01)", () => {
+  const state = make(
+    {
+      1: "exorcist",
+      2: "chambermaid",
+      3: "sailor",
+      4: "courtier",
+      5: "gossip",
+      6: "shabaloth",
+      7: "tinker",
+      8: "mastermind",
+    },
+    { count: 8 },
+  );
+  nextNight(state);
+  let shabaloth = state.night.queue.find((step) => step.roleId === "shabaloth")!;
+  assert.equal(completeStep(state, shabaloth.key, { targetIds: ["2", "4"] }).ok, true);
+  assert.equal(recordBmrOutcome(state, shabaloth.key, { deathIds: ["2"] }).ok, true);
+
+  nextNight(state);
+  shabaloth = state.night.queue.find((step) => step.roleId === "shabaloth")!;
+  assert.equal(completeStep(state, shabaloth.key, { targetIds: ["4", "5"] }).ok, true);
+  assert.equal(recordBmrOutcome(state, shabaloth.key, { deathIds: ["4"] }).ok, true);
+  assert.equal(state.players["4"].alive, false);
+
+  nextNight(state);
+  const exorcist = state.night.queue.find((step) => step.roleId === "exorcist")!;
+  assert.equal(completeStep(state, exorcist.key, { targetIds: ["6"] }).ok, true);
+  const blocked = state.night.queue.find((step) => step.roleId === "shabaloth")!;
+  assert.equal(blocked.blocked, true);
+  assert.equal(
+    recordBmrOutcome(state, blocked.key, { resurrectId: "4" }).ok,
+    true,
+    "last night's chosen dead target is regurgitated",
+  );
+  assert.equal(state.players["4"].alive, true);
 });
 
 test("the Lunatic attacks as the Demon mask, with its target mode (BMR27)", () => {
@@ -4623,6 +5106,22 @@ test("a living Lunatic shown the Pukka chooses one player, and the Pukka's step 
     actorName: "P1",
     noteKey: "note.bmr.lunatic",
   });
+});
+
+test("an Innkeeper-protected Zombuul does not spend its first death (BMR-INNKEEPER-01)", () => {
+  const state = make({ 1: "innkeeper", 6: "gossip", 8: "zombuul" }, { count: 8 });
+  nextNight(state);
+  const innkeeper = state.night.queue.find((step) => step.roleId === "innkeeper")!;
+  const protectedNight = completeStep(state, innkeeper.key, {
+    targetIds: ["8", "3"],
+    drunkId: "3",
+  });
+  assert.equal(protectedNight.ok, true, JSON.stringify(protectedNight));
+  const at = { phase: "night" as const, number: 2 };
+  assert.equal(kill(state, "8", "demon", at, { demon: true, ability: "zombuul" }), null);
+  assert.equal(state.players["8"].alive, true);
+  assert.equal(state.players["8"].registeredDead ?? false, false);
+  assert.equal(state.players["8"].used?.zombuul ?? false, false);
 });
 
 test("the Pukka's first-night step records the poisoned player and no death (BMR-PUKKA-01)", () => {
@@ -6651,7 +7150,7 @@ function tinkerAndDemon(demon: RoleId): GameState {
   );
 }
 
-test("the Tinker, the Po and the Shabaloth have a step from the second night, and the Po's takes three players after a night it chose no one (BMR-TINKER-01, BMR-PO-01, BMR-SHABALOTH-01)", () => {
+test("the Tinker has a death step on the first night, the Po and the Shabaloth from the second, and the Po's takes three players after a night it chose no one (BMR-TINKER-01, BMR-PO-01, BMR-SHABALOTH-01)", () => {
   const state = tinkerAndDemon("po");
   startNight(state);
   assert.deepEqual(queueRoles(state), [
@@ -6660,7 +7159,12 @@ test("the Tinker, the Po and the Shabaloth have a step from the second night, an
     "sailor",
     "courtier",
     "chambermaid",
+    "tinker",
   ]);
+  const firstTinker = roleStepOf(state, "tinker");
+  assert.equal(firstTinker.order, BMR_NIGHT_FIRST.length, "the Tinker has no printed slot");
+  assert.equal(firstTinker.canKill, true, "the host may mark the Tinker's first-night death");
+  assert.equal(firstTinker.done, false);
   skipRemaining(state);
   endNightToNext(state);
   assert.deepEqual(queueRoles(state), [
@@ -6786,7 +7290,7 @@ test("the Tinker's step changes nothing, and the host's death on it is an abilit
     effects: [],
     log: [
       {
-        id: "log-10-k1000",
+        id: "log-11-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 2",
         kind: "night",
@@ -6873,7 +7377,7 @@ test("the Po's choice of no one is recorded, also when it is poisoned, and a Po 
     effects: [],
     log: [
       {
-        id: "log-10-k1000",
+        id: "log-11-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 2",
         kind: "night",
@@ -6917,7 +7421,7 @@ test("the Po's choice of no one is recorded, also when it is poisoned, and a Po 
     effects: [],
     log: [
       {
-        id: "log-19-k1000",
+        id: "log-20-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 3",
         kind: "night",
@@ -6973,7 +7477,7 @@ test("the Po's choice of no one is recorded, also when it is poisoned, and a Po 
     ],
     log: [
       {
-        id: "log-10-k1000",
+        id: "log-11-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 2",
         kind: "night",
@@ -7023,7 +7527,7 @@ test("the Po's choice of no one is recorded, also when it is poisoned, and a Po 
     ],
     log: [
       {
-        id: "log-19-k1000",
+        id: "log-20-k1000",
         at: "2030-01-01T00:00:01.000Z",
         phase: "Ночь 3",
         kind: "night",
@@ -7033,7 +7537,7 @@ test("the Po's choice of no one is recorded, also when it is poisoned, and a Po 
         secret: true,
       },
       {
-        id: "log-20-k2000",
+        id: "log-21-k2000",
         at: "2030-01-01T00:00:03.000Z",
         phase: "Ночь 3",
         kind: "night",
@@ -7113,7 +7617,7 @@ test("the Po's choice of a player is recorded with its death, and a Po who choos
     effects: [],
     log: [
       {
-        id: "log-10-k1000",
+        id: "log-11-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 2",
         kind: "night",
@@ -7211,7 +7715,7 @@ test("the Po's choice of a player is recorded with its death, and a Po who choos
     ],
     log: [
       {
-        id: "log-10-k1000",
+        id: "log-11-k1000",
         at: "2030-01-01T00:00:01.000Z",
         phase: "Ночь 2",
         kind: "effect",
@@ -7221,7 +7725,7 @@ test("the Po's choice of a player is recorded with its death, and a Po who choos
         secret: true,
       },
       {
-        id: "log-11-k2000",
+        id: "log-12-k2000",
         at: "2030-01-01T00:00:03.000Z",
         phase: "Ночь 2",
         kind: "night",
@@ -7240,6 +7744,57 @@ test("the Po's choice of a player is recorded with its death, and a Po who choos
     used: { poNoOne: false },
     demon: null,
   });
+});
+
+test("a multi-target night step rejects the same player twice (BMR-INNKEEPER-01, BMR-SHABALOTH-01, BMR-PO-01)", () => {
+  const inn = sailorAndInnkeeper();
+  startNight(inn);
+  skipRemaining(inn);
+  endNightToNext(inn);
+  const innkeeper = roleStepOf(inn, "innkeeper");
+  const before = canonicalState(inn);
+  const duplicate = {
+    id: "innkeeper-duplicate",
+    type: "completeNightStep" as const,
+    payload: { key: innkeeper.key, targetIds: ["3", "3"] },
+  };
+  const preview = previewCommand(inn, duplicate) as CommandView;
+  assert.equal(preview.status, "rejected", "a duplicate pair cannot preview as allowed");
+  const rejected = completeStep(inn, innkeeper.key, { targetIds: ["3", "3"] });
+  if (rejected.ok) assert.fail("a duplicate pair was accepted");
+  assert.equal(rejectionCode(rejected), "error.42");
+  assert.deepEqual(canonicalState(inn), before, "a rejected pair changes nothing");
+  const chambermaid = roleStepOf(inn, "chambermaid");
+  const chamberRejected = completeStep(inn, chambermaid.key, { targetIds: ["3", "3"] });
+  if (chamberRejected.ok) assert.fail("a duplicate Chambermaid pair was accepted");
+  assert.equal(rejectionCode(chamberRejected), "error.42");
+
+  const shab = tinkerAndDemon("shabaloth");
+  startNight(shab);
+  skipRemaining(shab);
+  endNightToNext(shab);
+  const shabaloth = roleStepOf(shab, "shabaloth");
+  const shabBefore = canonicalState(shab);
+  const shabRejected = completeStep(shab, shabaloth.key, { targetIds: ["3", "3"] });
+  if (shabRejected.ok) assert.fail("a duplicate Shabaloth pair was accepted");
+  assert.equal(rejectionCode(shabRejected), "error.42");
+  assert.deepEqual(canonicalState(shab), shabBefore, "a rejected Shabaloth pair kills nobody");
+  assert.equal(completeStep(shab, shabaloth.key, { targetIds: ["4", "5"] }).ok, true);
+
+  const po = tinkerAndDemon("po");
+  startNight(po);
+  skipRemaining(po);
+  endNightToNext(po);
+  const first = roleStepOf(po, "po");
+  assert.equal(completeStep(po, first.key, { targetIds: [] }).ok, true, "the Po chooses no one");
+  skipRemaining(po);
+  endNightToNext(po);
+  const third = roleStepOf(po, "po");
+  assert.equal(third.minTargets, 3);
+  const poRejected = completeStep(po, third.key, { targetIds: ["3", "4", "3"] });
+  if (poRejected.ok) assert.fail("a duplicate Po target was accepted");
+  assert.equal(rejectionCode(poRejected), "error.42");
+  assert.equal(completeStep(po, third.key, { targetIds: ["3", "4", "5"] }).ok, true);
 });
 
 test("the Shabaloth records its two players with last night's, and a poisoned or Goon-drunk Shabaloth records nothing (BMR-SHABALOTH-01, BMR-GOON-01)", () => {
@@ -7272,7 +7827,7 @@ test("the Shabaloth records its two players with last night's, and a poisoned or
     effects: [],
     log: [
       {
-        id: "log-10-k1000",
+        id: "log-11-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 2",
         kind: "night",
@@ -7352,7 +7907,7 @@ test("the Shabaloth records its two players with last night's, and a poisoned or
     effects: [],
     log: [
       {
-        id: "log-21-k1000",
+        id: "log-22-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 3",
         kind: "night",
@@ -7427,7 +7982,7 @@ test("the Shabaloth records its two players with last night's, and a poisoned or
     ],
     log: [
       {
-        id: "log-19-k1000",
+        id: "log-20-k1000",
         at: "2030-01-01T00:00:02.000Z",
         phase: "Ночь 3",
         kind: "night",
@@ -7490,7 +8045,7 @@ test("the Shabaloth records its two players with last night's, and a poisoned or
     ],
     log: [
       {
-        id: "log-10-k1000",
+        id: "log-11-k1000",
         at: "2030-01-01T00:00:01.000Z",
         phase: "Ночь 2",
         kind: "effect",
@@ -7500,7 +8055,7 @@ test("the Shabaloth records its two players with last night's, and a poisoned or
         secret: true,
       },
       {
-        id: "log-11-k2000",
+        id: "log-12-k2000",
         at: "2030-01-01T00:00:03.000Z",
         phase: "Ночь 2",
         kind: "night",

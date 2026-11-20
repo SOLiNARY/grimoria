@@ -114,7 +114,12 @@ import {
   buildBmrNightQueue,
   completeBmrStep,
 } from "./bmr.ts";
-import { appendSvConditionalSteps, buildSvNightQueue, completeSvStep } from "./sv.ts";
+import {
+  appendSvConditionalSteps,
+  buildSvNightQueue,
+  completeSvStep,
+  reconcileVigormortisPoison,
+} from "./sv.ts";
 import { minionRetainsAbility } from "./retention.ts";
 import { informationOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
@@ -322,6 +327,7 @@ export function pruneDeadSteps(state: GameState, ports: CommandExecutionContext)
 export function appendConditionalSteps(
   state: GameState,
   ports: CommandExecutionContext = systemPorts,
+  demonChangeCause: "day" | "night" = "night",
 ) {
   if (isBmrScript(state.script)) {
     appendBmrConditionalSteps(state, ports);
@@ -330,6 +336,7 @@ export function appendConditionalSteps(
   }
   if (isSnvScript(state.script)) {
     appendSvConditionalSteps(state);
+    reconcileVigormortisPoison(state);
     pruneDeadSteps(state, ports);
     return;
   }
@@ -359,12 +366,20 @@ export function appendConditionalSteps(
 
   if (state.night.demonChanged && !queue.some((step) => step.system === "demonchange")) {
     const impIndex = queue.findIndex((step) => step.roleId === "imp");
-    const order = impIndex === -1 ? 100 : (queue[impIndex]!.order || 0) + 0.5;
+    const impOrder = impIndex === -1 ? 100 : queue[impIndex]!.order || 0;
+    // Scarlet Woman r3117: a daytime succession is woken on the following
+    // night, before the Imp step the new Demon will act in (the official order
+    // puts Scarlet Woman before Imp). A change at night has already spent the
+    // Demon's action, so it is woken after the Imp step and does not act again.
+    const dayWake = demonChangeCause === "day";
+    const order = dayWake ? impOrder - 0.5 : impOrder + 0.5;
     insertStepByOrder(
       state,
       makeSystemStep(state, order, "demonchange", {
-        note: "Демон сменился. Разбудите нового Демона и покажите жетон Чёрта. Новый Демон не действует этой ночью повторно.",
-        noteKey: "note.demonChanged",
+        note: dayWake
+          ? "Демон сменился. Разбудите нового Демона, покажите жетон «Ты — Демон», затем жетон Чёрта. Новый Демон действует этой ночью."
+          : "Демон сменился. Разбудите нового Демона и покажите жетон Чёрта. Новый Демон не действует этой ночью повторно.",
+        noteKey: dayWake ? "note.demonChangedDay" : "note.demonChanged",
       }),
     );
   }
@@ -490,6 +505,15 @@ export function completeStep(
     if (!playerById(state, id))
       return { ok: false, errorCode: "error.31", error: "Цель не найдена." };
   }
+  // Every step that takes more than one seat requires distinct players. The
+  // printed text says "two/three players" (Innkeeper r3160, Shabaloth r1790,
+  // Po r3104, Barber r1757), and one seat cannot be chosen twice.
+  if (
+    ((step.maxTargets || 0) > 1 || step.targetMode === "two") &&
+    new Set(targets).size !== targets.length
+  ) {
+    return { ok: false, errorCode: "error.42", error: "Выберите разных игроков." };
+  }
   // Bad Moon Rising target text: Sailor r1768 and Devil's Advocate r2594 choose
   // an alive/living player, Chambermaid r2966 chooses 2 alive players (not
   // themself). A registered-dead Zombuul counts as dead for the ability.
@@ -516,11 +540,8 @@ export function completeStep(
       error: "Нельзя выбрать ту же цель, что в прошлую ночь.",
     };
   }
-  if (!step.bmr && !step.sv && step.targetMode === "two") {
-    if (targets.length !== 2)
-      return { ok: false, errorCode: "error.41", error: "Выберите двух разных игроков." };
-    if (targets[0]! === targets[1])
-      return { ok: false, errorCode: "error.42", error: "Нужны два разных игрока." };
+  if (!step.bmr && !step.sv && step.targetMode === "two" && targets.length !== 2) {
+    return { ok: false, errorCode: "error.41", error: "Выберите двух разных игроков." };
   }
 
   if (step.kind === "system") {
@@ -699,13 +720,16 @@ function finishAttackStep(
   // The redirect is a Storyteller decision: it belongs in the secret journal
   // even though this path completes the step itself.
   if (options.redirectId) {
-    recordHostChoice(
-      state,
-      "mayor-redirect",
-      seatName(state, String(options.redirectId)),
-      step.actorId || null,
-      ports,
-    );
+    const redirectId = String(options.redirectId);
+    const mayorTarget =
+      Array.isArray(step.targetIds) &&
+      step.targetIds.some((id) => playerById(state, String(id))?.roleId === "mayor");
+    const answer = attack.deathId
+      ? "Погибает: " + seatName(state, attack.deathId)
+      : redirectId === "none" && mayorTarget
+        ? "Мэр погибает"
+        : attack.reason || "Никто не погибает.";
+    recordHostChoice(state, "mayor-redirect", answer, step.actorId || null, ports);
   }
   if (attack.noDeath) {
     step.note = attack.reason || "";

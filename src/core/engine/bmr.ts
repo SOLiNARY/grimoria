@@ -57,6 +57,7 @@ import {
 } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 import {
+  buildsFirstNightTinker,
   LEGACY_RULESET_VERSION,
   marksAnyDeathOnTinkerStep,
   resurrectsOnAnyStep,
@@ -89,7 +90,6 @@ const RESTORED_ON_RESURRECTION = [
   "moonchildTarget",
   "moonchildTargetEvil",
   "moonchildResolved",
-  "moonchildImpaired",
 ];
 
 // A step that is printed as a choice without a wake: the Gossip's victim is a
@@ -107,6 +107,8 @@ const IMPAIRABLE_DEATH: Record<string, true> = {
   shabaloth: true,
   godfather: true,
   gossip: true,
+  assassin: true,
+  moonchild: true,
 };
 
 // "Alive"/"living" appears in the printed ability of these roles.
@@ -379,6 +381,17 @@ export function buildBmrNightQueue(
     }
     steps.push(step);
   });
+  // Tinker r1782: "You might die at any time." The role never wakes and has no
+  // printed slot, so the host's first-night death step is appended with the
+  // sequence length; older journals keep their old queue and step keys.
+  if (night === 1 && buildsFirstNightTinker(ports.rulesetVersion)) {
+    const declaration = nightStepFor(roleModule("tinker"), 1);
+    const actor =
+      livingPlayers(state).find((player) => effectiveRoleId(player) === "tinker") ?? null;
+    if (declaration && actor) {
+      steps.push(makeBmrStep(state, sequence.length, "tinker", actor, { ...declaration }));
+    }
+  }
   if (night === 1) {
     const demon = demonInfoStep(state, sequence.indexOf("lunatic") + 0.5);
     if (demon) insertStepInto(steps, demon);
@@ -620,14 +633,11 @@ export function completeBmrStep(
   if (role === "moonchild" && actor && targets[0]) {
     const target = playerById(state, targets[0]);
     actor.used.moonchildResolved = true;
-    // The ability is used when the Moonchild learns of the death; the stored
-    // death-time flag decides. The night-time fallback keeps legacy saves.
+    // Moonchild r1783: the night resolution uses the Moonchild's state then,
+    // not the state when they chose. A legacy save may still carry
+    // `used.moonchildImpaired`; it is ignored so it cannot override this.
     const goonException = Boolean(step.goonImpaired && step.goonImpairedOnly);
-    const impairedAtDeath =
-      typeof actor.used.moonchildImpaired === "boolean"
-        ? actor.used.moonchildImpaired
-        : isImpaired(state, actor.id, at) && !goonException;
-    if (impairedAtDeath) {
+    if (isImpaired(state, actor.id, at) && !goonException) {
       setStepNote(
         step,
         "note.abilityFailed",
@@ -1018,6 +1028,26 @@ export function recordBmrOutcome(
       error: "Способность не сработала: игрок отравлен или пьян.",
     };
   }
+  // The Moonchild's outcome path must spare an evil target just as the step
+  // completion does: r1783 kills only when the chosen player is good.
+  if (step.roleId === "moonchild" && deathIds.length) {
+    const chosenEvil = actor?.used.moonchildTargetEvil;
+    const illegal = deathIds.some((id) => {
+      const target = playerById(state, id);
+      const wasGood =
+        typeof chosenEvil === "boolean"
+          ? !chosenEvil
+          : target?.team === "good" || target?.team == null;
+      return !target || !wasGood;
+    });
+    if (illegal) {
+      return {
+        ok: false,
+        errorCode: "error.51",
+        error: "Лунный ребёнок убивает только добрую цель.",
+      };
+    }
+  }
   // The Tinker chooses no one: the host decides whether the Tinker dies.
   const tinkerStep = step.roleId === "tinker";
   // A death must be one of the step's chosen targets and must not exceed the
@@ -1108,19 +1138,16 @@ export function recordBmrOutcome(
     }
     if (step.roleId === "shabaloth") {
       // "A dead player you chose last night": only the immediately preceding
-      // night's chosen targets. The completion already moved this night's
-      // choice into the current record, so prefer the previous one.
+      // night's chosen targets. A blocked night records no choices, so the
+      // previous slot can be older than the current slot; read whichever
+      // record belongs to the immediately preceding night.
       const used = (actor && actor.used) || {};
-      const hasPrevious = used.shabalothPreviousNight != null;
-      const previousNight = Number(
-        hasPrevious ? used.shabalothPreviousNight : used.shabalothTargetsNight,
-      );
-      const stored =
-        hasPrevious && Array.isArray(used.shabalothPreviousTargets)
-          ? used.shabalothPreviousTargets
-          : used.shabalothTargets;
-      const previous = Array.isArray(stored) ? stored.map(String) : [];
-      if (previousNight !== nightAt(state).number - 1 || !previous.includes(String(resurrectId))) {
+      const wantedNight = nightAt(state).number - 1;
+      const previous = [
+        Number(used.shabalothPreviousNight) === wantedNight ? used.shabalothPreviousTargets : null,
+        Number(used.shabalothTargetsNight) === wantedNight ? used.shabalothTargets : null,
+      ].flatMap((targets) => (Array.isArray(targets) ? targets.map(String) : []));
+      if (!previous.includes(String(resurrectId))) {
         return {
           ok: false,
           errorCode: "error.51",

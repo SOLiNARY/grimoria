@@ -5,7 +5,6 @@ import type {
   GameState,
   LogEntry,
   Player,
-  Role,
   RoleId,
 } from "./types.js";
 
@@ -142,6 +141,7 @@ export function createGame(
     herringId: null,
     gossip: null,
     juggler: null,
+    jugglers: {},
     artist: null,
     savant: null,
     abnormal: [],
@@ -315,17 +315,15 @@ export function hasAbility(player: Player | null | undefined, roleId: RoleId): b
   return player.used?.philosopherAbility === roleId;
 }
 
-export function publicRoleView(player: Player, role: Role) {
-  if (!player || !role) return null;
-  return {
-    seat: player.seat,
-    name: player.name,
-    role: role.name,
-    team: role.team === "minion" || role.team === "demon" ? "evil" : "good",
-    teamLabel: role.team,
-    ability: role.ability || "",
-    image: role.image,
-  };
+/**
+ * True when the ability really works for this player: their printed character
+ * or a good character the Philosopher borrowed. A drunk's shown character does
+ * not qualify, because the Drunk's ability does nothing (Drunk r3165). Use this
+ * for a hidden consequence the Storyteller records, not for a public attempt.
+ */
+export function hasTrueAbility(player: Player | null | undefined, roleId: RoleId): boolean {
+  if (!player) return false;
+  return player.roleId === roleId || player.used?.philosopherAbility === roleId;
 }
 
 export function publicGameView(state: GameState) {

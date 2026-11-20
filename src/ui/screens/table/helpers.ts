@@ -2,7 +2,8 @@
 // they take the state and the two catalog lookups the screen already has.
 import type { PreviewEffect, PreviewOutcome, PreviewResult } from "../../ports.ts";
 import {
-  effectiveRoleId,
+  hasAbility,
+  hasTrueAbility,
   livingPlayers,
   orderedPlayers,
   playerById,
@@ -202,6 +203,33 @@ export function rejectionText(rejection: Rejection | null, t: Translate): string
 }
 
 /**
+ * Whether the host may mark the step's deaths. The Pit-Hag gains that control
+ * only when the drafted character is a not-in-play Demon (Pit-Hag r2998); the
+ * completion sets `canKill` too late for the one-shot console payload, so the
+ * draft is the affordance and the engine still validates the outcome.
+ */
+export function canMarkStepDeaths(
+  state: GameState,
+  stepRole: string | null | undefined,
+  draftedRole: string | null | undefined,
+  canKill: boolean,
+): boolean {
+  if (canKill) return true;
+  if (stepRole !== "pithag" || !draftedRole || roleTeam(draftedRole) !== "demon") return false;
+  return !orderedPlayers(state).some(
+    (player) => hasAbility(player, draftedRole) || player.used?.philosopherAbility === draftedRole,
+  );
+}
+
+/**
+ * The role a player or step card names: the role the player is shown wins over
+ * the real role, so a Drunk never sees the Drunk card.
+ */
+export function cardRoleId(player: Player | null | undefined): string | null {
+  return player?.shownRoleId || player?.roleId || null;
+}
+
+/**
  * The text of the private information card. An impaired actor shows the answer
  * the host gave, including its wording; a healthy actor shows the computed
  * information.
@@ -303,6 +331,7 @@ type DayHelpForm =
   | "gossip"
   | "juggler"
   | "moonchild"
+  | "klutz"
   | "mastermind";
 
 /**
@@ -316,10 +345,10 @@ export function dayHelpForms(state: GameState): DayHelpForm[] {
   const open = !state.day.execution && !state.day.ended;
   const scriptRoles = Array.isArray(state.script?.roles) ? state.script.roles : [];
   if (open) {
-    if (players.some((p) => p.roleId === "virgin" && p.alive && !p.used.virgin)) {
+    if (players.some((p) => hasTrueAbility(p, "virgin") && p.alive && !p.used.virgin)) {
       forms.push("virgin");
     }
-    if (players.some((p) => effectiveRoleId(p) === "slayer" && p.alive && !p.used.slayer)) {
+    if (players.some((p) => hasAbility(p, "slayer") && p.alive && !p.used.slayer)) {
       forms.push("slayer");
     }
     const artist = artistProjection(state);
@@ -331,7 +360,7 @@ export function dayHelpForms(state: GameState): DayHelpForm[] {
       : null;
     if (gossip && !(state.gossip && state.gossip.day === state.day.number)) forms.push("gossip");
     const juggler = scriptRoles.includes("juggler")
-      ? players.find((player) => player.roleId === "juggler" && player.alive)
+      ? players.find((player) => hasAbility(player, "juggler") && player.alive)
       : null;
     const storedDay =
       state.juggler && typeof state.juggler.day === "number" ? state.juggler.day : null;
@@ -343,11 +372,28 @@ export function dayHelpForms(state: GameState): DayHelpForm[] {
     if (juggler && !state.winner && !juggler.used.juggler && guessingDay === state.day.number) {
       forms.push("juggler");
     }
-    const moonchild = players.find((player) => player.roleId === "moonchild" && !player.alive);
+    const moonchild = players.find(
+      (player) => hasTrueAbility(player, "moonchild") && !player.alive,
+    );
     if (moonchild && !moonchild.used.moonchildTarget) forms.push("moonchild");
   }
+  // The Klutz's choice follows the death, and an execution ends the day, so
+  // this form must not depend on the day still being open.
+  const klutz = players.find(
+    (player) => hasAbility(player, "klutz") && !player.alive && !player.used.klutz,
+  );
+  if (klutz) forms.push("klutz");
   if (state.mastermind?.active) forms.push("mastermind");
   return forms;
+}
+
+/**
+ * The identity of the current day for the execution drafts. A new day, a new
+ * night or a phase change moves it, so the table screen clears the execution
+ * target and the survival flag instead of carrying them into another day.
+ */
+export function executionDraftKey(state: GameState): string {
+  return state.phase + ":" + state.day.number + ":" + state.night.number;
 }
 
 /** How many role forms the day-help sheet holds; the dock shows it. */
@@ -681,6 +727,8 @@ export function applyGiven(
 
 export function defaultCorrectionValue(kind: string, player: Player | null | undefined): string {
   if (kind === "role") return (player && player.roleId) || RULE_ROLES[0] || "";
+  if (kind === "shown")
+    return (player && (player.shownRoleId || player.roleId)) || RULE_ROLES[0] || "";
   if (kind === "alive") return player && player.alive ? "dead" : "alive";
   return "";
 }

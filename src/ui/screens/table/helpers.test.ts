@@ -21,11 +21,14 @@ import {
   applyGiven,
   blockerActionText,
   blockerText,
+  canMarkStepDeaths,
+  cardRoleId,
   consequencesOf,
   dayHelpFormCount,
   dayHelpForms,
   defaultCorrectionValue,
   displayName,
+  executionDraftKey,
   givenLabelKey,
   infoText,
   jugglerGuessingDay,
@@ -141,6 +144,48 @@ test("the day-help count names the role forms the sheet can show", () => {
   assert.deepEqual(dayHelpForms(game), []);
   game.day.ended = true;
   assert.equal(dayHelpFormCount(game), 0);
+});
+
+test("the day-help sheet offers a borrowed ability and hides a Drunk's shown one (SNV-PHILOSOPHER-02)", () => {
+  const game = createGame(7);
+  game.phase = "day";
+  game.players["1"].roleId = "philosopher";
+  game.players["1"].used.philosopherAbility = "slayer";
+  assert.deepEqual(dayHelpForms(game), ["slayer"], "a borrowed Slayer is offered");
+  game.players["1"].used.philosopherAbility = "virgin";
+  assert.deepEqual(dayHelpForms(game), ["virgin"], "a borrowed Virgin is offered");
+  game.players["1"].roleId = "drunk";
+  game.players["1"].used = {};
+  game.players["1"].shownRoleId = "virgin";
+  assert.deepEqual(dayHelpForms(game), [], "a Drunk's shown Virgin does not act");
+  game.players["1"].shownRoleId = "slayer";
+  assert.deepEqual(dayHelpForms(game), ["slayer"], "the Drunk may still publicly attempt");
+});
+
+test("the day-help sheet offers the Klutz choice after an execution", () => {
+  const game = createGame(7);
+  game.phase = "day";
+  game.players["1"].roleId = "klutz";
+  game.players["1"].alive = false;
+  game.day.ended = true;
+  assert.ok(dayHelpForms(game).includes("klutz"), "a death-triggered choice survives the day end");
+  game.players["1"].used.klutz = true;
+  assert.equal(dayHelpForms(game).includes("klutz"), false, "a spent Klutz offers no form");
+});
+
+test("the execution draft key moves with the day and the phase", () => {
+  const game = createGame(5);
+  game.phase = "day";
+  game.day.number = 1;
+  game.night.number = 1;
+  const first = executionDraftKey(game);
+  game.day.number = 2;
+  assert.notEqual(executionDraftKey(game), first, "a new day resets the execution drafts");
+  game.phase = "night";
+  game.night.number = 2;
+  assert.notEqual(executionDraftKey(game), first, "a phase change resets them too");
+  const copy = structuredClone(game);
+  assert.equal(executionDraftKey(copy), executionDraftKey(game), "unrelated state keeps them");
 });
 
 test("timerText formats the remaining time and clamps at zero", () => {
@@ -347,6 +392,27 @@ test("an impaired actor card shows the chosen answer and its wording", () => {
     shownCardText(game, step, { kind: "number", value: 1 }, undefined, false, roles, t),
     "numberResult:1",
   );
+});
+
+test("the Pit-Hag death control appears only for a not-in-play Demon draft (SNV-PITHAG-01)", () => {
+  const game = createGame(5);
+  game.players["1"].roleId = "clockmaker";
+  game.players["2"].roleId = "fanggu";
+  assert.equal(canMarkStepDeaths(game, "pithag", null, false), false);
+  assert.equal(canMarkStepDeaths(game, "pithag", "artist", false), false);
+  assert.equal(
+    canMarkStepDeaths(game, "pithag", "fanggu", false),
+    false,
+    "a Demon in play creates nothing",
+  );
+  assert.equal(canMarkStepDeaths(game, "pithag", "nodashii", false), true);
+  assert.equal(canMarkStepDeaths(game, "imp", null, true), true);
+});
+
+test("a player card names the shown role, not the real role", () => {
+  assert.equal(cardRoleId(player({ roleId: "drunk", shownRoleId: "washerwoman" })), "washerwoman");
+  assert.equal(cardRoleId(player({ roleId: "drunk", shownRoleId: "" })), "drunk");
+  assert.equal(cardRoleId(null), null);
 });
 
 test("the seat picker collects every target a step allows", () => {

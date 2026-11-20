@@ -20,7 +20,8 @@ import {
 } from "../../src/core/engine/index.ts";
 import { lifecycleGuard } from "../../src/core/engine/lifecycle.ts";
 import { seatBadges } from "../../src/ui/screens/table/ring.ts";
-import { infoRoleChoices } from "../../src/ui/screens/secrets-options.ts";
+import { infoRoleChoices, obligationDone } from "../../src/ui/screens/secrets-options.ts";
+import { executionDraftKey } from "../../src/ui/screens/table/helpers.ts";
 import type { GameState } from "../../src/core/model/types.ts";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -128,9 +129,21 @@ test("F-007 a step change clears the shared information template", () => {
 });
 
 test("F-008 a day change clears the execution target and survives flag", () => {
-  const text = read("src/ui/screens/table/index.tsx");
-  assert.match(text, /state\.day\.number/);
-  assert.match(text, /setExecuteSurvives\(false\)/);
+  const game = createGame(5);
+  game.phase = "day";
+  game.day.number = 1;
+  game.night.number = 1;
+  const first = executionDraftKey(game);
+  game.day.number = 2;
+  assert.notEqual(
+    executionDraftKey(game),
+    first,
+    "the table screen resets the execution drafts on a new day",
+  );
+  game.day.number = 1;
+  game.phase = "night";
+  game.night.number = 2;
+  assert.notEqual(executionDraftKey(game), first, "a phase change resets them too");
 });
 
 test("F-009 a registered-dead Zombuul cannot nominate and spends its vote token", () => {
@@ -185,23 +198,44 @@ test("F-010 both drunk and poisoned are true display states", () => {
 });
 
 test("F-011 the /secrets done mark follows the engine's secrets errors", () => {
-  assert.match(read("src/ui/screens/secrets.tsx"), /infoDone[\s\S]*secretsErrors/);
+  assert.equal(obligationDone("washerwoman", []), true, "no problem, the row is done");
+  assert.equal(
+    obligationDone("washerwoman", [{ code: "info-pair-washerwoman" }]),
+    false,
+    "a reported pair problem clears the mark",
+  );
+  assert.equal(obligationDone("librarian", [{ code: "librarian-zero" }]), false);
+  assert.equal(obligationDone("herring", [{ code: "herring-team" }]), false);
 });
 
 test("F-012 a registering Spy does not make every not-in-play role legal without the pair", () => {
-  const options = infoRoleChoices({
+  const held = ["spy", "chef"];
+  const withoutPair = infoRoleChoices({
     team: "townsfolk",
     forDrunk: false,
-    held: ["spy", "chef"],
+    held,
     scriptRoles: ["spy", "chef", "empath", "soldier"],
-    registering: true,
+    pairRoles: [],
   });
-  assert.equal(options.includes("empath"), false);
+  assert.equal(withoutPair.includes("empath"), false, "the Spy outside the pair registers nothing");
+  const withPair = infoRoleChoices({
+    team: "townsfolk",
+    forDrunk: false,
+    held,
+    scriptRoles: ["spy", "chef", "empath", "soldier"],
+    pairRoles: ["spy", "1"],
+  });
+  assert.ok(withPair.includes("empath"), "the Spy in the pair offers the not-in-play role");
 });
 
 test("F-013 the spec allows a dead player to be executed", () => {
   const text = read("openspec/specs/game/day-and-win/spec.md");
   assert.equal(text.includes("executes an already dead player"), false);
+  assert.match(
+    text,
+    /execution is recorded, the day is spent, and no new death occurs/,
+    "the requirement states the recorded execution with no new death",
+  );
 });
 
 test("F-014 the correction form exposes effect and shown changes", () => {
