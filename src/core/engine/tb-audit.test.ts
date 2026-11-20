@@ -37,6 +37,8 @@ import {
   createRuntime,
 } from "./index.ts";
 import type { GameState, NightStep, RoleId } from "../model/types.ts";
+import { systemPorts } from "../model/ports.ts";
+import { ANY_STEP_RESURRECTS_RULESET_VERSION } from "./command-versions.ts";
 
 // Independent Trouble Brewing audit fixtures. These tests derive their
 // expected outcome from the pinned official text, not from the engine's
@@ -94,7 +96,17 @@ function beginNight(state: GameState): GameState {
 }
 
 function skipEverything(state: GameState): void {
-  while (currentStep(state)) skipStep(state, currentStep(state)!.key, "audit");
+  while (currentStep(state)) {
+    // Fixture setup, not a host action: skip as the recorded ruleset did.
+    const step = currentStep(state)!;
+    const skipped = skipStep(state, step.key, "audit").ok
+      ? { ok: true }
+      : skipStep(state, step.key, "audit", {
+          ...systemPorts,
+          rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+        });
+    assert.equal(skipped.ok, true, step.key);
+  }
   const result = endNight(state);
   assert.equal(result.ok, true, JSON.stringify(result));
 }
@@ -336,6 +348,22 @@ test("a Slayer kill on the real Demon wins for good unless an heir exists (TB-SL
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.hit, true);
   assert.equal(state.winner?.team, "good");
+});
+
+test("a Drunk shown the Slayer can make one apparent shot without killing (TB-DRUNK-01, TB-SLAYER-01)", () => {
+  const state = auditGame(
+    { 1: "drunk", 2: "chef", 3: "empath", 4: "soldier", 5: "poisoner", 6: "imp" },
+    { drunkShownId: "slayer" },
+  );
+  nightOneToDay(state);
+
+  assert.equal(useSlayer(state, "1", "missing").errorCode, "error.31");
+  const result = useSlayer(state, "1", "6");
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.hit, false);
+  assert.equal(state.players["1"]!.used.slayer, true);
+  assert.equal(state.players["6"]!.alive, true);
+  assert.equal(useSlayer(state, "1", "6").errorCode, "error.30");
 });
 
 test("a poisoned Slayer spends the once-per-game ability without killing (TB-SLAYER-01)", () => {

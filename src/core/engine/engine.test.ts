@@ -80,6 +80,7 @@ import {
   ANY_ROLE_ZERO_RULESET_VERSION,
   ANY_STEP_RESURRECTS_RULESET_VERSION,
   LEGACY_RULESET_VERSION,
+  MANDATORY_STEP_SKIP_RULESET_VERSION,
   OPEN_TINKER_STEP_RULESET_VERSION,
   REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
@@ -234,8 +235,15 @@ function completeRole(state: GameState, roleId: string, options: StepOptions = {
 }
 
 function skipNight(state: GameState): void {
-  while (currentStep(state)) {
-    skipStep(state, currentStep(state)!.key, "test");
+  // A fixture advances the night without playing the abilities. A step the
+  // engine allows is skipped; a mandatory living step is marked directly,
+  // because this helper is setup, not a host action under test.
+  for (const step of state.night.queue) {
+    if (step.done || step.skipped) continue;
+    if (!skipStep(state, step.key, "test").ok) {
+      step.done = true;
+      step.skipped = true;
+    }
   }
   const result = endNight(state);
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -1828,6 +1836,7 @@ test("the Imp's attack kills the chosen player and writes the attack's own step 
       at: "2030-01-01T00:00:01.000Z",
       impaired: false,
       livingBefore: 7,
+      attackerId: "7",
     },
   ]);
   // The attack step keeps its own record: the outcome is the step result and
@@ -5998,23 +6007,23 @@ for (const scenario of [
     assert.deepEqual(plain(step), { ...built, ...COMPLETED, given, impaired: true });
     assert.deepEqual(plain(state.log.slice(logged)), [
       firstNightStepLine(scenario.roleId, scenario.title, logged),
-      falseInformationLine("4 / 5", scenario.actorId, logged),
+      falseInformationLine(scenario.answer + ": P4 / P5", scenario.actorId, logged),
     ]);
     assert.deepEqual(draws, ["clock", "id:5", "clock", "id:5", "clock"]);
   });
 }
 
-test("a healthy one-of-two step stores what the host sends and writes no choice line (TB-WASHERWOMAN-01)", () => {
+test("a healthy one-of-two step keeps the prepared answer and writes no choice line (TB-WASHERWOMAN-01)", () => {
   const state = preparedNight();
   const step = roleStep(state, "washerwoman");
   const logged = state.log.length;
   const { ports, draws } = recordingPorts();
-  const given = { kind: "one-of-two", roleId: "imp", pair: ["2", "3"] };
+  const given = { kind: "one-of-two", roleId: "chef", pair: ["6", "5"] };
 
   const result = completeStep(state, step.key, { given }, ports);
 
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.deepEqual(plain(step.given), given, "nothing is offered, so nothing is checked");
+  assert.deepEqual(plain(step.given), given, "the sent answer is the prepared one");
   assert.equal(step.impaired, false);
   assert.deepEqual(plain(state.log.slice(logged)), [
     firstNightStepLine("washerwoman", "Прачка", logged),
@@ -6107,7 +6116,7 @@ test("a poisoned Librarian with a prepared zero is offered every Outsider and th
   assert.deepEqual(plain(otherStep.given), outsider);
   assert.deepEqual(plain(other.log.slice(otherLogged)), [
     firstNightStepLine("librarian", "Библиотекарь", otherLogged),
-    falseInformationLine("4 / 5", "3", otherLogged),
+    falseInformationLine("saint: P4 / P5", "3", otherLogged),
   ]);
 });
 
@@ -6143,7 +6152,7 @@ for (const scenario of [
     assert.deepEqual(plain(step), { ...built, ...COMPLETED, given, impaired: true });
     assert.deepEqual(plain(state.log.slice(logged)), [
       firstNightStepLine(scenario.roleId, scenario.title, logged),
-      falseInformationLine("2 / 3", "1", logged),
+      falseInformationLine(scenario.answer + ": P2 / P3", "1", logged),
     ]);
     assert.deepEqual(draws, ["clock", "id:5", "clock", "id:5", "clock"]);
   });
@@ -6183,7 +6192,7 @@ for (const scenario of [
     assert.deepEqual(plain(step), { ...built, ...COMPLETED, given, impaired: true });
     assert.deepEqual(plain(state.log.slice(logged)), [
       firstNightStepLine(scenario.roleId, scenario.title, logged),
-      falseInformationLine("4 / 5", "1", logged),
+      falseInformationLine(scenario.answer + ": P4 / P5", "1", logged),
     ]);
 
     // A record that is there but names no character is not prepared.
@@ -6528,7 +6537,7 @@ for (const scenario of [
     info: falsePair("chef", ["6", "5"], TOWNSFOLK, 1) as Record<string, unknown>,
     refused: { kind: "one-of-two", roleId: "baron", pair: ["6", "5"] } as Record<string, unknown>,
     answer: { kind: "one-of-two", roleId: "slayer", pair: ["6", "5"] } as Record<string, unknown>,
-    detail: "6 / 5",
+    detail: "slayer: P6 / P5",
   },
   {
     name: "a poisoned Librarian with a prepared zero",
@@ -6559,7 +6568,7 @@ for (const scenario of [
       string,
       unknown
     >,
-    detail: "2 / 3",
+    detail: "scarletwoman: P2 / P3",
   },
 ]) {
   test(`${scenario.name} is a host choice on the command path and the answer completes the step (${scenario.rule}, SYS-EFFECTS-01)`, () => {
@@ -6606,6 +6615,120 @@ for (const scenario of [
     assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
   });
 }
+
+test("a poisoned Washerwoman's answer is a Townsfolk and two different players (TB-WASHERWOMAN-01, SYS-EFFECTS-01)", () => {
+  const state = preparedNight();
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const key = roleStep(state, "washerwoman").key;
+  const before = canonicalState(state);
+  const journaled = state.journal.entries.length;
+  const send = (id: string, given?: Record<string, unknown>) =>
+    applyCommand(
+      state,
+      {
+        id,
+        type: "completeNightStep",
+        payload: given ? { key, given } : { key },
+        at: "2030-01-01T00:00:00.000Z",
+      },
+      runtime,
+    );
+
+  for (const [label, pair] of [
+    ["the same player twice", ["6", "6"]],
+    ["an unknown player", ["6", "99"]],
+    ["one player", ["6"]],
+  ] as const) {
+    const refused = send(label, { kind: "one-of-two", roleId: "monk", pair });
+    assert.equal(
+      refused.status,
+      "requires-storyteller-choice",
+      label + ": " + JSON.stringify(refused),
+    );
+    assert.equal("errorCode" in refused ? refused.errorCode : undefined, "error.66", label);
+  }
+  const noPlayers = send("no players", { kind: "one-of-two", roleId: "monk" });
+  assert.equal(noPlayers.status, "requires-storyteller-choice", JSON.stringify(noPlayers));
+  assert.equal("errorCode" in noPlayers ? noPlayers.errorCode : undefined, "error.66");
+  assert.deepEqual(
+    canonicalState(state),
+    before,
+    "an incomplete or malformed answer changes nothing",
+  );
+  assert.equal(state.journal.entries.length, journaled, "and writes no journal entry");
+
+  const answered = send("answered", {
+    kind: "one-of-two",
+    roleId: "monk",
+    pair: ["6", "5"],
+    answerText: "P6 или P5 — Монах.",
+  });
+  assert.equal(answered.status, "allowed", JSON.stringify(answered));
+  const step = state.night.queue.find((candidate) => candidate.roleId === "washerwoman")!;
+  assert.deepEqual(plain(step.given), {
+    kind: "one-of-two",
+    roleId: "monk",
+    pair: ["6", "5"],
+    answerText: "P6 или P5 — Монах.",
+  });
+  assert.equal(state.log.at(-1)!.case, "false-information");
+  assert.equal(state.log.at(-1)!.detail, "P6 или P5 — Монах.", "the host's wording is shown");
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
+
+test("a healthy Washerwoman refuses an answer that is not the prepared one (TB-WASHERWOMAN-01)", () => {
+  const state = preparedNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const key = roleStep(state, "washerwoman").key;
+  const before = canonicalState(state);
+  const send = (id: string, given: Record<string, unknown>) =>
+    applyCommand(
+      state,
+      { id, type: "completeNightStep", payload: { key, given }, at: "2030-01-01T00:00:00.000Z" },
+      runtime,
+    );
+
+  const tampered = send("tampered", { kind: "one-of-two", roleId: "imp", pair: ["6", "5"] });
+  assert.equal(tampered.status, "requires-storyteller-choice", JSON.stringify(tampered));
+  assert.equal("errorCode" in tampered ? tampered.errorCode : undefined, "error.66");
+  assert.deepEqual(canonicalState(state), before);
+
+  const prepared = send("prepared", { kind: "one-of-two", roleId: "chef", pair: ["6", "5"] });
+  assert.equal(prepared.status, "allowed", JSON.stringify(prepared));
+  const step = state.night.queue.find((candidate) => candidate.roleId === "washerwoman")!;
+  assert.equal(step.given!.roleId, "chef");
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
+
+test("a journal recorded before the full one-of-two check replays a different healthy answer (TB-WASHERWOMAN-01)", () => {
+  const state = preparedNight();
+  const runtime = createRuntime({ now: () => new Date("2030-01-01T00:00:00.000Z") });
+  const key = roleStep(state, "washerwoman").key;
+  const before = applyCommand(
+    state,
+    {
+      id: "before-the-full-check",
+      type: "completeNightStep",
+      payload: { key, given: { kind: "one-of-two", roleId: "imp", pair: ["2", "3"] } },
+      at: "2030-01-01T00:00:00.000Z",
+      rulesetVersion: MANDATORY_STEP_SKIP_RULESET_VERSION,
+    },
+    runtime,
+  );
+  assert.equal(before.status, "allowed", JSON.stringify(before));
+  const step = state.night.queue.find((candidate) => candidate.roleId === "washerwoman")!;
+  assert.equal(step.given!.roleId, "imp", "the old check accepted the different answer");
+  assert.deepEqual(step.given!.pair, ["2", "3"]);
+
+  const replayed = replay(state.journal, runtime);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(state));
+});
 
 // A module whose answer is the prepared one and that names its own characters
 // as possible. The tests below use it, so they show what the engine takes
@@ -7591,6 +7714,50 @@ test("a journal recorded while the new Demon was woken twice replays and undoes 
   assert.deepEqual(wakeSteps(atChoice.state), [], "the recorded choice queued nothing");
 });
 
+test("a journal recorded during a mid-game seat reorder replays and keeps its order (SYS-LIFECYCLE-02)", () => {
+  // Generated with applyCommand at c75e381: a 7-player Trouble Brewing game
+  // reorders the seats on night 1 and restores them on day 1. Before #328 the
+  // engine accepted both commands.
+  const imported = importGame(
+    readFileSync(new URL("./fixtures/legacy-seat-order-game.json", import.meta.url), "utf8"),
+  );
+  assert.equal(imported.ok, true, JSON.stringify(imported));
+  if (!imported.ok) return;
+  const saved = imported.state;
+  assert.equal(saved.phase, "day");
+  const seatEntries = saved.journal.entries.filter((entry) => entry.type === "setOrder");
+  assert.equal(seatEntries.length, 2, "the journal holds the night and day reorders");
+  assert.deepEqual(
+    [...new Set(seatEntries.map((entry) => entry.rulesetVersion))],
+    [MANDATORY_STEP_SKIP_RULESET_VERSION],
+  );
+
+  const replayed = replay(saved.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(saved));
+
+  // The night reorder is reachable before the day one, so undo keeps it too.
+  const entries = saved.journal.entries;
+  const dayEntry = entries.findLastIndex((entry) => entry.type === "setOrder");
+  const night = replay({ ...saved.journal, entries: entries.slice(0, dayEntry) });
+  assert.equal(night.ok, true, JSON.stringify(night));
+  if (!night.ok) return;
+  assert.deepEqual(night.state.order, saved.order.slice().reverse());
+  assert.equal(night.state.phase, "day");
+
+  // A command sent now is held to the fixed circle.
+  const now = structuredClone(saved);
+  const result = applyCommand(now, {
+    id: "seat-order-now",
+    type: "setOrder",
+    payload: { order: saved.order.slice().reverse() },
+  });
+  assert.equal(result.status, "rejected");
+  assert.equal(result.errorCode, "error.47");
+  assert.deepEqual(now.order, saved.order);
+});
+
 test("Scarlet Woman does not inherit below the threshold", () => {
   const state = make({
     1: "chef",
@@ -8488,6 +8655,21 @@ test("a Butler vote counts normally when the master votes too", () => {
   assert.equal(nomination.count, 2);
   assert.deepEqual(nomination.votes, ["1", "2"]);
   assert.equal(nomination.butlerWarning.length, 0);
+});
+
+test("a living Imp's mandatory attack cannot be skipped and the state does not move (TB-IMP-01)", () => {
+  const state = attackNight();
+  const imp = roleStep(state, "imp");
+  const before = canonicalState(state);
+  const logged = state.log.length;
+  const skipped = skipStep(state, imp.key, "host pressed skip");
+  assert.equal(skipped.ok, false, "the engine refuses the skip");
+  assert.equal(skipped.errorCode, "error.80");
+  assert.equal(imp.done, false, "the step stays open");
+  assert.equal(imp.skipped, false);
+  assert.equal(state.log.length, logged, "the journal does not move");
+  assert.deepEqual(canonicalState(state), before, "the state does not move");
+  assert.equal(completeStep(state, imp.key, { targetIds: ["3"] }).ok, true, "the attack resolves");
 });
 
 test("a player killed before their night wake is skipped (SYS-NIGHT-03)", () => {
@@ -9746,6 +9928,16 @@ test("the Pacifist survival flag is legal only for a good target with a sober Pa
   const goodResult = executeByDecision(good, "2", { survives: true });
   assert.equal(goodResult.ok, true, JSON.stringify(goodResult));
   assert.equal(good.players["2"].alive, true);
+  const survival = good.log.find((entry) => entry.case === "pacifist-survival");
+  assert.ok(survival, "the survival is a recorded host choice");
+  assert.equal(survival.secret, true, "the reason stays secret");
+  assert.equal(survival.playerId, "2");
+  assert.ok(String(survival.detail).includes("P2"), "the line names the spared player");
+  assert.equal(
+    good.log.some((entry) => entry.kind === "execution" && entry.consequence === "prevented"),
+    true,
+    "the execution line still records that no death happened",
+  );
 
   const poisoned = dayState();
   poisoned.effects.push({

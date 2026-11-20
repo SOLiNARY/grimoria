@@ -39,7 +39,10 @@ export function SidePanel({ view, className = "" }: { view: TableView; className
                   ? ("death" as const)
                   : ("other" as const);
           const time = entry.at
-            ? new Date(entry.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            ? new Date(entry.at).toLocaleTimeString(ports.locale.current(), {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
             : "";
           // A step line carries the catalog key of its note, its role and its
           // night; the Russian strings stay for lines written before them.
@@ -67,6 +70,26 @@ export function SidePanel({ view, className = "" }: { view: TableView; className
                   ? "ui.logDeadVoteRestored"
                   : null;
           const votePlayer = entry.playerId ? playerById(state, entry.playerId) : null;
+          const choiceKey = entry.case ? "hostChoice." + String(entry.case) : null;
+          const choiceTitle = choiceKey ? t(choiceKey) : null;
+          // A role pair is stored as ids; the journal names the roles in the
+          // console language. A player pair already holds seat names. A
+          // one-of-two answer starts with the character id and then its two
+          // players, so the journal shows the answer the host gave.
+          const detailText = String(detail);
+          const colon = detailText.indexOf(": ");
+          const rolePrefix = colon > 0 ? detailText.slice(0, colon) : "";
+          const shownDetail =
+            entry.case === "information-pair"
+              ? detailText
+                  .split(" / ")
+                  .map((part) =>
+                    ports.roles.byId(part) ? roleNameOf(part, ports.roles.byId) : part,
+                  )
+                  .join(" / ")
+              : entry.case === "false-information" && rolePrefix && ports.roles.byId(rolePrefix)
+                ? roleNameOf(rolePrefix, ports.roles.byId) + detailText.slice(colon)
+                : detail;
           return {
             title: voteLogKey
               ? t(voteLogKey, {
@@ -75,8 +98,10 @@ export function SidePanel({ view, className = "" }: { view: TableView; className
                 })
               : typeof entry.roleId === "string"
                 ? roleNameOf(entry.roleId, ports.roles.byId)
-                : entry.title,
-            detail: `${phase}${detail && !voteLogKey ? " · " + detail : ""}`,
+                : choiceTitle && choiceKey && choiceTitle !== choiceKey
+                  ? choiceTitle
+                  : entry.title,
+            detail: `${phase}${shownDetail && !voteLogKey ? " · " + shownDetail : ""}`,
             ...(time ? { time } : {}),
             scope,
             ...(scope === "death" ? { tone: "danger" as const } : {}),
@@ -157,7 +182,9 @@ export function QueuePanel({ view }: { view: TableView }) {
       <span className="label">{t("queue")}</span>
       <div className="flex items-baseline gap-2">
         <b className="font-role text-[40px] leading-none tabular-nums text-amber">{done}</b>
-        <span className="text-[10px] uppercase tracking-[.14em] text-muted">из {total} ходов</span>
+        <span className="text-[12px] uppercase tracking-[.14em] text-muted">
+          {t("ui.queueOf", { total })}
+        </span>
       </div>
       <div className="flex gap-[3px]" aria-hidden="true">
         {Array.from({ length: segments }, (_, index) => (
@@ -167,8 +194,8 @@ export function QueuePanel({ view }: { view: TableView }) {
           />
         ))}
       </div>
-      <p className={`${MUTED} !text-[10px]`}>
-        {next ? `Далее: ${next}.` : total ? t("ui.done") : t("noWake")}
+      <p className={`${MUTED} !text-[12px]`}>
+        {next ? t("ui.queueNext", { names: next }) : total ? t("ui.done") : t("noWake")}
       </p>
       <button
         className="btn min-h-[38px] w-full !justify-center max-[900px]:min-h-11"
@@ -177,7 +204,7 @@ export function QueuePanel({ view }: { view: TableView }) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        {open ? "Скрыть порядок" : "Показать порядок"}
+        {open ? t("ui.hideOrder") : t("ui.showOrder")}
       </button>
       {open ? (
         <ol className="mt-1 grid list-none gap-[3px] p-0">

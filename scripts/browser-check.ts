@@ -43,8 +43,13 @@ const focusedChecks: Record<string, () => Promise<void>> = {
   "role-corrections": currentScriptRoleCorrections,
   "madness-execution": madnessExecutionFromTable,
   "player-voting": playerBubbleVoting,
+  "player-card": playerCardHasNoCountdown,
+  "seat-lock": seatOrderIsFixedAfterStart,
+  "drunk-slayer": drunkSlayerFromTable,
   "lunatic-setup": lunaticSetupControls,
+  "verification-contracts": verificationContracts,
   "setup-zero": setupZeroIsTheLibrariansAlone,
+  washerwoman: washerwomanFalseInformationCard,
   "demon-wake": newDemonWakesOnce,
   "pukka-goon": pukkaChoosesGoonWhileSelfPoisoned,
   "mayor-redirect": mayorRedirectIsAsked,
@@ -54,6 +59,9 @@ const focusedChecks: Record<string, () => Promise<void>> = {
   "tinker-night": tinkerNightDeathNeedsTheAbility,
   "night-resurrection": nightResurrectionNeedsTheAbility,
   "notes-4000": notesInputStaysCompact,
+  "step-action": stepActionOpensReadyStep,
+  "mandatory-skip": mandatoryStepHasNoSkip,
+  "execute-stale": executionConfirmRejectsStaleSelection,
 };
 if (focusedName && !focusedChecks[focusedName]) {
   throw new Error("Unknown browser check: " + focusedName);
@@ -136,6 +144,17 @@ await context.addInitScript(() => {
   // Test-mode entry: the page resolves this specifier at runtime, so the
   // harness never bundles it.
   window.PG_MODULES = () => import(String("/pocket/test-entry.js"));
+  // Fixtures advance the night without playing an ability. A permitted skip is
+  // the engine's; a mandatory living step is marked directly, because the host
+  // rule is not what the fixture exercises.
+  window.fixtureSkip = (engine, game, key, reason = "browser check") => {
+    const step = game.night.queue.find((entry) => entry.key === key);
+    if (!step || step.done || step.skipped) return false;
+    if (engine.skipStep(game, key, reason).ok) return true;
+    step.done = true;
+    step.skipped = true;
+    return true;
+  };
 });
 const page = await context.newPage();
 const errors: string[] = [];
@@ -274,6 +293,192 @@ async function openTableMenu(target: Page = page) {
   await target.locator('[data-act="menu"]:visible').click();
   await target.waitForSelector("[data-menu]");
 }
+// Execution is a two-step control: arm from the dock, confirm in the sheet.
+async function executeNow(target: Page = page) {
+  await target.locator('[data-act="execute"]').click();
+  await target.waitForSelector('[data-act="execute-confirm"]');
+  await target.locator('[data-act="execute-confirm"]').click();
+}
+
+// The dock action opens the sheet only when the step holds every required
+// input, and that sheet can confirm.
+async function stepActionOpensReadyStep() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedMayorNight2();
+  await route("/table");
+  await page.locator('[data-target][data-id="1"]').click();
+  await settled();
+  const action = page.locator('[data-act="complete"]');
+  assert.equal(await action.isEnabled(), true, "a ready step enables the dock action");
+  await action.click();
+  const confirm = page.locator('[data-act="step-confirm"]');
+  await confirm.waitFor();
+  assert.equal(await confirm.isEnabled(), true, "a ready step opens a confirmable sheet");
+  await confirm.click();
+  await settled();
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "a confirmed step closes the sheet",
+  );
+  assert.equal(
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      return engine.currentStep(store.state)?.roleId ?? null;
+    }),
+    "imp",
+    "the confirmed step advances the wake",
+  );
+}
+
+// A living actor's mandatory step offers no Skip control, the command is
+// refused, and the Po records "no one" through the ordinary confirmation.
+async function mandatoryStepHasNoSkip() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedImpAttackNight2();
+  await route("/table");
+  await page.locator('[data-target][data-id="1"]').click();
+  await settled();
+  assert.equal(
+    await page.locator('[data-table-dock] [data-act="skip"]').count(),
+    0,
+    "the dock offers no skip on the Imp's mandatory step",
+  );
+  await page.locator('[data-act="complete"]').click();
+  const confirm = page.locator('[data-act="step-confirm"]');
+  await confirm.waitFor();
+  assert.equal(
+    await page.locator('[data-act="step-skip"]').count(),
+    0,
+    "the step sheet offers no skip",
+  );
+  const refused = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    return store.dispatch({
+      id: "mandatory-skip-" + crypto.randomUUID(),
+      type: "skipStep",
+      payload: { key: engine.currentStep(store.state)!.key },
+    });
+  });
+  assert.equal(refused.status, "rejected", "the command is refused");
+  assert.equal(refused.errorCode, "error.80");
+  await page.keyboard.press("Escape");
+  await settled();
+
+  await seedPoNight2();
+  await route("/table");
+  assert.equal(
+    await page.locator('[data-act="no-one"]').count(),
+    1,
+    "the dock names the Po's no-one choice",
+  );
+  assert.equal(
+    await page.locator('[data-table-dock] [data-act="skip"]').count(),
+    0,
+    "the dock offers no skip on the Po's step",
+  );
+  await page.locator('[data-act="complete"]').click();
+  const poConfirm = page.locator('[data-act="step-confirm"]');
+  await poConfirm.waitFor();
+  assert.equal(await page.locator('[data-act="step-skip"]').count(), 0, "the Po offers no skip");
+  assert.equal(
+    await page.locator('[data-act="step-no-one"]').count(),
+    1,
+    "the sheet names the Po's no-one choice",
+  );
+  assert.equal(
+    await page.locator("[data-step-no-one-hint]").count(),
+    1,
+    "the sheet explains what the choice does",
+  );
+  await page.locator('[data-act="step-no-one"]').click();
+  await settled();
+  const recorded = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return store.state.players["6"].used.poNoOne === true;
+  });
+  assert.equal(recorded, true, "the no-one choice is recorded");
+  const next = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const game = structuredClone(store.state);
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    for (const type of ["endNight", "endDay", "startNight"]) {
+      const result = engine.applyCommand(game, { id: "po-next-" + type, type, payload: {} });
+      if (result.status !== "allowed") throw new Error(type + ": " + JSON.stringify(result));
+    }
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "po") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const step = engine.currentStep(game);
+    return {
+      role: step?.roleId ?? null,
+      min: step?.minTargets ?? null,
+      max: step?.maxTargets ?? null,
+    };
+  });
+  assert.deepEqual(next, { role: "po", min: 3, max: 3 }, "the next Po step takes three targets");
+}
+
+// Fixture setup, not a host action: advance the current night step even when the
+// console rightly offers no Skip control for a mandatory wake.
+async function advanceFixtureStep(target: Page = page) {
+  await target.evaluate(async () => {
+    const { store, engine } = await window.PG_MODULES();
+    const step = engine.currentStep(store.state);
+    if (!step) return;
+    const applied = store.dispatch({ type: "skipStep", payload: { key: step.key } });
+    if (applied.status === "allowed") return;
+    const next = structuredClone(store.state);
+    const entry = next.night.queue.find((candidate) => candidate.key === step.key);
+    if (!entry) return;
+    entry.done = true;
+    entry.skipped = true;
+    store.replaceState(next);
+  });
+  await settled(target);
+}
+
+// A confirmation opened for one player must not execute that player when the
+// day already recorded another execution behind the sheet.
+async function executionConfirmRejectsStaleSelection() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(7);
+  await route("/table");
+  await finishNight();
+  await page.locator('[data-act="dawn-dismiss"]').click();
+  await page.locator('[data-seat-open="2"]').click();
+  await page.waitForSelector("[data-player-sheet]");
+  await page.locator('[data-act="player-execute"]').click();
+  const execute = page.locator('[data-table-dock] [data-act="execute"]');
+  assert.equal(await execute.isEnabled(), true, "the selected player arms execution");
+  await execute.click();
+  await page.waitForSelector('[data-act="execute-confirm"]');
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const result = store.dispatch({
+      id: "browser-stale-" + crypto.randomUUID(),
+      type: "executeByDecision",
+      payload: { playerId: "3" },
+    });
+    if (result.status !== "allowed") throw new Error(JSON.stringify(result));
+  });
+  await page.locator('[data-act="execute-confirm"]').click();
+  await settled();
+  const outcome = await page.evaluate(async () => {
+    const { state } = (await window.PG_MODULES()).store;
+    return {
+      executed: state.day.execution?.playerId ?? null,
+      selectedAlive: state.players["2"].alive,
+    };
+  });
+  assert.deepEqual(
+    outcome,
+    { executed: "3", selectedAlive: true },
+    "the stale selection is rejected and the recorded execution stays",
+  );
+}
 async function seed(count: number, phase = "night") {
   const result = await page.evaluate(
     async ({ count, phase }) => {
@@ -376,6 +581,43 @@ async function seed(count: number, phase = "night") {
   await settled();
 }
 
+// The circle is fixed during play (SYS-LIFECYCLE-02): the seat screen must not
+// offer a reorder once the first night starts.
+async function seatOrderIsFixedAfterStart() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(7);
+  await route("/seat");
+  assert.equal(
+    await page.locator("[data-seat-locked]").count(),
+    1,
+    "night renders the locked seat screen",
+  );
+  assert.equal(
+    await page.locator('[data-act="use"]').count(),
+    0,
+    "the locked screen offers no commit control",
+  );
+  const result = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const before = store.state.order.slice();
+    const outcome = store.dispatch({
+      type: "setOrder",
+      payload: { order: before.slice().reverse() },
+    });
+    return { status: outcome.status, before, after: store.state.order.slice() };
+  });
+  assert.equal(result.status, "rejected", "the engine refuses a mid-game reorder");
+  assert.deepEqual(result.after, result.before, "the circle is unchanged");
+  await seed(7, "deal");
+  await route("/seat");
+  assert.equal(await page.locator("[data-seat-locked]").count(), 0, "setup renders the ring");
+  assert.equal(
+    await page.locator('[data-act="use"]').count(),
+    1,
+    "setup offers the commit control",
+  );
+}
+
 // Night 2 of a 5-player Mayor game, with the Poisoner's step waiting. Night 1
 // is completed with the Chef poisoned so the Mayor starts healthy.
 async function seedMayorNight2() {
@@ -402,7 +644,7 @@ async function seedMayorNight2() {
       targetIds: ["2"],
     });
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     engine.endNight(game);
     engine.endDay(game);
     const errors = model.validateState(game);
@@ -414,6 +656,120 @@ async function seedMayorNight2() {
   assert.equal(result.ok, true, JSON.stringify(result));
   await settled();
 }
+// Night 2 of a 5-player game with the Imp's mandatory attack waiting.
+async function seedImpAttackNight2() {
+  const result = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = { 1: "soldier", 2: "chef", 3: "empath", 4: "poisoner", 5: "imp" };
+    const game = model.createGame(5);
+    Object.entries(assignment).forEach(([id]) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 5;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const day = engine.endDay(game);
+    if (!day.ok) return day;
+    const second = engine.startNight(game);
+    if (!second.ok) return second;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "imp") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      return engine.currentStep(store.state)?.roleId ?? null;
+    }),
+    "imp",
+    "the Imp's attack waits",
+  );
+  await settled();
+}
+
+// Night 2 of an 8-player Bad Moon Rising game with the Po's step waiting.
+async function seedPoNight2() {
+  const result = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment = {
+      1: "chambermaid",
+      2: "courtier",
+      3: "sailor",
+      4: "gossip",
+      5: "devilsadvocate",
+      6: "po",
+      7: "tinker",
+      8: "exorcist",
+    };
+    const game = model.createGame(8);
+    game.script = {
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [...rules.BMR_ALL],
+    };
+    game.scriptId = "bmr";
+    Object.entries(assignment).forEach(([id]) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 8;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = ["fool", "moonchild", "grandmother"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const day = engine.endDay(game);
+    if (!day.ok) return day;
+    const second = engine.startNight(game);
+    if (!second.ok) return second;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "po") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      return engine.currentStep(store.state)?.roleId ?? null;
+    }),
+    "po",
+    "the Po's step waits",
+  );
+  await settled();
+}
+
 // Night 2 of a 5-player game where the healthy Soldier is the Imp's target:
 // the attack is blocked and the preview must show a prevented death.
 async function seedSoldierNight() {
@@ -437,12 +793,12 @@ async function seedSoldierNight() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)) {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     engine.endNight(game);
     engine.endDay(game);
     while (engine.currentStep(game)!.roleId !== "imp") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const errors = model.validateState(game);
     if (errors.length) return { ok: false, errors };
@@ -491,7 +847,7 @@ async function seedMayorRedirectTargets() {
     while (engine.currentStep(game)) {
       const step = engine.currentStep(game)!;
       if (step.roleId === "imp") engine.completeStep(game, step.key, { targetIds: ["2"] });
-      else engine.skipStep(game, step.key, "browser check");
+      else window.fixtureSkip(engine, game, step.key, "browser check");
     }
     engine.endNight(game);
     // P2 died away from a night wake: the Imp does not wake on night 1, so the
@@ -551,7 +907,7 @@ async function seedFortuneTellerNight() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)!.roleId !== "fortuneteller") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const current = engine.currentStep(game);
     if (!current || current.roleId !== "fortuneteller")
@@ -610,7 +966,7 @@ async function seedLunaticNight(independentBluffs = true) {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)!.roleId !== "lunatic") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const current = engine.currentStep(game);
     if (!current || current.roleId !== "lunatic")
@@ -666,7 +1022,7 @@ async function seedSnakeCharmerNight() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)!.roleId !== "snakecharmer") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const current = engine.currentStep(game);
     if (!current || current.roleId !== "snakecharmer")
@@ -935,7 +1291,7 @@ async function playerBubbleVoting() {
       const { store, engine } = await window.PG_MODULES();
       const game = structuredClone(store.state);
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser vote controls");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser vote controls");
       }
       engine.endNight(game);
       game.players["3"].alive = false;
@@ -949,9 +1305,14 @@ async function playerBubbleVoting() {
       "a player bubble offers a vote count",
     );
     await page.locator("[data-vote-count]").fill("8");
-    assert.equal(await page.locator('[data-act="save-vote-count"]').isDisabled(), true);
+    await page.keyboard.press("Enter");
+    assert.equal(
+      await page.locator('[data-seat-open="2"] [data-seat-vote-count]').count(),
+      0,
+      "an out-of-range count is not recorded",
+    );
     await page.locator("[data-vote-count]").fill("4");
-    await page.locator('[data-act="save-vote-count"]').click();
+    await page.keyboard.press("Enter");
     await page.keyboard.press("Escape");
     assert.equal(
       await page
@@ -992,7 +1353,7 @@ async function playerBubbleVoting() {
       "living players have no dead-vote control",
     );
     await page.locator("[data-vote-count]").fill("0");
-    await page.locator('[data-act="save-vote-count"]').click();
+    await page.keyboard.press("Enter");
     await page.keyboard.press("Escape");
     await page.locator('[data-seat-open="3"]').click();
     await page.locator('[data-act="toggle-dead-vote"]').click();
@@ -1020,7 +1381,12 @@ async function playerBubbleVoting() {
     game.phase = "seat";
     engine.startNight(game);
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "registered dead browser check");
+      window.fixtureSkip(
+        engine,
+        game,
+        engine.currentStep(game)!.key,
+        "registered dead browser check",
+      );
     engine.kill(game, "5", "demon");
     engine.endNight(game);
     store.replaceState(game);
@@ -1046,6 +1412,39 @@ async function playerBubbleVoting() {
   assert.equal(
     await page.locator('[data-seat-open="5"] [data-seat-badge="no-ghost-vote"]').count(),
     1,
+  );
+}
+
+async function verificationContracts() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedLunaticNight(false);
+  const names = await page.evaluate(() =>
+    (window.PG?.roles ?? [])
+      .filter((role) => ["po", "lunatic", "imp"].includes(role.id))
+      .map((role) => role.name),
+  );
+  await route("/public");
+  const publicText = await page.locator(".public").innerText();
+  for (const name of names) {
+    assert.equal(publicText.includes(name), false, `the public screen leaks ${name}`);
+  }
+  await route("/player");
+  await page.locator("[data-seat]:not([disabled])").first().click();
+  const card = page.locator(".player-card");
+  await card.waitFor();
+  const cardText = await card.innerText();
+  assert.ok(cardText.length > 0, "the handoff card is visible");
+  assert.equal(
+    cardText.includes(names[1] ?? ""),
+    false,
+    "the handoff card never names the real Lunatic role",
+  );
+  await page.keyboard.press("Escape");
+  await route("/table");
+  await page.waitForSelector("[data-hub-step]", { timeout: 5000 });
+  assert.ok(
+    (await page.locator("[data-hub-step]").innerText()).length > 0,
+    "the table keeps the current step",
   );
 }
 
@@ -1363,8 +1762,7 @@ async function setupZeroIsTheLibrariansAlone() {
       return engine.currentStep(store.state)?.roleId ?? null;
     });
   for (let guard = 0; guard < 12 && (await stepRole()) !== "washerwoman"; guard += 1) {
-    await page.locator('[data-act="skip"]:visible').first().click();
-    await settled();
+    await advanceFixtureStep();
   }
   assert.equal(await stepRole(), "washerwoman", "the Washerwoman's step is open");
 
@@ -1379,12 +1777,15 @@ async function setupZeroIsTheLibrariansAlone() {
   assert.deepEqual(stored, ["allowed", "allowed"]);
   await settled();
 
-  await page.locator('[data-act="complete"]').click();
-  await page.waitForSelector('[data-act="step-confirm"]');
   assert.equal(
-    await page.locator('[data-act="step-confirm"]').isEnabled(),
-    false,
-    "a Washerwoman step that holds a zero cannot be completed",
+    await page.locator('[data-act="open-secrets"]').count(),
+    1,
+    "a Washerwoman step that holds a zero offers the secret setup route",
+  );
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "a step blocked by missing setup opens no sheet",
   );
   // What the table reads for the step: no answer is prepared, in any language.
   assert.deepEqual(
@@ -1400,14 +1801,10 @@ async function setupZeroIsTheLibrariansAlone() {
     (await page.locator('[data-blocker-reason="secrets"]').count()) > 0,
     "the step names the missing setup as what blocks it",
   );
-  const offered = await page
-    .locator("select[data-given]:visible option")
-    .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
-  assert.ok(!offered.includes("zero"), "the zero is not offered for the Washerwoman");
   await overflow();
   await page.screenshot({ path: join(screenshots, "setup-zero-washerwoman-step-390.png") });
 
-  await page.locator('a[href$="secrets"]:visible').first().click();
+  await page.locator('[data-act="open-secrets"]').click();
   await page.waitForFunction(() => document.body.dataset.route === "secrets");
   await settled();
   // The checksheet opens one obligation at a time, so each editor is read
@@ -1466,6 +1863,259 @@ async function setupZeroIsTheLibrariansAlone() {
   );
 }
 
+async function washerwomanFalseInformationCard() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const text = "P2 или P3 — Монах.";
+
+  const seed = async (poisoned: boolean) => {
+    const result = await page.evaluate(async (poisoned) => {
+      const { model, engine, store } = await window.PG_MODULES();
+      const assignment = {
+        1: "washerwoman",
+        2: "librarian",
+        3: "investigator",
+        4: "saint",
+        5: "chef",
+        6: "empath",
+        7: "poisoner",
+        8: "imp",
+      };
+      const game = model.createGame(8);
+      Object.entries(assignment).forEach(([id]) => {
+        game.players[id].name = "P" + id;
+        game.players[id].claimed = true;
+      });
+      game.setup.count = 8;
+      game.setup.roles = [...new Set(Object.values(assignment))];
+      game.setup.bluffs = ["monk", "virgin", "mayor"];
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      engine.autoSecrets(game);
+      game.setup.info.washerwoman = { roleId: "chef", pair: ["6", "5"], matchIndex: 1 };
+      game.phase = "seat";
+      const start = engine.startNight(game);
+      if (!start.ok) return start;
+      for (const system of ["minioninfo", "demoninfo"]) {
+        const step = game.night.queue.find((entry) => entry.system === system);
+        if (!step) return { ok: false, errors: [{ code: "step", message: system }] };
+        engine.completeStep(game, step.key, {});
+      }
+      const poisoner = game.night.queue.find((entry) => entry.roleId === "poisoner");
+      if (!poisoner) return { ok: false, errors: [{ code: "step", message: "poisoner" }] };
+      const poisonedTarget = poisoned ? "1" : "4";
+      engine.completeStep(game, poisoner.key, { targetIds: [poisonedTarget] });
+      const errors = model.validateState(game);
+      if (errors.length) return { ok: false, errors };
+      store.replaceState(game);
+      dispatchEvent(new PopStateEvent("popstate"));
+      return { ok: true };
+    }, poisoned);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    await settled();
+    await route("/table");
+  };
+
+  const recorded = () =>
+    page.evaluate(async () => {
+      const { store } = await window.PG_MODULES();
+      const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+      const given = step?.given as Record<string, unknown> | null | undefined;
+      return {
+        done: Boolean(step?.done),
+        roleId: given?.roleId ?? null,
+        pair: given?.pair ?? null,
+        answerText: given?.answerText ?? null,
+      };
+    });
+
+  await seed(true);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  assert.equal(
+    await page.locator('[data-act="show-info"]').count(),
+    0,
+    "a poisoned actor is never offered the computed card",
+  );
+  await page.locator('select[data-given-kind="role"]').selectOption("monk");
+  await page.locator('[data-player-pair="0"]').selectOption("2");
+  await page.locator('[data-player-pair="1"]').selectOption("3");
+  assert.equal(
+    await page.locator('[data-act="show-template"]').isDisabled(),
+    false,
+    "a chosen answer alone opens the card",
+  );
+  await page.locator('[data-act="show-template"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  const chosen = await page.locator("[data-player-card-text]").innerText();
+  assert.match(chosen, /Monk|Монах/, "the card shows the chosen Townsfolk");
+  assert.match(chosen, /P2/, "the card shows the chosen first player");
+  assert.match(chosen, /P3/, "the card shows the chosen second player");
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "monk", pair: ["2", "3"], answerText: null },
+    "the command records the chosen role and both players",
+  );
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("pg.stepDraft")),
+    "",
+    "the completed step leaves no draft behind",
+  );
+  await openTableMenu();
+  const firstJournal = await page.locator("[data-menu]").innerText();
+  assert.match(firstJournal, /Monk|Монах/, "the journal names the chosen Townsfolk");
+  assert.match(firstJournal, /P2/, "the journal names the first player");
+  assert.match(firstJournal, /P3/, "the journal names the second player");
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P3/,
+    "the recorded pair survives a reload",
+  );
+  await page.keyboard.press("Escape");
+
+  // The same answer with the Storyteller's own wording: one draft, one
+  // command, and the wording is what the journal and the card show.
+  await seed(true);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  await page.locator('select[data-given-kind="role"]').selectOption("monk");
+  await page.locator('[data-player-pair="0"]').selectOption("2");
+  await page.locator('[data-player-pair="1"]').selectOption("3");
+  await page.locator("[data-info-template]").fill(text);
+  await page.locator('[data-act="show-template"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  assert.equal(
+    await page.locator("[data-player-card-text]").innerText(),
+    text,
+    "the card shows the Storyteller's wording",
+  );
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  assert.equal(
+    await page.locator("[data-info-template]").inputValue(),
+    text,
+    "the wording survives closing the sheet",
+  );
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "monk", pair: ["2", "3"], answerText: text },
+    "the command records the role, both players and the wording",
+  );
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P2 или P3 — Монах\./,
+    "the journal shows the recorded wording",
+  );
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P2 или P3 — Монах\./,
+    "the recorded answer survives a reload",
+  );
+  await page.keyboard.press("Escape");
+
+  // A healthy Washerwoman keeps the prepared answer and never shows a
+  // false-information control.
+  await seed(false);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="show-info"]');
+  assert.equal(
+    await page.locator("[data-info-template]").count(),
+    0,
+    "a healthy actor has no false-information control",
+  );
+  await page.locator('[data-act="show-info"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  const card = await page.locator("[data-player-card-text]").innerText();
+  assert.match(card, /Chef|Повар/, "the card names the prepared Townsfolk");
+  assert.match(card, /P6/, "the card names the prepared player");
+  await page.keyboard.press("Escape");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "chef", pair: ["6", "5"], answerText: null },
+    "the healthy answer is the prepared one",
+  );
+}
+
+async function drunkSlayerFromTable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const result = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "drunk",
+      2: "chef",
+      3: "empath",
+      4: "soldier",
+      5: "poisoner",
+      6: "imp",
+    };
+    const game = model.createGame(6);
+    game.setup.roles = Object.values(assignment);
+    game.setup.drunkShownId = "slayer";
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    for (const player of Object.values(game.players)) player.claimed = true;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const ended = engine.endNight(game);
+    if (!ended.ok) return ended;
+    return store.replaceState(game);
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await settled();
+  await route("/table");
+  await page.locator('[data-seat-open="1"]').click();
+  const sheet = page.locator("[data-player-sheet]");
+  await sheet.locator("[data-slayer-target]").selectOption("6");
+  await sheet.locator('[data-act="slayer"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.players["1"].used.slayer === true,
+  );
+  assert.equal(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["6"].alive),
+    true,
+  );
+  assert.equal(await sheet.locator('[data-act="slayer"]').count(), 0);
+}
+
 // Night 2 of a ten-player game with a Poisoner, a Scarlet Woman and the Imp.
 // Two Minions, so the host names the heir; only seat 3 (the Empath, or the
 // Fortune Teller, who takes targets) wakes after the Imp.
@@ -1499,7 +2149,7 @@ async function seedImpHeirNight2(third: "empath" | "fortuneteller" = "empath") {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     const night = engine.endNight(game);
     if (!night.ok) return night;
     const day = engine.endDay(game);
@@ -1622,7 +2272,7 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
     if (!start.ok) return start;
     const toPukka = () => {
       while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "pukka")
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       return engine.currentStep(game)!;
     };
     // Night 1 the Pukka poisons the Chambermaid, night 2 itself.
@@ -1630,7 +2280,7 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
       const done = engine.completeStep(game, toPukka().key, { targetIds: [targetId] });
       if (!done.ok) return done;
       while (engine.currentStep(game))
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       const night = engine.endNight(game);
       if (!night.ok) return night;
       const day = engine.endDay(game);
@@ -1847,6 +2497,9 @@ async function heirQuestionLeadsAnOpenSheet() {
   await seedImpHeirNight2("fortuneteller");
   await settled();
   await route("/table");
+  // The sheet can only open once the step has its targets (issue #311).
+  await page.locator('[data-target][data-id="1"]').click();
+  await page.locator('[data-target][data-id="2"]').click();
   await page.locator('[data-table-dock] [data-act="complete"]').click();
   await page.waitForSelector('[data-act="step-confirm"]');
 
@@ -1933,7 +2586,7 @@ async function chefRegistrationIsLabelled() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "chef")
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     const errors = model.validateState(game);
     if (errors.length) return { ok: false, errors };
     store.replaceState(game);
@@ -2105,11 +2758,15 @@ async function madnessExecutionFromTable() {
     const started = engine.startNight(game);
     if (!started.ok) return started;
     for (const step of game.night.queue) {
-      const completed =
-        step.roleId === "cerenovus"
-          ? engine.completeStep(game, step.key, { targetIds: ["2"], roleId: "clockmaker" })
-          : engine.skipStep(game, step.key, "Unrelated wake in the browser fixture");
-      if (!completed.ok) return completed;
+      if (step.roleId === "cerenovus") {
+        const completed = engine.completeStep(game, step.key, {
+          targetIds: ["2"],
+          roleId: "clockmaker",
+        });
+        if (!completed.ok) return completed;
+      } else {
+        window.fixtureSkip(engine, game, step.key, "Unrelated wake in the browser fixture");
+      }
     }
     const ended = engine.endNight(game);
     if (!ended.ok) return ended;
@@ -2191,7 +2848,7 @@ async function tinkerNightDeathNeedsTheAbility() {
       const start = engine.startNight(game);
       if (!start.ok) return start;
       while (engine.currentStep(game))
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       const night = engine.endNight(game);
       if (!night.ok) return night;
       const day = engine.endDay(game);
@@ -2202,7 +2859,7 @@ async function tinkerNightDeathNeedsTheAbility() {
         if (drunk && step.roleId === "courtier") {
           const done = engine.completeStep(game, step.key, { roleId: "tinker" });
           if (!done.ok) return done;
-        } else engine.skipStep(game, step.key, "browser check");
+        } else window.fixtureSkip(engine, game, step.key, "browser check");
       }
       const errors = model.validateState(game);
       if (errors.length) return { ok: false, errors };
@@ -2355,7 +3012,7 @@ async function nightResurrectionNeedsTheAbility() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     const night = engine.endNight(game);
     if (!night.ok) return night;
     const day = engine.endDay(game);
@@ -2373,7 +3030,7 @@ async function nightResurrectionNeedsTheAbility() {
           payload: { key: step.key, targetIds: [victim], deathIds: [victim] },
         });
         if (done.status !== "allowed") return { ok: false, done };
-      } else engine.skipStep(game, step.key, "browser check");
+      } else window.fixtureSkip(engine, game, step.key, "browser check");
     }
     const errors = model.validateState(game);
     if (errors.length) return { ok: false, errors };
@@ -2452,6 +3109,26 @@ async function nightResurrectionNeedsTheAbility() {
   const after = await read();
   assert.deepEqual(after.alive, ["1", "2", "4", "5", "6", "7", "8"], "the Chambermaid stays dead");
   assert.notEqual(after.current, "tinker", "the Tinker's step is done");
+}
+
+// A revealed role card carries no countdown and no cancel control: it stays
+// until the name is saved, and only Escape or a hidden page dismisses it.
+async function playerCardHasNoCountdown() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(7, "deal");
+  await page.clock.install();
+  await route("/player");
+  await page.locator('[data-seat="0"]').click();
+  await page.waitForSelector(".player-card");
+  await page.clock.fastForward(120000);
+  assert.equal(
+    await page.locator(".player-card").count(),
+    1,
+    "the revealed card stays open without a countdown",
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator(".player-card").count(), 0, "Escape closes the card");
+  await page.clock.resume();
 }
 
 async function fullChecks() {
@@ -2682,8 +3359,17 @@ async function fullChecks() {
     if (scrolls) {
       assert.ok(
         stage.scrollHeight > stage.clientHeight,
-        `${width}px: the table is taller than the stage and scrolls inside it`,
+        `${width}px: a short viewport scrolls the table inside the stage`,
       );
+    } else {
+      const underDock = await page
+        .locator("[data-seat-name]")
+        .evaluateAll(
+          (nodes, dockTop) =>
+            nodes.filter((node) => node.getBoundingClientRect().bottom > dockTop + 1).length,
+          dock.y,
+        );
+      assert.equal(underDock, 0, `${width}px: no seat name sits under the dock`);
     }
     await overflow();
     const seats = await page.locator("[data-seat-open]").evaluateAll((nodes) =>
@@ -2768,7 +3454,7 @@ async function fullChecks() {
     store.run((game) => {
       let step = engine.currentStep(game);
       while (step && !step.actorId) {
-        engine.skipStep(game, step.key, "browser check");
+        window.fixtureSkip(engine, game, step.key, "browser check");
         step = engine.currentStep(game);
       }
       return { ok: true };
@@ -2885,7 +3571,7 @@ async function fullChecks() {
       const poisoner = game.night.queue.find((step) => step.roleId === "poisoner");
       engine.completeStep(game, poisoner!.key, { targetIds: ["1"] });
       while (engine.currentStep(game)!.roleId !== "fortuneteller") {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       const current = engine.currentStep(game);
       if (!current || current.roleId !== "fortuneteller")
@@ -2997,7 +3683,7 @@ async function fullChecks() {
     const { engine, store } = await window.PG_MODULES();
     store.run((game) => {
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       engine.endNight(game);
       return { ok: true };
@@ -3053,7 +3739,7 @@ async function fullChecks() {
     true,
     "the host records the execution without entering votes",
   );
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   await page.waitForSelector("[data-executed]");
   assert.match(
     await page.locator("[data-executed]").innerText(),
@@ -3079,7 +3765,7 @@ async function fullChecks() {
     const { engine, store } = await window.PG_MODULES();
     store.run((game) => {
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       engine.kill(game, "5", "demon");
       engine.endNight(game);
@@ -3117,7 +3803,7 @@ async function fullChecks() {
     const { engine, store } = await window.PG_MODULES();
     store.run((game) => {
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       engine.endNight(game);
       game.day.nominations.push({
@@ -3279,6 +3965,94 @@ async function fullChecks() {
   await seed(7);
   await route("/table");
   phase("table surface");
+
+  // The dock action must never open a sheet that cannot confirm. A targeting
+  // step with no target names the missing input and stays disabled until the
+  // host picks a seat; the sheet appears only then.
+  {
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      let step = engine.currentStep(store.state);
+      while (step && step.targetMode === "none") {
+        const applied = store.dispatch({ type: "skipStep", payload: { key: step.key } });
+        if (applied.status !== "allowed") {
+          const next = structuredClone(store.state);
+          const entry = next.night.queue.find((candidate) => candidate.key === step!.key);
+          if (entry) {
+            entry.done = true;
+            entry.skipped = true;
+            store.replaceState(next);
+          }
+        }
+        step = engine.currentStep(store.state);
+      }
+    });
+    await page.waitForSelector("[data-target]");
+    const action = page.locator('[data-act="complete"]');
+    assert.equal(await action.isDisabled(), true, "a blocked step disables the dock action");
+    assert.match(
+      await action.innerText(),
+      /выберите цель|choose a target/i,
+      "the action names the missing target",
+    );
+    assert.equal(
+      await page.locator('[data-act="step-confirm"]').count(),
+      0,
+      "a blocked step opens no sheet",
+    );
+    await page.locator("[data-target]").first().locator("[data-seat-name]").click();
+    assert.equal(
+      await page.locator("[data-target]").first().getAttribute("aria-pressed"),
+      "true",
+      "the seat name is part of the target control",
+    );
+    assert.equal(await action.isEnabled(), true, "a chosen target enables the dock action");
+    await page.reload();
+    await page.waitForSelector("[data-game-table]");
+  }
+
+  // The wake order lives in the menu instead of an orphaned panel.
+  {
+    await openTableMenu();
+    assert.equal(
+      await page.locator('[data-menu] [data-panel="queue"]').count(),
+      1,
+      "the menu shows the wake order",
+    );
+    assert.match(
+      await page.locator('[data-menu] [data-panel="queue"]').innerText(),
+      /далее|Next:/i,
+      "the queue names the next wakes",
+    );
+    await page.locator('[data-menu] [data-act="show-order"]').click();
+    assert.ok(
+      (await page.locator('[data-menu] [data-panel="queue"] li').count()) > 0,
+      "the full night order expands",
+    );
+    await page.keyboard.press("Escape");
+  }
+
+  // Seat numbers stay readable on the phone-first surface.
+  {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForSelector("[data-seat-number]");
+    const numbers = await page.locator("[data-seat-number]").evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        text: node.textContent?.trim() ?? "",
+        shown: getComputedStyle(node).display !== "none",
+        size: parseFloat(getComputedStyle(node).fontSize),
+      })),
+    );
+    assert.equal(numbers.length, 7, "every seat carries its number at 390 px");
+    assert.ok(
+      numbers.every((entry) => entry.shown && entry.text && entry.size >= 12),
+      `seat numbers are visible at 12 px: ${JSON.stringify(numbers)}`,
+    );
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+
+  await seed(7);
+  await route("/table");
 
   // ---- end of the Velvet table window assertions --------------------------
 
@@ -3817,24 +4591,34 @@ async function fullChecks() {
       return step && (step.roleId || step.system);
     });
   assert.equal(await stepRole(), "poisoner", "Mayor scenario should start on the Poisoner");
-  // Issue #45: an unanswered mandatory target blocks the step and explains why;
-  // the preview shows the chosen target before the step is confirmed.
-  await page.locator('[data-act="complete"]').click();
+  // Issue #45: an unanswered mandatory target blocks the step and explains why.
+  // Issue #311: the action cannot open a sheet that cannot confirm, so the
+  // dock itself states the blockage and keeps one quiet line instead of a
+  // duplicate rejection preview.
   assert.equal(
-    await page.locator('[data-act="step-confirm"]').isDisabled(),
+    await page.locator('[data-act="complete"]').isDisabled(),
     true,
     "the Poisoner step is blocked until a target is chosen",
   );
-  await page.keyboard.press("Escape");
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "a blocked step opens no sheet",
+  );
   assert.equal(
     await page.locator('[data-blocker-reason="targets"]').count(),
     1,
-    "the blocking card names the missing target",
+    "the dock names the missing target",
   );
-  assert.equal(await page.locator("[data-preview]").count(), 1, "the preview is visible");
-  assert.ok(
-    (await page.locator("[data-preview-reason]").innerText()).trim().length > 0,
-    "the preview explains the rejected empty command",
+  assert.equal(
+    await page.locator("[data-preview]").count(),
+    0,
+    "an incomplete target selection shows no duplicate preview",
+  );
+  assert.equal(
+    await page.locator("[data-dock-quiet]").count(),
+    0,
+    "the blocker line replaces the quiet line",
   );
   await page.locator('[data-target][data-id="1"]').click();
   await settled();
@@ -3874,17 +4658,15 @@ async function fullChecks() {
   // Desktop smoke inside the table scenario, not the PWA update flow.
   await page.setViewportSize({ width: 1440, height: 900 });
   await overflow();
-  await page.locator('[data-act="complete"]').click();
   assert.equal(
-    await page.locator('[data-act="step-confirm"]').isDisabled(),
+    await page.locator('[data-act="complete"]').isDisabled(),
     true,
     "the desktop step stays blocked without a target",
   );
-  await page.keyboard.press("Escape");
-  assert.equal(await page.locator("[data-preview-reason]").count(), 1);
-  assert.ok(
-    (await page.locator("[data-preview-reason]").innerText()).trim().length > 0,
-    "the desktop preview explains the rejected empty command",
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "the desktop blocked step opens no sheet",
   );
   await page.screenshot({
     path: join(screenshots, "storyteller-step-preview-desktop.png"),
@@ -4071,7 +4853,7 @@ async function fullChecks() {
     const start = engine.startNight(game);
     if (!start.ok) throw new Error(JSON.stringify(start));
     while (engine.currentStep(game)!.roleId !== "sailor") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     store.replaceState(game);
     dispatchEvent(new PopStateEvent("popstate"));
@@ -4124,14 +4906,14 @@ async function fullChecks() {
         for (let night = 1; night <= 2; night += 1) {
           if (game.night.queue.some((step) => step.roleId === target)) break;
           while (engine.currentStep(game)) {
-            engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+            window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
           }
           if (!engine.endNight(game).ok || !engine.endDay(game).ok) break;
           start = engine.startNight(game);
           if (!start.ok) return start;
         }
         while (engine.currentStep(game)!.roleId !== target) {
-          engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+          window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
         }
         store.replaceState(game);
         dispatchEvent(new PopStateEvent("popstate"));
@@ -4431,9 +5213,9 @@ async function fullChecks() {
     "the day transition button stays enabled",
   );
   assert.equal(
-    await page.locator("[data-preview]").count(),
+    await page.locator("[data-dock-quiet]").count(),
     1,
-    "the day card shows its transition preview",
+    "the day dock states the quiet state in one line",
   );
   await page.locator("[data-virgin-form] select").selectOption("1");
   await page.locator("[data-virgin-form] button").click();
@@ -4533,7 +5315,7 @@ async function fullChecks() {
   await page.locator('[data-seat-open="7"]').click();
   await page.waitForSelector("[data-player-sheet]");
   await page.locator('[data-act="player-execute"]').click();
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   assert.equal(await page.locator(".host-review").count(), 0);
   await page.locator('[data-act="review"]').click();
   assert.equal(await page.locator(".host-review").count(), 1);
@@ -4581,10 +5363,6 @@ async function fullChecks() {
   );
   await page.locator('[data-act="back-cancel"]').click();
   await route("/help");
-  await page.clock.install();
-  await page.clock.fastForward(46000);
-  assert.equal(await page.locator(".player-card, .host").count(), 0);
-  await page.clock.resume();
   await route("/player");
   await route("/bag");
   assert.equal(
@@ -4596,7 +5374,7 @@ async function fullChecks() {
 
   // The seat ring follows the store for names, but a publish never replaces an
   // order the host is editing.
-  await seed(7, "seat");
+  await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
   await page.evaluate(async () => {
@@ -4624,7 +5402,7 @@ async function fullChecks() {
   );
 
   // Regression: dragging a seat onto another must swap them, and enter undo.
-  await seed(7, "seat");
+  await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
   const seatNames = () =>
@@ -4803,8 +5581,8 @@ async function fullChecks() {
     "the draft and its history survive a language switch",
   );
 
-  // The use action is the only commit; it routes to the table when the phase
-  // is not "seat". The saved order must equal the order on the ring.
+  // The use action is the only commit; from deal it moves the game to seat and
+  // continues to secrets. The saved order must equal the order on the ring.
   const displayedNames = await seatNames();
   const displayedIds = await page.evaluate(async (names) => {
     const { store } = await window.PG_MODULES();
@@ -4814,7 +5592,7 @@ async function fullChecks() {
     return names.map((name) => byName.get(name));
   }, displayedNames);
   await page.locator('[data-act="use"]').click();
-  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await page.waitForFunction(() => document.body.dataset.route === "secrets");
   const savedOrder = await page.evaluate(async () =>
     (await window.PG_MODULES()).store.state.order.slice(),
   );
@@ -4852,7 +5630,7 @@ async function fullChecks() {
     "every action is at least 44 pixels high",
   );
   await route("/table");
-  await seed(15, "seat");
+  await seed(15, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
   assert.equal(await page.locator(".seat-item").count(), 15, "the ring renders fifteen seats");
@@ -4900,7 +5678,11 @@ async function fullChecks() {
         history.pushState(null, "", path);
         dispatchEvent(new PopStateEvent("popstate"));
       }, "/pocket" + path);
-      const marker = { "/bag": ".setup", "/seat": ".seat-ring", "/secrets": ".secrets-head" }[path];
+      const marker = {
+        "/bag": ".setup",
+        "/seat": ".seat-ring, [data-seat-locked]",
+        "/secrets": ".secrets-head",
+      }[path];
       if (marker) await page.waitForSelector(marker);
       await settled();
       await overflow();
@@ -5458,7 +6240,7 @@ async function fullChecks() {
   await page.locator('[data-seat-open="12"]').click();
   await page.waitForSelector("[data-player-sheet]");
   await page.locator('[data-act="player-execute"]').click();
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   assert.equal(
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["11"].roleId),
     "imp",
@@ -5468,7 +6250,7 @@ async function fullChecks() {
   await page.locator('[data-seat-open="11"]').click();
   await page.waitForSelector("[data-player-sheet]");
   await page.locator('[data-act="player-execute"]').click();
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   assert.equal(
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.winner?.team),
     "good",
@@ -6050,9 +6832,7 @@ async function fullChecks() {
           }
         }
       } else {
-        const skip = tab.locator('[data-act="skip"]:visible');
-        assert.ok(await skip.count(), "a night step exposes a control");
-        await skip.first().click();
+        await advanceFixtureStep(tab);
       }
       await settled(tab);
     }
@@ -6160,8 +6940,12 @@ async function fullChecks() {
       );
       await tab.locator(`[data-seat-open="${demonId}"]`).click();
       await tab.waitForSelector("[data-player-sheet]");
+      // The sheet opens with a focus move; tapping before it settles can land
+      // on the moving surface.
+      await settled(tab);
       await tab.locator('[data-act="player-execute"]').click();
-      await tab.locator('[data-act="execute"]').click();
+      await settled(tab);
+      await executeNow(tab);
       await tab.waitForSelector('[data-table-dock][data-phase="over"]');
       await record("result", "table");
 
@@ -6355,6 +7139,9 @@ async function fullChecks() {
     /Очистить выбор|Clear selection|Seçimi təmizlə/,
     "the draft reset is not labelled as undo",
   );
+  while (!(await page.locator('[data-table-dock] [data-act="skip"]').count())) {
+    await advanceFixtureStep();
+  }
   const stepBeforeUndo = await stepRole();
   await page.locator('[data-act="skip"]').click();
   await settled();
@@ -6394,7 +7181,7 @@ async function fullChecks() {
     await page.locator('[data-act="player-execute"]').click();
     const executeCorpse = page.locator('[data-table-dock] [data-act="execute"]');
     assert.equal(await executeCorpse.isEnabled(), true, width + "px: corpse execution enabled");
-    await executeCorpse.click();
+    await executeNow();
     const execution = await page.evaluate(async () => {
       const { state } = (await window.PG_MODULES()).store;
       return {
@@ -6468,8 +7255,13 @@ async function fullChecks() {
   await timed("role-corrections", currentScriptRoleCorrections);
   await timed("madness-execution", madnessExecutionFromTable);
   await timed("player-voting", playerBubbleVoting);
+  await timed("player-card", playerCardHasNoCountdown);
+  await timed("seat-lock", seatOrderIsFixedAfterStart);
+  await timed("drunk-slayer", drunkSlayerFromTable);
   await timed("lunatic-setup", lunaticSetupControls);
+  await timed("verification-contracts", verificationContracts);
   await timed("setup-zero", setupZeroIsTheLibrariansAlone);
+  await timed("washerwoman", washerwomanFalseInformationCard);
   await timed("demon-wake", newDemonWakesOnce);
   await timed("pukka-goon", pukkaChoosesGoonWhileSelfPoisoned);
   await timed("mayor-redirect", mayorRedirectIsAsked);

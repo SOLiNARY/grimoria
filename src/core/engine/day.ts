@@ -36,6 +36,7 @@ import {
 } from "../model/state.ts";
 
 import { executionThreshold, dayAt, currentAt, addLog } from "./context.ts";
+import { recordHostChoice } from "./host-choice.ts";
 import { lifecycleGuard } from "./lifecycle.ts";
 import { idSuffix } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
@@ -108,7 +109,7 @@ export function nominate(
   }
   const nominator = playerById(state, nominatorId);
   const nominee = playerById(state, nomineeId);
-  if (!nominator || !nominator.alive)
+  if (!nominator || !registersAlive(nominator))
     return { ok: false, errorCode: "error.11", error: "Номинировать может только живой." };
   if (!nominee) return { ok: false, errorCode: "error.12", error: "Номинант не найден." };
   if (state.day.nominations.some((nomination) => nomination.nominatorId === nominator.id)) {
@@ -461,7 +462,7 @@ export function recordVotes(
     const id = String(rawId);
     const player = playerById(state, id);
     if (!player) continue;
-    if (player.alive) {
+    if (registersAlive(player)) {
       valid.add(id);
       continue;
     }
@@ -1076,6 +1077,16 @@ export function execute(
   // Link the death before the win check: the Mastermind and the Demon-dead
   // result both read the recorded execution death.
   state.day.execution.deathId = death ? death.id : null;
+  if (options.survives && !death) {
+    recordHostChoice(
+      state,
+      "pacifist-survival",
+      (nominee ? nominee.name || "Игрок " + nominee.seat : nomination.nomineeId) +
+        " выжил при казни.",
+      nomination.nomineeId,
+      ports,
+    );
+  }
   checkWin(state, {}, ports);
   addLog(
     state,
@@ -1146,6 +1157,15 @@ export function executeByDecision(
   ) {
     const good = realTeamOf(player) !== "evil";
     setWinner(state, good ? "evil" : "good", "mastermind", ports);
+  }
+  if (options.survives && !death) {
+    recordHostChoice(
+      state,
+      "pacifist-survival",
+      (player.name || "Игрок " + player.seat) + " выжил при казни.",
+      player.id,
+      ports,
+    );
   }
   addLog(
     state,
@@ -1364,7 +1384,7 @@ export function useSlayer(
   if (guard) return guard;
   if (state.day.ended) return { ok: false, errorCode: "error.8", error: "День уже завершён." };
   const slayer = playerById(state, slayerId);
-  if (!slayer || !slayer.alive || slayer.roleId !== "slayer") {
+  if (!slayer || !slayer.alive || effectiveRoleId(slayer) !== "slayer") {
     return { ok: false, errorCode: "error.29", error: "Истребитель не может действовать." };
   }
   if (slayer.used.slayer)
@@ -1395,7 +1415,7 @@ export function useSlayer(
     action: "slayer-shot",
     targetIds: [target.id],
     targetId: target.id,
-    impaired: isImpaired(state, slayerId, at),
+    impaired: slayer.roleId === "drunk" || isImpaired(state, slayerId, at),
     targetAlive: target.alive,
     targetRegistersDemon,
     at,

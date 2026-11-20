@@ -7,6 +7,7 @@ import { systemPorts } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { isImpaired } from "./effects.ts";
 import { roleModule } from "../roles/registry.ts";
+import { requiresInfoPair, validatesOneOfTwoAnswer } from "./command-versions.ts";
 
 export const HOST_CHOICE_CASES = [
   "false-information",
@@ -17,6 +18,8 @@ export const HOST_CHOICE_CASES = [
   "madness-penalty",
   "flowergirl-answer",
   "towncrier-answer",
+  "information-pair",
+  "pacifist-survival",
 ] as const;
 
 export type HostChoiceCase = (typeof HOST_CHOICE_CASES)[number];
@@ -38,6 +41,10 @@ export const HOST_CHOICE_REASONS: Record<HostChoiceCase, string> = {
     "Глашатай узнаёт, выдвигал ли сегодня Приспешник: ведущий проверяет выдвижения и выбирает ответ.",
   "madness-penalty":
     "Безумие могло быть нарушено: ведущий решает, казнить ли игрока или не применять последствий.",
+  "information-pair":
+    "Ведущий показывает пару: содержимое ответа проверяется по официальному ограничению.",
+  "pacifist-survival":
+    "Казнённый добрый игрок выжил по способности Пацифиста: ведущий записывает причину.",
 };
 
 export interface LegalInfo {
@@ -45,12 +52,23 @@ export interface LegalInfo {
   options?: unknown[];
   needsChoice?: boolean;
   zero?: boolean;
+  roleId?: string | null;
+  pair?: string[];
+  /** The host's own wording of this answer. */
+  answerText?: string;
 }
 
 /** The case a step's discretionary answer belongs to. */
-export function caseForStep(step: NightStep, info?: { impaired?: boolean } | null): HostChoiceCase {
+export function caseForStep(
+  step: NightStep,
+  info?: { impaired?: boolean } | null,
+  version?: string,
+): HostChoiceCase {
   if (step.roleId === "flowergirl") return "flowergirl-answer";
   if (step.roleId === "towncrier") return "towncrier-answer";
+  if ((step.roleId === "dreamer" || step.roleId === "sage") && requiresInfoPair(version)) {
+    return "information-pair";
+  }
   // An offered option without impairment comes from a registration override,
   // not from false information.
   return info && info.impaired === false ? "registration-ambiguity" : "false-information";
@@ -60,13 +78,49 @@ export function caseForStep(step: NightStep, info?: { impaired?: boolean } | nul
 export function givenIsLegal(
   info: LegalInfo | null | undefined,
   given: Record<string, unknown> | null | undefined,
+  state?: GameState | null,
+  version?: string,
 ): boolean {
-  if (!info || !info.needsChoice) return true;
+  if (!info) return true;
+  // A prepared one-of-two answer is the engine's: a command may repeat it but
+  // cannot replace the Townsfolk or the two players (Washerwoman r2630).
+  if (
+    validatesOneOfTwoAnswer(version) &&
+    info.kind === "one-of-two" &&
+    (!info.needsChoice || given)
+  ) {
+    if (!given) return !info.needsChoice;
+    if (given.zero === true) {
+      if (given.roleId != null || info.zero !== true) return false;
+      return !info.needsChoice || (info.options || []).map(String).includes("zero");
+    }
+    const roleId = typeof given.roleId === "string" ? given.roleId : "";
+    if (!roleId) return false;
+    const options = (info.options || []).map(String);
+    if (info.needsChoice) {
+      if (!options.includes(roleId)) return false;
+    } else if (info.roleId != null && roleId !== String(info.roleId)) {
+      return false;
+    }
+    // The answer names its two players; a missing pair is incomplete.
+    if (!Array.isArray(given.pair)) return false;
+    const pair = given.pair.map(String);
+    if (pair.length !== 2 || pair[0] === pair[1]) return false;
+    if (state && !pair.every((id) => state.players[id])) return false;
+    if (!info.needsChoice && Array.isArray(info.pair) && info.pair.length === 2) {
+      const prepared = info.pair.map(String).sort();
+      const shown = pair.slice().sort();
+      if (shown[0] !== prepared[0] || shown[1] !== prepared[1]) return false;
+    }
+    return true;
+  }
+  if (!info.needsChoice) return true;
   if (!given) return false;
   const options = info.options || [];
-  if (info.kind === "role-pair") {
+  if (info.kind === "role-pair" || info.kind === "player-pair") {
     const pair = Array.isArray(given.pair) ? given.pair.map(String) : [];
-    return pair.length === 2 && options.map(String).includes(pair.join("|"));
+    if (pair.length !== 2 || pair[0] === pair[1]) return false;
+    return options.map(String).includes(pair.join("|"));
   }
   if (info.kind === "number") {
     return typeof given.value === "number" && options.map(Number).includes(given.value);
@@ -100,10 +154,37 @@ export function describeRegistrations(
 }
 
 /** What the journal shows for an applied answer. */
-export function describeGiven(given: Record<string, unknown> | null | undefined): string {
+export function describeGiven(
+  given: Record<string, unknown> | null | undefined,
+  state?: GameState | null,
+): string {
   if (!given) return "—";
+  if (typeof given.answerText === "string" && given.answerText.trim()) return given.answerText;
   if (given.zero === true) return "0";
-  if (Array.isArray(given.pair)) return given.pair.map(String).join(" / ");
+  // A prepared answer is a character and its two players: the journal keeps
+  // both, so the Storyteller reads the answer they gave (Washerwoman r2630).
+  if (given.kind === "one-of-two") {
+    const role = given.roleId != null ? String(given.roleId) : "—";
+    if (!Array.isArray(given.pair)) return role;
+    const pair = given.pair.map((id) => {
+      const player = state?.players[String(id)];
+      return player ? player.name || "Игрок " + player.seat : String(id);
+    });
+    return role + ": " + pair.join(" / ");
+  }
+  if (Array.isArray(given.pair)) {
+    const pair = given.pair.map(String);
+    // A player pair names the seats, not the opaque ids.
+    if (given.kind === "player-pair" && state) {
+      return pair
+        .map((id) => {
+          const player = state.players[id];
+          return player ? player.name || "Игрок " + player.seat : id;
+        })
+        .join(" / ");
+    }
+    return pair.join(" / ");
+  }
   if (typeof given.value === "boolean") return given.value ? "да" : "нет";
   if (typeof given.value === "number") return String(given.value);
   if (given.roleId != null) return String(given.roleId);

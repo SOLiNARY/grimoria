@@ -6,6 +6,29 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-20
+
+### Fixed
+
+- Fix the seat circle once the game starts: `setOrder` is rejected during a day or night and `/seat` renders a locked state, so a mid-game reorder cannot silently change Empath, Chef, Tea Lady, No Dashii and Clockmaker neighbours and distances; journals recorded before the new ruleset still replay and undo their recorded order (#328)
+- Keep the poisoned Washerwoman's role, two players and wording in one draft, so the card previews and the command records the same answer and the journal names the character instead of the player ids (#217)
+- Restore the two-neighbour count in the Russian Empath ability, so the card states the pinned rule (#326)
+- Refuse a skip of a living actor's mandatory night step, so the Imp's attack, the Exorcist's choice and the Pukka's poison cannot disappear; keep the optional, system and dead-actor skips, hide the console's Skip control where the engine refuses it, and record the Po's "no one" through its normal confirmation so the next night takes three targets (#318)
+- Record the apparent Slayer shot of a Drunk shown the Slayer without killing the target (#315)
+- Offer only registered-living players in the Virgin nomination picker, so a registered-dead Zombuul cannot be nominated through the UI either (#313)
+
+### Added
+
+- Mark Bad Moon Rising and Sects and Violets as beta beside the script name in the setup picker, because their printed abilities need more Storyteller adjudication than Trouble Brewing (#341)
+- Make the verification gate reject evidence that cannot prove itself: skipped or commented-out tests, comment-only UI dispatch sites, a verified rule with no explicit official mapping, a removed test identity, and a duplicate rule identifier (#332)
+- Add an independent audit of the gate, its own scanner and coverage-pin tests, explicit evidence rules for atomic and skipped citations, a verification-downgrade guard, and nine mutation probes with a green baseline (#332)
+- Add permanent semantic verification gates: a committed Official Rule to Engine Test to UI Contract to UI Test trace, architecture and action-scope checks, selector/model tests, a test-identity manifest, a red known-findings suite and a separate verification workflow (#332)
+- Count a registered-dead Zombuul as dead in the day path: it cannot nominate and its first vote spends the vote token (#313)
+
+- Record the Dreamer's and the Sage's shown pair as checked, secret Storyteller choices: the engine offers only the pinned legal pairs, a Vortox forbids the true answer, and the pair survives save, reload, replay and undo without reaching the public view (#216)
+- Keep 0.4.1 journals with free-text Dreamer and Sage answers replayable under the new ruleset, and record the attacking Demon on a death so the Sage's pair names the killer, not the current Demon holder (#216)
+- Write a secret Pacifist-survival choice line, and render the host-choice journal titles and role pairs in Russian, English and Azerbaijani (#216)
+
 ## [0.4.1] - 2026-11-18
 
 ### Added
@@ -106,7 +129,9 @@ All notable changes to Grimoria are recorded here. The format follows
 
 - Add the public and player projections that omit secret roles, bluffs and notes from shared views
 
-[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hose1021/grimoria/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/hose1021/grimoria/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/hose1021/grimoria/releases/tag/v0.4.1
 [0.4.0]: https://github.com/hose1021/grimoria/releases/tag/v0.4.0
 [0.3.0]: https://github.com/hose1021/grimoria/releases/tag/v0.3.0
 [0.2.0]: https://github.com/hose1021/grimoria/releases/tag/v0.2.0

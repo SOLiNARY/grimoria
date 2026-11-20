@@ -32,23 +32,35 @@ type PendingChoice = { caseId: Parameters<typeof recordHostChoice>[1]; detail: s
 // The host answer must be one of the offered options. Validation happens before
 // any mutation; the journal line is written only after the step succeeds.
 function validateGiven(
+  state: GameState,
   step: NightStep,
-  info: { needsChoice?: boolean; options?: unknown[]; impaired?: boolean },
+  info: { kind?: string; needsChoice?: boolean; options?: unknown[]; impaired?: boolean },
   options: NightOptions,
+  version?: string,
 ): { rejection: Record<string, unknown> } | { pending: PendingChoice | null } {
   const hasOptions = Array.isArray(info.options) && info.options.length > 0;
+  const pairKind = info.kind === "role-pair" || info.kind === "player-pair";
+  // A checked pair without a legal option must not fall through to the
+  // free-text path: an empty list can never admit an answer.
+  if (pairKind && info.needsChoice && !hasOptions) {
+    return { rejection: givenRejected(info) };
+  }
   if (info.needsChoice && !options.given) {
     return { rejection: { ok: false as const, needsChoice: true, info } };
   }
-  if (hasOptions && options.given && !givenIsLegal(info, options.given)) {
+  if (
+    options.given &&
+    (hasOptions || info.kind === "one-of-two") &&
+    !givenIsLegal(info, options.given, state, version)
+  ) {
     return { rejection: givenRejected(info) };
   }
   step.given = options.given || info;
   if (hasOptions && options.given) {
     return {
       pending: {
-        caseId: caseForStep(step, info),
-        detail: describeGiven(options.given),
+        caseId: caseForStep(step, info, version),
+        detail: describeGiven(options.given, state),
       },
     };
   }
@@ -86,6 +98,7 @@ import {
 
 import { nightAt, addLog, insertStepInto, setStepNote } from "./context.ts";
 import { lifecycleGuard } from "./lifecycle.ts";
+import { rejectsMandatorySkip } from "./command-versions.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
 import { applyRoleAbility } from "./ability.ts";
@@ -517,7 +530,13 @@ export function completeStep(
   if (step.sv) {
     let pending: PendingChoice | null = null;
     if (step.infoKind !== "none") {
-      const checked = validateGiven(step, infoForStep(state, step, options), options);
+      const checked = validateGiven(
+        state,
+        step,
+        infoForStep(state, step, options, ports),
+        options,
+        ports.rulesetVersion,
+      );
       if ("rejection" in checked) return checked.rejection;
       pending = checked.pending;
     }
@@ -562,7 +581,13 @@ export function completeStep(
     if (step.infoKind !== "none") {
       // A note-only Bad Moon Rising answer is free-form narration; a step that
       // computes options is held to them like every other information step.
-      const checked = validateGiven(step, infoForStep(state, step, options, ports), options);
+      const checked = validateGiven(
+        state,
+        step,
+        infoForStep(state, step, options, ports),
+        options,
+        ports.rulesetVersion,
+      );
       if ("rejection" in checked) return checked.rejection;
       pending = checked.pending;
     }
@@ -646,7 +671,7 @@ export function completeStep(
       step.given = info;
       return finishStep(state, step, options, targets, at, ports);
     }
-    const checked = validateGiven(step, info, options);
+    const checked = validateGiven(state, step, info, options, ports.rulesetVersion);
     if ("rejection" in checked) return checked.rejection;
     const finished = finishStep(state, step, options, targets, at, ports);
     recordPending(state, checked.pending, step, ports);
@@ -879,6 +904,20 @@ export function endNight(state: GameState, ports: CommandExecutionContext = syst
   return { ok: true, day: state.day };
 }
 
+/**
+ * Whether the host may leave a step unrecorded. A living actor's mandatory
+ * wake must resolve or be refused by its own ability, so only optional steps,
+ * steps without a living actor and the death-triggered wakes can be skipped.
+ */
+export function canSkipStep(state: GameState, step: NightStep): boolean {
+  if (step.done || step.skipped) return false;
+  if (step.optional) return true;
+  if (!step.actorId) return true;
+  if (DEATH_TRIGGERED[step.roleId || ""]) return true;
+  const actor = playerById(state, step.actorId);
+  return !actor || !actor.alive;
+}
+
 export function skipStep(
   state: GameState,
   key: string,
@@ -890,6 +929,13 @@ export function skipStep(
   const step = state.night.queue.find((candidate) => candidate.key === key);
   if (!step) return { ok: false, errorCode: "error.36", error: "Шаг не найден." };
   if (step.done) return { ok: false, errorCode: "error.46", error: "Шаг уже выполнен." };
+  if (!canSkipStep(state, step) && rejectsMandatorySkip(ports.rulesetVersion)) {
+    return {
+      ok: false,
+      errorCode: "error.80",
+      error: "Обязательный шаг живого игрока нельзя пропустить.",
+    };
+  }
   const note = String(reason || "").trim();
   step.skipped = true;
   step.done = true;

@@ -11,12 +11,15 @@ import {
   skipStep,
   startNight,
 } from "../../../core/engine/index.ts";
+import { systemPorts } from "../../../core/model/ports.ts";
+import { ANY_STEP_RESURRECTS_RULESET_VERSION } from "../../../core/engine/command-versions.ts";
 import { createGame } from "../../../core/model/state.ts";
-import type { NightStep, Player, Role } from "../../../core/model/types.ts";
+import type { GameState, NightStep, Player, Role } from "../../../core/model/types.ts";
 import { setUiLang, t as catalogT } from "../../i18n/strings.ts";
 import type { PreviewOutcome } from "../../ports.ts";
 import {
   applyGiven,
+  blockerActionText,
   blockerText,
   consequencesOf,
   dayHelpFormCount,
@@ -89,6 +92,21 @@ test("applyGiven records a role answer as the role id", () => {
     roleId: "empath",
     needsChoice: false,
   });
+});
+
+test("applyGiven keeps the Storyteller's wording in the same answer", () => {
+  const info = {
+    kind: "one-of-two",
+    roleId: "chef",
+    pair: ["6", "5"],
+    answerText: "P6 или P5 — Монах.",
+    needsChoice: true,
+    options: ["chef", "monk"],
+  };
+  const next = applyGiven(info, "monk", "role");
+  assert.equal(next!.roleId, "monk");
+  assert.equal(next!.answerText, "P6 или P5 — Монах.", "the wording belongs to the answer");
+  assert.equal(next!.needsChoice, false);
 });
 
 test("applyGiven clears the truthful zero flag when a role replaces it", () => {
@@ -282,7 +300,7 @@ test("a rejected command renders the localized error code, not the engine messag
   assert.equal(rejectionText(null, localized), "");
 });
 
-test("an impaired actor card shows the chosen answer, then the template", () => {
+test("an impaired actor card shows the chosen answer and its wording", () => {
   const game = createGame(5);
   game.players["1"]!.roleId = "chef";
   const step = { key: "n1-chef", roleId: "chef", actorId: "1" } as NightStep;
@@ -293,7 +311,6 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
       step,
       { kind: "number", value: 1, needsChoice: true },
       { kind: "number", value: 2, needsChoice: false },
-      "",
       true,
       roles,
       t,
@@ -306,13 +323,13 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
       game,
       step,
       { kind: "number", value: 1, needsChoice: true },
-      undefined,
-      "1 · Yes",
+      { kind: "number", value: 2, needsChoice: false, answerText: "1 · Yes" },
       true,
       roles,
       t,
     ),
     "1 · Yes",
+    "the Storyteller's wording is what the player hears",
   );
   assert.equal(
     shownCardText(
@@ -320,7 +337,6 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
       step,
       { kind: "number", value: 1, needsChoice: true },
       undefined,
-      "",
       true,
       roles,
       t,
@@ -328,7 +344,7 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
     "ui.notSet",
   );
   assert.equal(
-    shownCardText(game, step, { kind: "number", value: 1 }, undefined, "", false, roles, t),
+    shownCardText(game, step, { kind: "number", value: 1 }, undefined, false, roles, t),
     "numberResult:1",
   );
 });
@@ -394,6 +410,15 @@ test("every step blocker has its own localized sentence", () => {
   assert.equal(blockerText("redirect", 1, t), "ui.blockRedirect");
   assert.equal(blockerText("role", 1, t), "ui.blockRole");
   assert.equal(blockerText("drunk", 1, t), "ui.blockDrunk");
+});
+
+test("the dock action label names the first unanswered input", () => {
+  assert.equal(blockerActionText("targets", t), "ui.needTarget");
+  assert.equal(blockerActionText("secrets", t), "ui.needSecrets");
+  assert.equal(blockerActionText("role", t), "ui.needRole");
+  assert.equal(blockerActionText("drunk", t), "ui.needDrunk");
+  assert.equal(blockerActionText("given", t), "ui.needGiven");
+  assert.equal(blockerActionText("redirect", t), "ui.needRedirect");
 });
 
 test("rejectionOf reports the engine reason for a rejected or Storyteller-choice command", () => {
@@ -480,6 +505,16 @@ test("logConsequence reads the engine consequence and keeps an old-save fallback
 
 // Night 1 of a five-player game: the Chef sits next to the Spy, who sits next
 // to the Imp, so the Spy may register as good or evil.
+/** Fixture setup, not a host action: skip as the recorded ruleset did. */
+function fixtureSkip(game: GameState, key: string): void {
+  if (skipStep(game, key, "test").ok) return;
+  const result = skipStep(game, key, "test", {
+    ...systemPorts,
+    rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+}
+
 function chefBesideSpy() {
   const game = createGame(5);
   const assignment: Record<string, string> = {
@@ -502,7 +537,7 @@ function chefBesideSpy() {
   startNight(game);
   let step = currentStep(game);
   while (step && step.roleId !== "chef") {
-    skipStep(game, step.key, "test");
+    fixtureSkip(game, step.key);
     step = currentStep(game);
   }
   assert.equal(step?.roleId, "chef");
@@ -563,13 +598,13 @@ test("an Imp attack on a healthy Soldier previews a prevented death", () => {
   game.phase = "seat";
   startNight(game);
   while (currentStep(game)) {
-    skipStep(game, currentStep(game)!.key, "test");
+    fixtureSkip(game, currentStep(game)!.key);
   }
   endNight(game);
   endDay(game);
   let step = currentStep(game);
   while (step && step.roleId !== "imp") {
-    skipStep(game, step.key, "test");
+    fixtureSkip(game, step.key);
     step = currentStep(game);
   }
   assert.equal(step?.roleId, "imp");

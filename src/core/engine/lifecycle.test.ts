@@ -22,6 +22,8 @@ import {
   validateCommand,
 } from "./index.ts";
 import { COMMAND_PHASES, lifecycleGuard } from "./lifecycle.ts";
+import { systemPorts } from "../model/ports.ts";
+import { ANY_STEP_RESURRECTS_RULESET_VERSION } from "./command-versions.ts";
 
 const PHASES: Phase[] = ["setup", "deal", "seat", "night", "day", "over"];
 
@@ -54,7 +56,13 @@ function toDay(state: GameState): GameState {
   for (;;) {
     const pending = state.night.queue.find((step) => !step.done && !step.skipped);
     if (!pending) break;
-    const skipped = skipStep(state, pending.key, "lifecycle test");
+    // Fixture setup, not a host action: skip as the recorded ruleset did.
+    const skipped = skipStep(state, pending.key, "lifecycle test").ok
+      ? { ok: true }
+      : skipStep(state, pending.key, "lifecycle test", {
+          ...systemPorts,
+          rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+        });
     assert.equal(skipped.ok, true, JSON.stringify(skipped));
   }
   const ended = endNight(state);
@@ -200,18 +208,35 @@ test("a setup secret correction stays available during the night (SYS-LIFECYCLE-
   assert.equal(state.phase, "night");
 });
 
-test("a seat order correction stays available during the night (SYS-LIFECYCLE-02)", () => {
+test("a seat order change during the night is rejected and keeps the circle (SYS-LIFECYCLE-02)", () => {
   const state = dealtTroubleBrewing();
   toNight(state);
+  const before = canonicalState(state);
   const order = state.order.slice().reverse();
   const result = applyCommand(state, {
     id: "seat-order-in-night",
     type: "setOrder",
     payload: { order },
   });
-  assert.equal(result.status, "allowed", JSON.stringify(result));
-  assert.deepEqual(state.order, order);
-  assert.equal(state.phase, "night");
+  assert.equal(result.status, "rejected");
+  assert.equal(result.errorCode, "error.47");
+  assert.deepEqual(canonicalState(state), before);
+});
+
+test("a seat order change during the day is rejected and keeps the circle (SYS-LIFECYCLE-02)", () => {
+  const state = dealtTroubleBrewing();
+  toNight(state);
+  toDay(state);
+  const before = canonicalState(state);
+  const order = state.order.slice().reverse();
+  const result = applyCommand(state, {
+    id: "seat-order-in-day",
+    type: "setOrder",
+    payload: { order },
+  });
+  assert.equal(result.status, "rejected");
+  assert.equal(result.errorCode, "error.47");
+  assert.deepEqual(canonicalState(state), before);
 });
 
 test("a play command after over is rejected and keeps the winner (SYS-LIFECYCLE-01)", () => {

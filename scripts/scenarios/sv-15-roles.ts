@@ -10,6 +10,7 @@ import {
   playDay,
   snapshot,
   currentStep,
+  advanceStep,
   expectWinner,
   settle,
   assert,
@@ -64,6 +65,7 @@ async function inspect(page: Page) {
         roleId: step.roleId,
         done: step.done || step.skipped,
         noteKey: step.noteKey || null,
+        given: step.given ?? null,
       })),
       effects: state.effects.map((effect) => ({
         kind: effect.kind,
@@ -76,6 +78,7 @@ async function inspect(page: Page) {
       deaths: state.deaths.map((death) => ({
         playerId: death.playerId,
         demon: death.demon === true,
+        attackerId: typeof death.attackerId === "string" ? death.attackerId : null,
       })),
       twin: {
         evil: state.setup.evilTwinPlayerId,
@@ -107,8 +110,7 @@ async function playNightUntilOver(page: Page, plan: NightPlan) {
     }
     const spec = (step.roleId && plan[step.roleId]) || plan[step.key] || { skip: true };
     if (spec.skip) {
-      await page.locator('[data-act="skip"]').click();
-      await settle(page);
+      await advanceStep(page);
       continue;
     }
     const targets = Array.isArray(spec.targets)
@@ -136,8 +138,7 @@ async function skipUntil(page: Page, roleId: string) {
   for (let guard = 0; guard < 40; guard += 1) {
     const step = await currentStep(page);
     if (!step || step.roleId === roleId) return;
-    await page.locator('[data-act="skip"]').click();
-    await settle(page);
+    await advanceStep(page);
   }
   throw new Error(`never reached the ${roleId} step`);
 }
@@ -227,8 +228,20 @@ await runScenario("sv-15-roles", async ({ page }) => {
 
   const sageDeath = deep.deaths.find((death) => death.playerId === "7");
   assert.equal(sageDeath?.demon, true, "Sage rule: the Sage is killed by the Demon");
+  assert.equal(
+    sageDeath?.attackerId,
+    "3",
+    "Sage rule: the attack records the Demon that killed the Sage",
+  );
   const sageStep = deep.queue.find((step) => step.roleId === "sage");
   assert.ok(sageStep?.done, "Sage rule: the death-triggered wake runs in the same night");
+  const sagePair = Array.isArray(sageStep?.given?.pair) ? sageStep.given.pair.map(String) : [];
+  assert.equal(sagePair.length, 2, "Sage rule: the host records the two players shown");
+  assert.equal(
+    sagePair.includes("3"),
+    true,
+    "Sage rule: the pair contains the Demon that killed the Sage",
+  );
   rules.push("Sage wake");
 
   assert.deepEqual(

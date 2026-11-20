@@ -3,6 +3,7 @@
 import {
   artistProjection,
   madnessReviewProjection,
+  nominatorChoices,
   poisonChoicesProjection,
   resurrectChoices,
   savantProjection,
@@ -12,7 +13,12 @@ import {
   tableProjection,
 } from "../../../application/read-models/table.ts";
 import { useEffect, useState } from "react";
-import { livingPlayers, orderedPlayers, playerById } from "../../../core/model/state.ts";
+import {
+  effectiveRoleId,
+  livingPlayers,
+  orderedPlayers,
+  playerById,
+} from "../../../core/model/state.ts";
 import { ALL_ROLES, isManualScript } from "../../../core/model/rules.ts";
 import { roleSupportEntries } from "../../../core/model/support.ts";
 import type { ArtistAnswer, NightStep, SavantTruth } from "../../../core/model/types.ts";
@@ -387,27 +393,36 @@ function StepCard({
                 ) : null}
               </div>
             ) : derived.actorImpaired ? (
-              <div className="mt-1 grid gap-1.5" data-template>
-                <label className={FIELD_BOX}>
-                  <span className="label">{t("ui.template")}</span>
-                  <textarea
-                    className="field min-h-[64px] resize-y"
-                    data-info-template
-                    value={drafts.infoTemplate}
-                    onChange={(event) => drafts.setInfoTemplate(event.target.value)}
-                  />
-                </label>
-                <p className={MUTED}>{t("ui.templateHint")}</p>
-                <button
-                  className="btn"
-                  type="button"
-                  data-act="show-template"
-                  disabled={!drafts.infoTemplate.trim()}
-                  onClick={() => actions.openInfo(key)}
-                >
-                  {t("ui.showTemplate")}
-                </button>
-              </div>
+              info.kind === "note" ? null : (
+                <div className="mt-1 grid gap-1.5" data-template>
+                  <label className={FIELD_BOX}>
+                    <span className="label">{t("ui.template")}</span>
+                    <textarea
+                      className="field min-h-[64px] resize-y"
+                      data-info-template
+                      value={given?.answerText ?? ""}
+                      onChange={(event) => {
+                        const text = event.target.value;
+                        const base = drafts.givens.get(draftKey) || info;
+                        const next = { ...base, needsChoice: false };
+                        if (text.trim()) next.answerText = text;
+                        else delete next.answerText;
+                        drafts.putGiven(draftKey, next);
+                      }}
+                    />
+                  </label>
+                  <p className={MUTED}>{t("ui.templateHint")}</p>
+                  <button
+                    className="btn"
+                    type="button"
+                    data-act="show-template"
+                    disabled={!given}
+                    onClick={() => actions.openInfo(key)}
+                  >
+                    {t(given?.answerText?.trim() ? "ui.showTemplate" : "showCard")}
+                  </button>
+                </div>
+              )
             ) : (
               <button
                 className="btn"
@@ -610,14 +625,31 @@ function GivenSelect({
       info.options && info.options.length
         ? (info.options as Array<string | number | boolean>)
         : ALL_ROLES;
+  } else if (info.kind === "role-pair" || info.kind === "player-pair") {
+    kind = "pair";
+    options = info.options ? (info.options as Array<string | number | boolean>) : [];
   }
   if (!options.length) return null;
+  // A shown pair names its characters or seats so the host reads the same
+  // answer they gave at the table.
+  const pairText = (raw: string): string => {
+    const ids = raw.split("|");
+    if (info.kind === "player-pair") {
+      return ids
+        .map((id) => {
+          const player = playerById(state, id);
+          return player ? `${displayName(player, t)} (${player.seat})` : id;
+        })
+        .join(" / ");
+    }
+    return ids.map((id) => roleNameOf(id, ports.roles.byId)).join(" / ");
+  };
   // A healthy answer that depends on a registration (the Undertaker's
   // character, the Chef's count) is a registration decision, and a missing
   // data source is a plain host answer; only a false-information decision
   // gets the false-information label.
   const label = t(givenLabelKey(info));
-  return (
+  const roleSelect = (
     <label className={FIELD_BOX}>
       <span className="label">{label}</span>
       <select
@@ -631,28 +663,71 @@ function GivenSelect({
             drafts.dropGiven(draftKey);
             return;
           }
-          const next = applyGiven(info, raw, kind);
+          const next = applyGiven(drafts.givens.get(draftKey) || info, raw, kind);
           if (next) drafts.putGiven(draftKey, next);
         }}
       >
         <option value="">
-          {t("computed")}: {infoText(state, step, info, ports.roles.byId, t)}
+          {kind === "pair"
+            ? t("ui.choosePair")
+            : `${t("computed")}: ${infoText(state, step, info, ports.roles.byId, t)}`}
         </option>
         {options.map((value) => (
           <option key={String(value)} value={String(value)}>
-            {kind === "role"
-              ? String(value) === "zero"
-                ? t("none")
-                : roleNameOf(String(value), ports.roles.byId)
-              : kind === "bool"
-                ? value
-                  ? t("yes")
-                  : t("no")
-                : String(value)}
+            {kind === "pair"
+              ? pairText(String(value))
+              : kind === "role"
+                ? String(value) === "zero"
+                  ? t("none")
+                  : roleNameOf(String(value), ports.roles.byId)
+                : kind === "bool"
+                  ? value
+                    ? t("yes")
+                    : t("no")
+                  : String(value)}
           </option>
         ))}
       </select>
     </label>
+  );
+  if (info.kind !== "one-of-two") return roleSelect;
+  // A false one-of-two answer may name any two players, not only the prepared
+  // pair: the Storyteller decides what the player hears (Washerwoman r2630).
+  const base = drafts.givens.get(draftKey) || info;
+  const pair = Array.isArray(base.pair)
+    ? base.pair.map(String)
+    : Array.isArray(info.pair)
+      ? info.pair.map(String)
+      : ["", ""];
+  const choosePlayer = (index: 0 | 1, id: string) => {
+    const nextPair: [string, string] = [pair[0] ?? "", pair[1] ?? ""];
+    nextPair[index] = id;
+    drafts.putGiven(draftKey, { ...base, pair: nextPair, needsChoice: false });
+  };
+  return (
+    <div className="grid gap-2" data-one-of-two>
+      {roleSelect}
+      <div className="grid grid-cols-2 gap-2">
+        {[0, 1].map((index) => (
+          <label key={index} className={FIELD_BOX}>
+            <span className="label">{t(index === 0 ? "ui.player1" : "ui.player2")}</span>
+            <select
+              className="field"
+              data-player-pair={index}
+              value={pair[index] ?? ""}
+              onChange={(event) => choosePlayer(index as 0 | 1, event.target.value)}
+            >
+              <option value="">{t("ui.choosePlayer")}</option>
+              {orderedPlayers(state).map((player) => (
+                <option key={player.id} value={player.id}>
+                  {`${displayName(player, t)} (${player.seat})`}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -845,7 +920,7 @@ export function DayCard({
   // the day card and the dock make one decision.
   const day = state.day;
   const executed = day.execution ? playerById(state, day.execution.playerId) : null;
-  const living = livingPlayers(state);
+  const living = nominatorChoices(state);
   const manual = isManualScript(state.script);
   const pacifistSupport = roleSupportEntries(state.setup.roles || []).find(
     (entry) => entry.roleId === "pacifist",
@@ -858,7 +933,7 @@ export function DayCard({
   const slayer =
     !manual && !day.execution && !day.ended
       ? orderedPlayers(state).find(
-          (player) => player.roleId === "slayer" && player.alive && !player.used.slayer,
+          (player) => effectiveRoleId(player) === "slayer" && player.alive && !player.used.slayer,
         )
       : null;
   const artist = !manual ? artistProjection(state) : null;
@@ -1263,7 +1338,9 @@ export function SlayerPanel({ view, slayerId }: { view: TableView; slayerId: str
             </option>
           ))}
         </select>
-        {selected && selected.roleId === "recluse" ? (
+        {selected &&
+        selected.roleId === "recluse" &&
+        playerById(state, slayerId)?.roleId === "slayer" ? (
           <label className={CHECK}>
             <input
               type="checkbox"

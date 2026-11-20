@@ -189,6 +189,10 @@ export function TableScreen() {
       const before = list[0];
       const next = nextSelection(list, playerId, targetBounds(step).max);
       drafts.putTargets(key, next);
+      // A new set of targets answers a new question: every answer tuned to the
+      // old choice, including its wording, goes with it.
+      drafts.dropGiven(key);
+      drafts.dropRegistrations(key);
       // A new victim drops the stored redirect. The Mayor's fate is the
       // Storyteller's choice, so a seat tap never answers it (Mayor r2995).
       if (before !== next[0]) drafts.dropRedirect(key);
@@ -281,7 +285,7 @@ export function TableScreen() {
         <div className={`host ${HOST} flex min-h-0 flex-1 flex-col`} data-console="table">
           {rejectionWarning}
           <main
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2 pt-2"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-12 pt-8"
             data-table-stage
             aria-label={t("table")}
           >
