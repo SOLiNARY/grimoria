@@ -503,7 +503,7 @@ test("the Witch loses a placed curse only when exactly three players live (SNV-W
   startNight(state);
   const witch = state.night.queue.find((step) => step.roleId === "witch")!;
   completeStep(state, witch.key, { targetIds: ["1"] });
-  for (const id of ["3", "4", "5", "6"]) state.players[id].alive = false;
+  for (const id of ["2", "3", "4", "5"]) state.players[id].alive = false;
   assert.equal(state.order.filter((id) => state.players[id].alive).length, 3);
   state.phase = "day";
   state.day = {
@@ -515,7 +515,7 @@ test("the Witch loses a placed curse only when exactly three players live (SNV-W
     ended: false,
     open: true,
   };
-  const result = nominate(state, "1", "2");
+  const result = nominate(state, "1", "6");
   assert.equal(result.ok, true);
   assert.equal(result.curse, false, "with three living the Witch has no ability");
   assert.equal(state.players["1"].alive, true);
@@ -2111,6 +2111,41 @@ test("the Cerenovus marks the chosen player mad for the next day and night (SNV-
     "no longer mad at the next dawn",
   );
   assert.deepEqual(validateState(state), []);
+});
+
+test("a poisoned Cerenovus suspends the madness and it resumes when healthy (SNV-CERENOVUS-01)", () => {
+  const { state } = cerenovusMadness();
+  madnessDay(state);
+  assert.ok(activeMadness(state, "2"), "the madness is active");
+  const poison = {
+    id: "test-cerenovus-poison",
+    kind: "poison",
+    sourceId: "1",
+    targetId: "6",
+    start: { phase: "day" as const, number: 1 },
+    expires: { phase: "night" as const, number: 2 },
+    active: true,
+  };
+  state.effects.push(poison);
+  assert.equal(
+    activeMadness(state, "2"),
+    null,
+    "States r1039: a poisoned Cerenovus imposes no madness",
+  );
+  state.effects = state.effects.filter((effect) => effect !== poison);
+  assert.ok(activeMadness(state, "2"), "the madness resumes when the Cerenovus is healthy");
+});
+
+test("a dead Cerenovus ends the madness (SNV-CERENOVUS-01)", () => {
+  const { state } = cerenovusMadness();
+  madnessDay(state);
+  assert.ok(activeMadness(state, "2"), "the madness is active");
+  kill(state, "6", "ability", { phase: "day", number: 1 }, { demon: true, ability: "fanggu" });
+  assert.equal(
+    activeMadness(state, "2"),
+    null,
+    "Glossary r3168: the dead Cerenovus's persistent madness ends",
+  );
 });
 
 test("the Cerenovus needs a good character before it records madness", () => {
