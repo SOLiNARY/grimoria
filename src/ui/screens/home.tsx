@@ -1,19 +1,108 @@
-// The welcome page: the store front. A real first night stands on the shelf as
-// rental tapes, the scenarios are the staff picks, and the one yellow action
-// opens a game. It never changes the saved game.
+// The welcome page: a steel catalog of the three official scripts, their team
+// mix and the full first-night order, with one blue action per viewport. It
+// reads the catalog and the saved game; it never changes the game.
+import { useEffect, useState, type ReactNode } from "react";
 import { nightSequence } from "../../core/model/rules.ts";
+import type { Role } from "../../core/model/types.ts";
+import { cx } from "../components/arcane/classes.ts";
 import { ArcaneAppBar } from "../components/arcane/index.ts";
 import { useShellPorts } from "../ports.ts";
 import { useGame } from "../store/use-game.ts";
+import { APP_VERSION } from "../version.ts";
 
-const SAMPLE_DEATH = { seat: 7, roleId: "butler" } as const;
-const TEAM_SPINE: Record<string, string> = {
+const TEAMS = ["townsfolk", "outsider", "minion", "demon"] as const;
+type TeamKey = (typeof TEAMS)[number];
+
+const TEAM_BAR: Record<TeamKey, string> = {
   townsfolk: "bg-townsfolk",
   outsider: "bg-outsider",
   minion: "bg-minion",
   demon: "bg-demon",
-  traveller: "bg-traveller",
 };
+
+const SCRIPTS = ["tb", "bmr", "snv"] as const;
+const SCRIPT_NAME: Record<(typeof SCRIPTS)[number], string> = {
+  tb: "sheetScenarioTb",
+  bmr: "sheetScenarioBmr",
+  snv: "sheetScenarioSnv",
+};
+const SAMPLE: Record<(typeof SCRIPTS)[number], string[]> = {
+  tb: ["washerwoman", "chef", "empath", "imp"],
+  bmr: ["grandmother", "gossip", "assassin", "zombuul"],
+  snv: ["clockmaker", "savant", "witch", "vortox"],
+};
+
+const HOME_ACTION =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] px-4 text-[14px] font-medium leading-none transition-colors focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2";
+const HOME_CARD = "rounded-[16px] border border-edge bg-crypt-2";
+
+function RoleDisc({ role, size = 36 }: { role: Role; size?: 28 | 36 }) {
+  const ports = useShellPorts();
+  return (
+    <span
+      className={cx(
+        "grid shrink-0 place-items-center rounded-full bg-label",
+        size === 28 ? "size-7" : "size-9",
+      )}
+      aria-hidden="true"
+    >
+      <img className="h-[80%] w-[80%] object-contain" src={ports.roles.image(role)} alt="" />
+    </span>
+  );
+}
+
+function HomePrimary({
+  children,
+  full,
+  onClick,
+  className,
+}: {
+  children: ReactNode;
+  full?: boolean;
+  onClick?: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-act="home-start"
+      className={cx(
+        HOME_ACTION,
+        "bg-amber font-semibold text-white hover:bg-amber-2 active:bg-amber-active",
+        full && "w-full",
+        className,
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function HomeSecondary({
+  children,
+  full,
+  onClick,
+}: {
+  children: ReactNode;
+  full?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-act="home-secondary"
+      className={cx(
+        HOME_ACTION,
+        "border border-edge bg-crypt-3 text-text hover:border-accent-text",
+        full && "w-full",
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function HomeScreen() {
   const ports = useShellPorts();
@@ -22,12 +111,13 @@ export function HomeScreen() {
   const t = ports.strings.t;
   const live = state.phase !== "setup";
   const go = (route: string) => ports.router.go(route);
+  const [ready, setReady] = useState(false);
 
-  const firstNight = nightSequence(1, "tb")
-    .map((id) => ports.roles.byId(id))
-    .filter((role) => role !== null)
-    .slice(0, 5);
-  const deathRole = ports.roles.byId(SAMPLE_DEATH.roleId);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setReady(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   const all = ports.roles
     .all()
     .filter(
@@ -35,237 +125,198 @@ export function HomeScreen() {
         role.team !== "traveller" &&
         (role.edition === "tb" || role.edition === "bmr" || role.edition === "snv"),
     );
-  const editions = [
-    { id: "tb", label: "Trouble Brewing", tone: "bg-tape-yellow" },
-    { id: "bmr", label: "Bad Moon Rising", tone: "bg-tape-red" },
-    { id: "snv", label: "Sects & Violets", tone: "bg-tape-purple" },
-  ].map((edition) => ({
-    ...edition,
-    count: all.filter((role) => role.edition === edition.id).length,
-  }));
+
+  const editions = SCRIPTS.map((id) => {
+    const roles = all.filter((role) => role.edition === id);
+    const teams: Record<TeamKey, number> = {
+      townsfolk: roles.filter((role) => role.team === "townsfolk").length,
+      outsider: roles.filter((role) => role.team === "outsider").length,
+      minion: roles.filter((role) => role.team === "minion").length,
+      demon: roles.filter((role) => role.team === "demon").length,
+    };
+    return {
+      id,
+      name: t(SCRIPT_NAME[id]),
+      count: roles.length,
+      teams,
+      sample: SAMPLE[id]
+        .map((roleId) => ports.roles.byId(roleId))
+        .filter((role): role is Role => role !== null),
+    };
+  });
+
+  const order = nightSequence(1, "tb")
+    .map((id) => ports.roles.byId(id))
+    .filter((role): role is Role => role !== null);
 
   return (
     <>
       <ArcaneAppBar current="home" />
-      <main className="mx-auto w-[min(1320px,100%)] px-4 pb-14 pt-5 min-[900px]:px-6 min-[900px]:pt-8">
-        <section className="grid items-start gap-8 min-[980px]:grid-cols-[1.02fr_1fr] min-[980px]:gap-10">
-          <div className="min-w-0">
-            <h1 className="marquee text-[clamp(42px,7.2vw,98px)] text-text">{t("homeTitle")}</h1>
-            <p className="mt-4 max-w-[46ch] text-[16px] leading-[1.55] text-muted">
-              {t("homeLead")}
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                className="btn btn--accent min-h-12 px-6 !text-[16px]"
-                onClick={() => go("/bag")}
-              >
-                {t("homeStart")}
-              </button>
-              {live ? (
-                <button
-                  type="button"
-                  className="btn min-h-12 border-tape-blue px-5 !text-[#9dc0ff] hover:!border-tape-blue hover:!bg-tape-blue/10"
-                  onClick={() => go("/table")}
-                >
-                  {t("homeContinueCase")}
-                </button>
-              ) : (
-                <button type="button" className="btn min-h-12 px-5" onClick={() => go("/demo")}>
-                  {t("homeRunDemo")}
-                </button>
-              )}
-            </div>
-
-            <div className="label-mono mt-7 flex flex-wrap items-center gap-x-3 gap-y-1 border-y border-edge py-3 text-[10px] text-muted">
-              <span className="rec-dot shrink-0" aria-hidden="true" />
-              <span>{editions.length} сценария</span>
-              <span aria-hidden="true" className="max-[520px]:hidden">
-                ·
-              </span>
-              <span>
-                {all.length} {ports.strings.roleCount(all.length)}
-              </span>
-              <span aria-hidden="true" className="max-[520px]:hidden">
-                ·
-              </span>
-              <span>{t("homeOffline")}</span>
-              <span aria-hidden="true" className="max-[520px]:hidden">
-                ·
-              </span>
-              <span>RU EN AZ</span>
-            </div>
-          </div>
-
-          <div className="min-w-0">
-            <div className="relative rounded-[3px] border-2 border-edge bg-shelf px-4 pb-0 pt-5">
-              <span className="label-mono absolute -top-px left-4 -translate-y-1/2 bg-crypt px-2 text-[9.5px] text-amber">
-                {t("homeSampleNight")}
-              </span>
-              <ol className="m-0 grid list-none grid-cols-3 items-end gap-2.5 p-0">
-                {firstNight.map((role, index) => (
-                  <li key={role.id} className="rise min-w-0">
-                    <article className="tape-box flex h-full flex-col">
-                      <span
-                        className={`h-1.5 w-full ${TEAM_SPINE[role.team] ?? "bg-edge-2"}`}
-                        aria-hidden="true"
-                      />
-                      <div className="relative flex flex-1 items-center justify-center px-1.5 py-2.5">
-                        <span className="label-mono absolute left-1 top-0.5 text-[8px] text-muted/70">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <img
-                          className="h-12 w-full object-contain min-[520px]:h-16"
-                          src={ports.roles.image(role)}
-                          alt=""
-                          aria-hidden="true"
-                        />
-                      </div>
-                      <div className="tape-sticker flex items-center justify-center px-1.5 py-1">
-                        <b className="line-clamp-2 min-w-0 break-words hyphens-auto text-center text-[9px] leading-[1.1]">
-                          {role.name}
-                        </b>
-                      </div>
-                    </article>
-                  </li>
-                ))}
-                <li className="rise min-w-0">
-                  <article className="tape-box flex h-full flex-col border-crimson-dim">
-                    <span className="h-1.5 w-full bg-tape-red" aria-hidden="true" />
-                    <div className="flex flex-1 items-center justify-center px-1.5 py-2.5">
-                      {deathRole ? (
-                        <img
-                          className="h-12 w-full object-contain opacity-40 grayscale min-[520px]:h-16"
-                          src={ports.roles.image(deathRole)}
-                          alt=""
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                    </div>
-                    <div className="tape-sticker flex items-center justify-center gap-1 px-1.5 py-1">
-                      <b className="line-clamp-2 min-w-0 break-words hyphens-auto text-center text-[9px] leading-[1.1] line-through decoration-2">
-                        {deathRole?.name ?? ""}
-                      </b>
-                      <span className="shrink-0 text-[9px] opacity-60">✕</span>
-                    </div>
-                  </article>
-                </li>
-              </ol>
-              <div className="h-2.5 border-t border-edge-2 bg-[#0a0a0c]" aria-hidden="true" />
-            </div>
-            <div className="mt-3 flex items-start justify-between gap-3">
-              <p className="m-0 max-w-[34ch] text-[11.5px] leading-[1.45] text-muted">
-                {t("homeSynthetic")}
-              </p>
-              <span className="tape-sticker inline-block shrink-0 -rotate-2 px-3 py-2 text-[9px] leading-[1.15]">
-                <span className="block text-[13px] font-semibold">BE KIND</span>
-                REWIND
-              </span>
-            </div>
-
-            <div className="tape-box mt-4 flex items-stretch gap-3 p-2.5">
-              <span className="w-1.5 shrink-0 bg-tape-blue" aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <span className="label-mono text-[9px] text-muted">MEMBERSHIP</span>
-                <p className="marquee m-0 mt-0.5 text-[17px] text-text">{t("homeMemberTitle")}</p>
-                <p className="m-0 mt-0.5 text-[12px] leading-[1.4] text-muted">
-                  {t("homeMemberLead")}
-                </p>
+      <main className="min-h-[calc(100dvh-3.5rem)] bg-crypt px-4 pt-8 pb-14 text-text min-[900px]:px-8 min-[900px]:pt-10">
+        <div className="mx-auto w-full max-w-[1240px]">
+          <header className="border-b border-edge pb-6 min-[900px]:flex min-[900px]:items-end min-[900px]:justify-between min-[900px]:gap-12">
+            <h1 className="max-w-[13ch] text-[clamp(40px,6.2vw,78px)] leading-[0.94] font-semibold tracking-[-0.035em] text-balance">
+              {t("homeTitle")}
+            </h1>
+            <div className="mt-6 min-w-0 min-[900px]:mt-0 min-[900px]:w-[330px] min-[900px]:shrink-0">
+              <p className="text-[15px] leading-[24px] text-muted">{t("homeLead")}</p>
+              <div className="mt-5 flex flex-col gap-2 min-[420px]:flex-row min-[900px]:flex-col">
+                <HomePrimary full onClick={() => go("/bag")}>
+                  {t("homeStart")}
+                </HomePrimary>
+                {live ? (
+                  <HomeSecondary full onClick={() => go("/table")}>
+                    {t("homeContinueCase")}
+                  </HomeSecondary>
+                ) : (
+                  <HomeSecondary full onClick={() => go("/demo")}>
+                    {t("homeRunDemo")}
+                  </HomeSecondary>
+                )}
               </div>
-              <span
-                className="barcode h-10 w-16 shrink-0 self-center border border-edge-2"
-                aria-hidden="true"
-              />
             </div>
-          </div>
-        </section>
+          </header>
 
-        <section className="mt-10" aria-labelledby="home-staff-title">
-          <h2
-            id="home-staff-title"
-            className="marquee m-0 flex items-center gap-3 text-[22px] text-text"
-          >
-            {t("homeStaffPicks")}
-            <span className="h-[2px] flex-1 bg-edge" aria-hidden="true" />
-          </h2>
-          <ul className="m-0 mt-3 grid list-none gap-3 p-0 min-[720px]:grid-cols-3">
-            {editions.map((edition) => (
-              <li key={edition.id}>
-                <article className="tape-box flex items-stretch gap-3 p-2.5">
-                  <span className={`w-1.5 shrink-0 ${edition.tone}`} aria-hidden="true" />
-                  <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="label-mono text-[9px] text-muted">{edition.id}</span>
-                      <h3 className="marquee m-0 mt-0.5 truncate text-[19px] text-text">
-                        {edition.label}
-                      </h3>
-                    </div>
-                    <span className="shrink-0 text-right">
-                      <b className="marquee block text-[26px] leading-none text-amber">
-                        {edition.count}
-                      </b>
-                      <span className="label-mono text-[8.5px] text-muted">{t("roles")}</span>
+          <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 text-[12px] text-muted">
+            <span>
+              <b className="font-medium tabular-nums text-text">{all.length}</b> {t("roles")}
+            </span>
+            <span>5–15 {t("players")}</span>
+            <span>RU EN AZ</span>
+          </div>
+
+          <h2 className="mt-8 text-[16px] leading-[24px] font-semibold">{t("scriptOfficial")}</h2>
+
+          <section className="mt-3 grid gap-3 min-[760px]:grid-cols-3">
+            {editions.map((edition, index) => {
+              const scale = edition.count || 1;
+              return (
+                <article
+                  key={edition.id}
+                  className={cx(HOME_CARD, "flex min-h-[248px] flex-col p-4")}
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-[11px] font-semibold tracking-[.12em] uppercase text-muted">
+                      {edition.id}
+                    </span>
+                    <span className="text-[12px] tabular-nums text-muted">
+                      {edition.count} {t("roles")}
                     </span>
                   </div>
+                  <h3 className="mt-2 text-[22px] leading-[26px] font-semibold tracking-[-0.02em]">
+                    {edition.name}
+                  </h3>
+
+                  <div className="mt-4">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-crypt" aria-hidden="true">
+                      <div
+                        className={cx(
+                          "flex h-full origin-left transition-transform duration-700 ease-out",
+                          ready ? "scale-x-100" : "scale-x-0",
+                        )}
+                        style={{ transitionDelay: `${index * 110}ms` }}
+                      >
+                        {TEAMS.map((team) => (
+                          <span
+                            key={team}
+                            className={cx("h-full shrink-0", TEAM_BAR[team])}
+                            style={{ width: `${(edition.teams[team] / scale) * 100}%` }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] leading-[15px]">
+                      {TEAMS.map((team) => (
+                        <div key={team} className="flex items-center justify-between gap-2">
+                          <dt className="flex min-w-0 items-center gap-1.5 text-muted">
+                            <span
+                              className={cx(
+                                "inline-block size-1.5 shrink-0 rounded-full",
+                                TEAM_BAR[team],
+                              )}
+                              aria-hidden="true"
+                            />
+                            <span className="truncate">{t(team)}</span>
+                          </dt>
+                          <dd className="m-0 tabular-nums text-text">{edition.teams[team]}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-2">
+                    {edition.sample.map((role) => (
+                      <RoleDisc key={role.id} role={role} />
+                    ))}
+                  </div>
+                  <div className="mt-auto flex items-center justify-end border-t border-edge pt-3">
+                    <a
+                      className="text-[13px] text-muted transition-colors hover:text-text"
+                      href={ports.router.path("sheet")}
+                    >
+                      {t("roleList")} →
+                    </a>
+                  </div>
                 </article>
-              </li>
-            ))}
-          </ul>
-        </section>
+              );
+            })}
+          </section>
 
-        <section
-          className="mt-10 grid gap-4 border-t border-edge pt-4 min-[760px]:grid-cols-2"
-          aria-labelledby="home-how-title"
-        >
-          <h2 id="home-how-title" className="sr-only">
-            {t("homeHow")}
-          </h2>
-          <div>
-            <h3 className="marquee m-0 text-[17px] text-text">{t("homeHow")}</h3>
-            <p className="m-0 mt-1.5 max-w-[56ch] text-[13.5px] leading-[1.55] text-muted">
-              {t("homeSupportLead")}
-            </p>
-          </div>
-          <div className="min-[760px]:border-l min-[760px]:border-edge min-[760px]:pl-4">
-            <h3 className="marquee m-0 text-[17px] text-text">{t("homeOffline")}</h3>
-            <p className="m-0 mt-1.5 max-w-[56ch] text-[13.5px] leading-[1.55] text-muted">
-              {t("homeOfflineLead")}
-            </p>
-          </div>
-        </section>
+          <section className="mt-9 border-t border-edge pt-6">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="flex flex-wrap items-baseline gap-3">
+                <h2 className="text-[16px] leading-[24px] font-semibold">{t("firstNightList")}</h2>
+                <span className="text-[12px] text-muted">
+                  {t("sheetScenarioTb")} · {t("night")} 1
+                </span>
+              </div>
+              <span className="text-[12px] tabular-nums text-muted">
+                01–{String(order.length).padStart(2, "0")}
+              </span>
+            </div>
+            <ol className="mt-4 grid list-none grid-cols-2 gap-x-5 gap-y-2.5 p-0 min-[560px]:grid-cols-3 min-[760px]:grid-cols-4 min-[1000px]:grid-cols-7">
+              {order.map((role, index) => (
+                <li key={role.id} className="flex min-w-0 items-center gap-2">
+                  <span className="w-4 shrink-0 text-[10px] tabular-nums text-muted">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <RoleDisc role={role} size={28} />
+                  <span className="truncate text-[12px] leading-[16px]">{role.name}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
 
-        <section className="mt-8 flex flex-wrap items-center gap-2">
-          {[
-            ["MODE", "OFFLINE"],
-            ["SCRIPTS", String(editions.length)],
-            ["ROLES", String(all.length)],
-            ["LANGS", "RU EN AZ"],
-          ].map(([key, value]) => (
-            <span
-              key={key}
-              className="label-mono inline-flex items-center gap-2 border border-edge px-2.5 py-1.5 text-[10px] text-muted"
-            >
-              <span className="text-brass">{key}</span>
-              {value}
-            </span>
-          ))}
-        </section>
+          <section className={cx(HOME_CARD, "mt-9 px-4 py-5 min-[760px]:px-6 min-[760px]:py-6")}>
+            <div className="grid gap-6 min-[760px]:grid-cols-[1.1fr_1fr_auto] min-[760px]:items-center">
+              <div className="min-w-0">
+                <h2 className="text-[16px] leading-[24px] font-semibold">{t("homeHow")}</h2>
+                <p className="mt-1 max-w-[44ch] text-[13px] leading-[20px] text-muted">
+                  {t("homeSupportLead")}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-[16px] leading-[24px] font-semibold">{t("homeOffline")}</h2>
+                <p className="mt-1 max-w-[44ch] text-[13px] leading-[20px] text-muted">
+                  {t("homeOfflineLead")}
+                </p>
+              </div>
+              <div className="min-w-0 min-[760px]:shrink-0">
+                <HomePrimary className="w-full min-[760px]:w-auto" onClick={() => go("/bag")}>
+                  {t("homeStart")}
+                </HomePrimary>
+              </div>
+            </div>
+          </section>
 
-        <section className="mt-8">
-          <div className="hazard h-2" aria-hidden="true" />
-          <div className="flex flex-wrap items-center justify-between gap-4 bg-tape-yellow px-5 py-5">
-            <p className="m-0 max-w-[58ch] text-[15px] font-medium leading-[1.5] text-[#101010]">
-              {t("homeFormLead")}
-            </p>
-            <button
-              type="button"
-              className="btn min-h-12 border-2 border-[#101010] !bg-[#101010] px-6 !text-[15px] !text-tape-yellow"
-              onClick={() => go("/bag")}
-            >
-              {t("homeStart")}
-            </button>
-          </div>
-        </section>
+          <p className="mt-6 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+            <span className="tabular-nums">Grimoria v{APP_VERSION}</span>
+            <span aria-hidden="true">·</span>
+            <a className="transition-colors hover:text-text" href={ports.router.path("changelog")}>
+              {t("changelog")}
+            </a>
+          </p>
+        </div>
       </main>
     </>
   );

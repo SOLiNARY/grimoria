@@ -80,7 +80,7 @@ export function EventLog({
                 <b
                   className={cx(
                     "block text-[13px] font-semibold",
-                    entry.tone === "accent" ? "text-amber" : "",
+                    entry.tone === "accent" ? "text-accent-text" : "",
                   )}
                 >
                   {entry.title}
@@ -91,7 +91,7 @@ export function EventLog({
                   </small>
                 ) : null}
                 {entry.tag ? (
-                  <span className="mt-1 inline-block text-[10px] uppercase tracking-[.13em] text-amber">
+                  <span className="mt-1 inline-block text-[10px] uppercase tracking-[.13em] text-accent-text">
                     {entry.tag}
                   </span>
                 ) : null}

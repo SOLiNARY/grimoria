@@ -390,7 +390,7 @@ function StepCard({
                   {t("ui.showGrimoire")}
                 </button>
                 {derived.actorImpaired ? (
-                  <p className={`${ALERT} text-amber-2`} data-warning="spyFalseGrimoire">
+                  <p className={`${ALERT} text-accent-text`} data-warning="spyFalseGrimoire">
                     {t("ui.spyFalseGrimoire")}
                   </p>
                 ) : null}
@@ -1858,7 +1858,7 @@ export function SetupBoard({ view }: { view: TableView }) {
                 </span>
                 <span
                   aria-hidden="true"
-                  className={player.claimed ? "text-table-primary" : "text-muted"}
+                  className={player.claimed ? "text-accent-text" : "text-muted"}
                 >
                   {player.claimed ? "✓" : "·"}
                 </span>

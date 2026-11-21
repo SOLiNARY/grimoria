@@ -950,11 +950,11 @@ export function BagScreen() {
           </em>
         </span>
         {poolMode ? (
-          <span className="absolute right-2 top-2 text-[13px] text-amber">
+          <span className="absolute right-2 top-2 text-[13px] text-accent-text">
             {pressed ? <CheckMark /> : "+"}
           </span>
         ) : pressed ? (
-          <span className="absolute right-2 top-2 text-amber">
+          <span className="absolute right-2 top-2 text-accent-text">
             <CheckMark />
           </span>
         ) : null}
@@ -1323,7 +1323,7 @@ export function BagScreen() {
       <div className="bag-secret-row grid gap-1.5">
         <span className={LABEL}>{t("lunaticShown")}</span>
         <button
-          className={`btn min-h-11 w-full ${state.setup.lunaticShownExplicit === false ? "!border-amber !bg-amber-dim/40 !text-amber" : ""}`}
+          className={`btn min-h-11 w-full ${state.setup.lunaticShownExplicit === false ? "!border-amber !bg-amber-dim/40 !text-accent-text" : ""}`}
           type="button"
           data-act="lunatic-follow-demon"
           aria-pressed={state.setup.lunaticShownExplicit === false}
@@ -1527,7 +1527,7 @@ export function BagScreen() {
             {t(entry.labelKey)}
           </h3>
           {applied ? (
-            <b className="shrink-0 rounded-[3px] border border-amber-dim px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber">
+            <b className="shrink-0 rounded-[3px] border border-amber-dim px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-text">
               {t("bag.applied")}
             </b>
           ) : (
@@ -1710,7 +1710,7 @@ export function BagScreen() {
             </button>
             {isCustom ? (
               <button
-                className={`${tool}${poolMode ? " !border-amber-dim !bg-amber-dim/40 !text-amber" : ""}`}
+                className={`${tool}${poolMode ? " !border-amber-dim !bg-amber-dim/40 !text-accent-text" : ""}`}
                 type="button"
                 data-act="edit-pool"
                 onClick={() => {
@@ -1756,7 +1756,7 @@ export function BagScreen() {
           )}
         </div>
         {poolMode ? (
-          <p className={`bag-pool-hint ${NOTE} text-amber`}>{t("bag.poolHint")}</p>
+          <p className={`bag-pool-hint ${NOTE} text-accent-text`}>{t("bag.poolHint")}</p>
         ) : null}
         <div className="grid gap-3">
           {groupedRoles().map((group) => {
@@ -2061,7 +2061,7 @@ export function BagScreen() {
             </details>
 
             <a
-              className="mt-3 inline-block text-[12px] text-amber"
+              className="mt-3 inline-block text-[12px] text-accent-text"
               href="https://script.bloodontheclocktower.com/"
               target="_blank"
               rel="noopener"

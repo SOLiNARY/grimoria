@@ -37,7 +37,7 @@ const LABEL = "text-[11px] font-semibold uppercase tracking-[0.16em] text-brass"
 const NOTE = "secrets-note m-0 text-[13px] leading-relaxed text-muted";
 const PANEL = "secrets-block min-w-0 rounded-md border border-edge bg-crypt-2 p-4";
 const TAG =
-  "secrets-tag rounded-sm border border-amber-dim px-1.5 py-0.5 text-[11px] uppercase tracking-[0.1em] text-amber";
+  "secrets-tag rounded-sm border border-amber-dim px-1.5 py-0.5 text-[11px] uppercase tracking-[0.1em] text-accent-text";
 const INDEX_ITEM =
   "secrets-index-item flex min-h-11 w-full items-center justify-between gap-2 rounded-sm border px-2.5 py-2 text-left text-[12.5px] max-lg:w-auto";
 const SELECT = "field w-full max-w-full sm:w-auto";
@@ -117,7 +117,7 @@ export function SecretsScreen() {
         </ul>
       </div>
     ) : (
-      <p className="secrets-status is-ok m-0 rounded-md border border-amber-dim bg-crypt-3 px-3 py-2.5 text-[12px] text-amber">
+      <p className="secrets-status is-ok m-0 rounded-md border border-amber-dim bg-crypt-3 px-3 py-2.5 text-[12px] text-accent-text">
         {t("secretsReady")}
       </p>
     );
@@ -653,7 +653,7 @@ export function SecretsScreen() {
                   {role.name} · {ports.strings.teamText(role.team ?? "")}
                 </span>
                 {shown ? (
-                  <span className="secrets-shown block text-[11px] text-amber">
+                  <span className="secrets-shown block text-[11px] text-accent-text">
                     {t("shownRole")}: {shown.name}
                   </span>
                 ) : null}
@@ -732,7 +732,7 @@ export function SecretsScreen() {
             {obligations.length ? (
               <div className="flex items-baseline justify-between gap-2 px-1 pb-1 max-lg:w-full">
                 <span className={LABEL}>{t("secretsObligations")}</span>
-                <b className="text-[11px] tabular-nums text-amber">
+                <b className="text-[11px] tabular-nums text-accent-text">
                   {t("secretsProgress", { done: doneCount, total: totalCount })}
                 </b>
               </div>

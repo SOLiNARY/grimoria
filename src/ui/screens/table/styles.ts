@@ -10,7 +10,7 @@ export const PANEL_HEAD = "mb-[7px] flex flex-wrap items-baseline justify-betwee
 
 export const MUTED = "text-[13px] leading-[1.45] text-muted";
 
-export const WARNING = "text-[13px] leading-[1.45] text-amber-2";
+export const WARNING = "text-[13px] leading-[1.45] text-accent-text";
 
 export const ALERT =
   "my-2 rounded-sm border border-edge-2 bg-accent-dim/40 px-[11px] py-[9px] text-[13px] leading-[1.45]";
@@ -54,7 +54,7 @@ export const ACTION_DISABLED =
   "disabled:!border-edge-2 disabled:!bg-transparent disabled:!text-disabled disabled:!opacity-100";
 export const ACTION_PRIMARY = `btn min-h-12 !justify-center !border-table-primary !bg-table-primary !bg-none font-semibold !text-table-primary-ink ${ACTION_DISABLED}`;
 export const ACTION_SECONDARY = `btn min-h-12 !justify-center !border-table-rim !bg-table-chip !bg-none text-text ${ACTION_DISABLED}`;
-export const ACTION_DANGER = `btn min-h-12 !justify-center !border-table-danger !bg-table-danger !bg-none font-semibold !text-table-primary-ink ${ACTION_DISABLED}`;
+export const ACTION_DANGER = `btn min-h-12 !justify-center !border-table-danger !bg-table-danger !bg-none font-semibold !text-ink ${ACTION_DISABLED}`;
 export const ACTION_QUIET = "btn btn--quiet min-h-12 !justify-center";
 export const ACTION_OUTLINE = "btn min-h-12 !justify-center !bg-none";
 export const ICON_BUTTON =
@@ -68,7 +68,7 @@ export const BOARD_STEPS =
   "m-0 mt-1 grid list-none grid-cols-2 gap-x-3 gap-y-2 p-0 min-[620px]:grid-cols-4";
 export const BOARD_STEP =
   "label-mono flex min-w-0 items-center gap-1.5 border-t pt-1.5 text-[10px]";
-export const BOARD_STEP_CURRENT = "border-table-primary text-table-primary";
+export const BOARD_STEP_CURRENT = "border-table-primary text-accent-text";
 export const BOARD_STEP_DONE = "border-edge-2 text-text";
 export const BOARD_STEP_PENDING = "border-edge text-muted";
 export const BOARD_ROSTER =

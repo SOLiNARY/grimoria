@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { RoleFacts, ReferenceTarget } from "../../../application/reference/role-facts.ts";
 import type { Role } from "../../../core/model/types.ts";
 import { useShellPorts } from "../../ports.ts";
+import { APP_VERSION } from "../../version.ts";
 import { inline } from "./inline.tsx";
 import {
   loadReference,
@@ -147,6 +148,7 @@ export function ReferenceScreen({ roleId }: ReferenceScreenProps) {
           <QuickReference role={role} facts={facts} entry={entry} />
           <Sources entry={entry} lang={lang} />
         </article>
+        <ReferenceFooter />
       </div>
     </div>
   );
@@ -155,6 +157,23 @@ export function ReferenceScreen({ roleId }: ReferenceScreenProps) {
 const PAGE = "min-h-dvh bg-ref-page text-ref-ink";
 const CARD =
   "mx-auto w-full max-w-[792px] rounded-[16px] border border-ref-edge bg-ref-surface p-4";
+
+function ReferenceFooter() {
+  const ports = useShellPorts();
+  const t = ports.strings.t;
+  return (
+    <p className="m-0 mt-3 text-[11px] leading-[18px] text-ref-dim">
+      <span className="tabular-nums">Grimoria v{APP_VERSION}</span>
+      {" · "}
+      <a
+        className="underline underline-offset-2 hover:text-ref-ink"
+        href={ports.router.path("changelog")}
+      >
+        {t("changelog")}
+      </a>
+    </p>
+  );
+}
 
 function Token({ role, size }: { role: Role; size: "lg" | "sm" }) {
   const ports = useShellPorts();
@@ -597,6 +616,7 @@ function ReferenceIndex({ lang, onLang }: { lang: string; onLang: (code: string)
             <p className="m-0 mt-6 text-[15px] text-ref-dim">{t("referenceNone")}</p>
           )}
         </article>
+        <ReferenceFooter />
       </div>
     </div>
   );

@@ -5036,8 +5036,8 @@ async function storefrontWelcomeAt390() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "storefront-welcome-en-390.png") });
 
-  // The yellow action is the setup entry, not the table.
-  await page.locator("main button.btn--accent").click();
+  // The primary action is the setup entry, not the table.
+  await page.locator('main [data-act="home-start"]').first().click();
   await page.waitForFunction(() => document.body.dataset.route === "bag");
   assert.match(await page.evaluate(() => location.pathname), /\/bag$/);
   await overflow();
@@ -5046,8 +5046,9 @@ async function storefrontWelcomeAt390() {
   await seed(7);
   await home();
   await page.waitForSelector("main h1");
-  const resume = page.locator('main button:has-text("Continue the session")');
+  const resume = page.locator('main [data-act="home-secondary"]');
   assert.equal(await resume.count(), 1, "a live game offers the continuation");
+  assert.match((await resume.textContent()) ?? "", /continue/i);
   await resume.click();
   await page.waitForFunction(() => document.body.dataset.route === "table");
   await overflow();
@@ -8553,16 +8554,28 @@ async function fullChecks() {
     readPage(target, () => Number(sessionStorage.getItem("pg-test-loads") || "0"));
   // Publish a worker without asking the page to look for it: only the opening
   // check can find this one.
-  const publish = (cache: string) => {
+  const publish = (cache: string, installDelay = 0) => {
     releaseOverride = versionSource(cache);
+    if (installDelay > 0) {
+      releaseOverride += `\nself.addEventListener("install", (event) => {
+  const { promise, resolve } = Promise.withResolvers();
+  setTimeout(resolve, ${installDelay});
+  event.waitUntil(promise);
+});\n`;
+    }
   };
   // The banner can turn visible while the service worker swaps documents.
   // A DOM predicate survives that swap; a CSS selector wait can resolve and
-  // still time out on the stale document.
+  // still time out on the stale document. The actionable prompt is ready only.
   const waitForBanner = (target: Page = page) =>
     target.waitForFunction(() => {
       const banner = document.getElementById("update-banner");
-      return Boolean(banner && !banner.hidden);
+      return Boolean(banner && !banner.hidden && banner.dataset.state === "available");
+    });
+  const waitForDownloading = (target: Page = page) =>
+    target.waitForFunction(() => {
+      const banner = document.getElementById("update-banner");
+      return Boolean(banner && !banner.hidden && banner.dataset.state === "downloading");
     });
   const deploy = async (cache: string) => {
     publish(cache);
@@ -8664,7 +8677,7 @@ async function fullChecks() {
   // Offline clients keep running the cached app; returning online checks again.
   await context.setOffline(true);
   await page.waitForFunction(() => navigator.onLine === false);
-  publish(nextCache);
+  publish(nextCache, 1200);
   // Deliberate: an offline client must not install a worker within this window.
   await page.waitForTimeout(300);
   assert.equal(
@@ -8675,6 +8688,13 @@ async function fullChecks() {
   await context.setOffline(false);
   await page.waitForFunction(() => navigator.onLine === true);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await waitForDownloading();
+  assert.match(
+    (await page.locator("#update-message").textContent()) ?? "",
+    /downloading an update/i,
+  );
+  assert.equal(await page.locator("#update-now").isVisible(), false);
+  assert.equal(await page.locator("#update-later").isVisible(), false);
   await page.waitForFunction(
     async () => !!(await navigator.serviceWorker.getRegistration())?.waiting,
     { timeout: 15000 },

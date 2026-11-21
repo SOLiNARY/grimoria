@@ -228,7 +228,7 @@ export function QueuePanel({ view }: { view: TableView }) {
     <section className={`${PANEL} mx-auto mt-2 grid w-full max-w-[900px] gap-2`} data-panel="queue">
       <span className="label">{t("queue")}</span>
       <div className="flex items-baseline gap-2">
-        <b className="font-role text-[40px] leading-none tabular-nums text-amber">{done}</b>
+        <b className="font-role text-[40px] leading-none tabular-nums text-accent-text">{done}</b>
         <span className="text-[12px] uppercase tracking-[.14em] text-muted">
           {t("ui.queueOf", { total })}
         </span>

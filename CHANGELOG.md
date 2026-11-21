@@ -6,6 +6,18 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-21
+
+### Added
+
+- Replace the welcome page with the steel catalogue: the three official scripts and their team mix, the full first-night order, the live game continuation, and a staggered composition bar.
+- Add `/changelog` with the full version history and a version index, and show the running version in the app bar plus the home, help and reference footers.
+- Show a downloading state in the update notification while a new service worker installs, and hide the update actions until it is ready.
+
+### Changed
+
+- Recolour the app to steel surfaces with one blue action, cream role stock, a neutral focus ring and a calmer app bar; refresh the favicon, manifest and browser theme colour.
+
 ## [0.8.0] - 2026-11-21
 
 ### Added

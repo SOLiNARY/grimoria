@@ -66,7 +66,7 @@ export function TableFelt({ layout, phase }: { layout: TableLayout; phase: GameS
           <span className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_34%,rgba(255,201,60,.14),transparent_70%)]" />
         )}
         <span
-          className="absolute inset-x-0 -bottom-[6px] h-[6px] bg-[repeating-linear-gradient(-45deg,#ffc93c_0_7px,#101010_7px_14px)] opacity-80 min-[620px]:-bottom-[9px] min-[620px]:h-[9px]"
+          className="absolute inset-x-0 -bottom-[6px] h-[6px] bg-[repeating-linear-gradient(-45deg,#3e6fb6_0_7px,#101010_7px_14px)] opacity-80 min-[620px]:-bottom-[9px] min-[620px]:h-[9px]"
           aria-hidden="true"
         />
       </div>

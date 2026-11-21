@@ -1,24 +1,21 @@
 # Release state
 
-Canonical handoff for epic #200, release candidate 0.8.0. Updated 2026-11-21.
+Canonical handoff for epic #200, release candidate 0.9.0. Updated 2026-11-21.
 
-## Current state — 0.8.0 release candidate
+## Current state — 0.9.0 release candidate
 
-- Released `main`: `aa1e11b912bbd755a2b653dcb8966e54512b893b` (0.7.0, Pages succeeded). Owner-only; do not merge, tag or publish automatically.
-- Integration `dev`: `8760c53d1a346c30be18d094e9d9dc0bd66d5be1`, including #468 mobile bag, #469 independent BMR/S&V certification, and #470 BETA-removal regression. This SHA is the pre-release baseline, not the release PR head.
-- Release candidate is prepared on `release-0.8.0`, targeting `main`; `VERSION`, `package.json` and `CHANGELOG.md` agree on 0.8.0. Candidate must pass required PR CI on its exact HEAD; no release/merge/tag has occurred as part of preparation.
-- BMR/S&V certification: 25 characters per edition; audit reports `docs/audits/bmr-production-acceptance.md`, `docs/audits/snv-production-acceptance.md`, `docs/audits/compliance-signoff.md` and `docs/audits/beta-removal-decision.md`. Certified code tree `e93d4c80267380198bdd1bc1268b44bff0a8dfff`; #469 GitHub checks passed at `ff45b3999b7c6000ca4d9273d4818c7ac3d5172d`. Independently confirm release-branch checks; do not transfer their status automatically.
-- Reported certification tests: 1,541 unit tests; 10/10 full-game scenarios; 37/37 named browser checks; 10/10 mutation detections; rule verification gates 523 official / 172 engine / 87 UI, zero findings on the certified tree.
-- Rule readiness matrix inherited from 0.7.0: 392 verified, 24 host-choice partial, 95 documented non-mechanical exceptions, 0 registered mechanical gaps, 12 covered without a unique owner, 0 unmapped. These figures are not a claim of complete independent verification.
-- Scoped boundaries: Pukka self-target adjudication, free-form Artist/Vortox truthfulness, cross-edition jinxes, Traveller/Fabled/Loric mechanics and session-only undo history are documented; saved game and canonical journal remain persistent.
-- #200 and #223 stay OPEN until integrated `main` acceptance, production Pages smoke, privacy/offline/replay evidence and an explicit owner closure decision. This 0.8.0 release is not 1.0.0 and does not imply unrestricted automatic play.
+- Released `main`: `f508ca0` (0.8.0). Owner-only; do not merge, tag or publish automatically.
+- Integration `dev`: `0a00ce0`, including the steel catalogue, the `/changelog` page, the steel palette and the update-download status. The release-prep commit follows this baseline.
+- Release candidate is prepared on `dev`, targeting `main`; `VERSION`, `package.json` and `CHANGELOG.md` agree on 0.9.0. Candidate must pass required PR CI on its exact HEAD; no release/merge/tag has occurred as part of preparation.
+- This is a UI release: no engine rule, command, state or storage behavior changed. The 0.8.0 certification and audit reports remain the rule evidence; do not read this release as new mechanical coverage.
+- #200 and #223 stay OPEN until integrated `main` acceptance, production Pages smoke, privacy/offline/replay evidence and an explicit owner closure decision. This 0.9.0 release is not 1.0.0 and does not imply unrestricted automatic play.
 
 ## Release checklist (owner-controlled)
 
-- [x] #469 merged into dev; #470 merged into dev; BMR and S&V BETA labels removed in candidate.
-- [x] Version files and changelog prepared for 0.8.0.
+- [x] Steel catalogue welcome page, `/changelog`, version markers and update-download status on `dev`; palette and app bar recoloured.
+- [x] Version files and changelog prepared for 0.9.0; `npm run verify` passes on the candidate.
 - [ ] Exact-head release PR CI, specifications, provenance, verification gates, full-game and Playwright browser checks pass.
-- [ ] Owner reviews and merges the 0.8.0 PR into main.
+- [ ] Owner reviews and merges the 0.9.0 PR into main.
 - [ ] Post-merge Pages deployment and production smoke, locale, offline update, privacy, replay and pg.game.v4 verified on final main SHA.
 - [ ] Tag/GitHub Release only by owner action; #223 and then #200 close only with explicit acceptance.
 
@@ -32,9 +29,9 @@ The sections below describe the 0.6.0 baseline and earlier evidence. They are hi
 - 0.6.0 tree: the three defect fixes (#421), release-state #422 and the serve-dist harness fix (#423).
 - Post-0.6.0 `dev` evidence: #424 adjudication persistence, #425 S&V/shared atomic mappings, #426 per-script acceptance, #427 Clockmaker/Oracle capability slice, #428 TB/BMR atomic mappings, #429 state handoff, #430 Tinker persistence, #431 Mathematician capability, #432 shared-rule tests, #433 cross-role replay/undo, #435 ownership CI, #436 verify pipeline, #437 Flowergirl/Town Crier capability, #439 #211 inventory, #440 Juggler wake, #441 Philosopher/Seamstress/Witch wakes, #443 death-step capability + Klutz, #444 Barber/Sage/Sweetheart death steps.
 
-## Current `dev` evidence (`47f9d38`)
+## Earlier `dev` evidence (`47f9d38`)
 
-Everything in this section is current on the merged `dev` tree, not carried over from 0.6.0.
+This section is historical evidence from an earlier dev tree. The 0.8.0 audits and the current release PR CI are the current record.
 
 | Check | Result |
 | --- | --- |
