@@ -18,6 +18,8 @@ function context(
     impaired: false,
     at: { phase: "night", number: 1 },
     seatIds: [],
+    abnormalCount: 0,
+    isAlive: () => true,
     aliveNeighborIds: () => [],
     registeredTeamOf: () => null,
     mayRegisterAs: () => false,
@@ -26,6 +28,8 @@ function context(
     registersAsDemon: (playerId) => (facts.demons ?? []).includes(playerId),
     redHerringId: facts.herring ?? null,
     executedToday: null,
+    votesToday: null,
+    twins: null,
     mayRegisterAsCharacters: () => [],
     ...overrides,
   };

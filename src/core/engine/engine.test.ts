@@ -30,6 +30,9 @@ import {
 } from "../model/state.ts";
 import {
   autoSecrets,
+  activeMadness,
+  allNeighbors,
+  aliveNeighbors,
   butlerMaster,
   cancelNomination,
   checkWin,
@@ -67,6 +70,8 @@ import {
   registersAsTownsfolk,
   registrationError,
   legalRegistrations,
+  manualCorrection,
+  resurrectPlayer,
   applyCommand,
   canonicalState,
   createRuntime,
@@ -76,6 +81,7 @@ import {
 import type { InfoResult } from "./index.ts";
 import { applyRoleAbility } from "./ability.ts";
 import { bmrCannotDie } from "./effects.ts";
+import { effectGraph } from "../model/effect-graph.ts";
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
   ANY_STEP_RESURRECTS_RULESET_VERSION,
@@ -416,6 +422,45 @@ test("5–6 player first night has no evil introduction and no bluffs (SYS-SETUP
   );
 });
 
+test("the first-night evil introduction names the exact Minions, Demon and bluffs (INFO-004, INFO-005)", () => {
+  const state = make({
+    1: "washerwoman",
+    2: "chef",
+    3: "empath",
+    4: "monk",
+    5: "undertaker",
+    6: "poisoner",
+    7: "imp",
+  });
+  startNight(state);
+  const minions = systemStep(state, "minioninfo");
+  assert.deepEqual(minions.actorIds, ["6"], "the Minion learns the one Minion");
+  assert.equal(minions.demonId, "7", "the Minion learns the Demon");
+  assert.equal(infoForStep(state, minions).demonId, "7");
+  const demon = systemStep(state, "demoninfo");
+  assert.deepEqual(demon.actorIds, ["7"]);
+  assert.equal(demon.demonId, "7");
+  assert.deepEqual(demon.bluffs!.slice().sort(), state.bluffs.slice().sort());
+  assert.deepEqual(
+    livingPlayers(state)
+      .filter((player) => roleTeam(player.roleId || "") === "minion")
+      .map((player) => player.id),
+    ["6"],
+    "the Demon's Minion list is the living Minion set",
+  );
+  assert.equal(state.bluffs.length, 3);
+
+  completeSystem(state, "minioninfo");
+  completeSystem(state, "demoninfo");
+  assert.deepEqual(minions.given?.actorIds, ["6"]);
+  assert.equal(minions.given?.demonId, "7");
+  const recordedBluffs = demon.given?.bluffs;
+  assert.deepEqual(
+    Array.isArray(recordedBluffs) ? recordedBluffs.slice().sort() : null,
+    state.bluffs.slice().sort(),
+  );
+});
+
 test("first-night information is computed from real players and seats (TB-CHEF-01, TB-WASHERWOMAN-01)", () => {
   const state = make({
     1: "washerwoman",
@@ -467,6 +512,37 @@ test("poison lasts the night and the next day, then expires (TB-POISONER-01)", (
   // Killing the source ends the persistent effect immediately.
   kill(state, "6", "test", { phase: "night", number: 1 });
   assert.equal(isImpaired(state, "1", { phase: "night", number: 1 }), false);
+});
+
+test("a dead player's persistent ability effects end immediately (SYS-EFFECTS-05)", () => {
+  // Glossary r3168 "Dead": when a player dies, they immediately lose their
+  // ability and any persistent effects of that ability end.
+  const state = make({
+    1: "empath",
+    2: "chef",
+    3: "monk",
+    4: "soldier",
+    5: "mayor",
+    6: "poisoner",
+    7: "imp",
+  });
+  startNight(state);
+  completeSystem(state, "minioninfo");
+  completeSystem(state, "demoninfo");
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  assert.equal(isImpaired(state, "1", { phase: "night", number: 1 }), true);
+  kill(state, "6", "test", { phase: "night", number: 1 });
+  assert.equal(state.players["6"].alive, false);
+  assert.equal(
+    isImpaired(state, "1", { phase: "night", number: 1 }),
+    false,
+    "the dead Poisoner's poison ends with its source",
+  );
+  assert.equal(
+    infoForStep(state, roleStep(state, "empath"), {}).needsChoice,
+    false,
+    "the Empath keeps its own answer",
+  );
 });
 
 test("Monk protection and Soldier safety stop the Imp (TB-MONK-01, TB-SOLDIER-01)", () => {
@@ -2809,6 +2885,7 @@ test("an information role reads its seat, the night, the targets and the registr
     { count: 9 },
   );
   assert.equal(startNight(state).ok, true);
+  state.players["6"].alive = false;
   const step = roleStep(state, "empath");
   const seen: InformationContext[] = [];
   const module = answering({ kind: "answer", value: false, possible: [true, false] }, seen);
@@ -2832,6 +2909,10 @@ test("an information role reads its seat, the night, the targets and the registr
   assert.equal(context.actualRoleOf("3"), "recluse");
   assert.equal(context.hasPlayer("9"), true);
   assert.equal(context.hasPlayer("10"), false);
+  assert.equal(context.isAlive("2"), true, "a living seat");
+  assert.equal(context.isAlive("6"), false, "a dead seat");
+  assert.equal(context.isAlive("10"), false, "a seat that does not exist");
+  assert.equal(context.abnormalCount, 0, "no ABNORMAL mark yet");
 
   // Without an answer from the host the registrants count as their real teams,
   // and the targets are the ones recorded on the step.
@@ -2840,6 +2921,19 @@ test("an information role reads its seat, the night, the targets and the registr
   assert.deepEqual(seen[1]!.targetIds, ["5"]);
   assert.equal(seen[1]!.registeredTeamOf("1"), "evil");
   assert.equal(seen[1]!.registeredTeamOf("3"), "good");
+
+  // Mathematician r3153: the fact is the number of distinct marked players;
+  // the reasons stay private.
+  state.abnormal = [
+    { playerId: "4", reason: "first", at: { phase: "night", number: 1 } },
+    { playerId: "4", reason: "duplicate", at: { phase: "night", number: 1 } },
+    { playerId: "9", reason: "second", at: { phase: "night", number: 1 } },
+  ];
+  moduleInfoForStep(state, module, step);
+  assert.equal(seen[2]!.abnormalCount, 2, "a duplicate mark for one player counts once");
+  state.abnormal = [];
+  moduleInfoForStep(state, module, step);
+  assert.equal(seen[3]!.abnormalCount, 0, "an empty ledger counts none");
 });
 
 test("an information role is told who registers as a Demon and who the red herring is", () => {
@@ -7916,6 +8010,74 @@ test("a poisoned Slayer spends the ability without killing (TB-SLAYER-01)", () =
   assert.equal(state.players["1"].used.slayer, true);
 });
 
+test("a once-per-game ability spent while impaired stays spent after recovery (SYS-EFFECTS-06)", () => {
+  // Glossary r3168 "Once per game": a use while drunk or poisoned still spends
+  // the ability.
+  const state = make({
+    1: "slayer",
+    2: "chef",
+    3: "monk",
+    4: "soldier",
+    5: "mayor",
+    6: "poisoner",
+    7: "imp",
+  });
+  state.effects.push({
+    id: "test-poison-slayer",
+    kind: "poison",
+    sourceId: "6",
+    targetId: "1",
+    start: { phase: "night", number: 1 },
+    expires: { phase: "night", number: 2 },
+    active: true,
+  });
+  toDay(state);
+  assert.equal(isImpaired(state, "1"), true);
+  const shot = useSlayer(state, "1", "7");
+  assert.equal(shot.ok, true);
+  assert.equal(shot.hit, false, "the impaired Slayer has no ability");
+  assert.equal(state.players["1"].used.slayer, true);
+  state.effects = state.effects.filter((effect) => effect.id !== "test-poison-slayer");
+  assert.equal(isImpaired(state, "1"), false, "the Slayer is sober and healthy again");
+  const again = useSlayer(state, "1", "7");
+  assert.equal(again.ok, false);
+  assert.equal(again.errorCode, "error.30");
+  assert.equal(state.players["7"].alive, true);
+});
+
+test("an ability returns when its owner becomes sober, except a spent once-per-game (SYS-EFFECTS-07)", () => {
+  // States r1039 "Drunkenness and Poisoning": a drunk or poisoned player
+  // regains the ability once sober and healthy, unless the once-per-game
+  // ability was already used. The spent once-per-game half is asserted by
+  // "a once-per-game ability spent while impaired stays spent after recovery
+  // (SYS-EFFECTS-06)".
+  const state = make({
+    1: "empath",
+    2: "chef",
+    3: "monk",
+    4: "soldier",
+    5: "mayor",
+    6: "poisoner",
+    7: "imp",
+  });
+  startNight(state);
+  completeSystem(state, "minioninfo");
+  completeSystem(state, "demoninfo");
+  completeRole(state, "poisoner", { targetIds: ["1"] });
+  assert.equal(isImpaired(state, "1", { phase: "night", number: 1 }), true);
+  assert.equal(
+    infoForStep(state, roleStep(state, "empath"), {}).needsChoice,
+    true,
+    "the impaired Empath needs host false information",
+  );
+  skipNight(state);
+  assert.equal(endDay(state).ok, true);
+  assert.equal(isImpaired(state, "1", { phase: "night", number: 2 }), false);
+  const info = infoForStep(state, roleStep(state, "empath"), {});
+  assert.equal(info.kind, "number");
+  assert.equal(info.needsChoice, false, "the sober Empath computes its own answer");
+});
+
 test("a healthy Slayer kills the Demon and good wins", () => {
   const state = make({
     1: "slayer",
@@ -7932,6 +8094,64 @@ test("a healthy Slayer kills the Demon and good wins", () => {
   assert.equal(result.hit, true);
   assert.equal(state.players["7"].alive, false);
   assert.equal(state.winner && state.winner.team, "good");
+});
+
+test("a Slayer shot replays and undoes with its death and the good win (TB-SLAYER-01)", () => {
+  const state = make({
+    1: "slayer",
+    2: "chef",
+    3: "empath",
+    4: "monk",
+    5: "soldier",
+    6: "poisoner",
+    7: "imp",
+  });
+  toDay(state);
+  const before = canonicalState(state);
+
+  const result = applyCommand(state, {
+    id: "slayer-shot-replay",
+    type: "useSlayer",
+    payload: { slayerId: "1", targetId: "7" },
+  });
+  assert.equal(result.status, "allowed", JSON.stringify(result));
+  assert.equal(state.players["1"].used.slayer, true);
+  assert.equal(state.players["7"].alive, false);
+  const death = state.deaths.find((candidate) => candidate.playerId === "7");
+  assert.ok(death, "the Demon's death is recorded");
+  assert.equal(death.cause, "slayer");
+  assert.equal(state.winner?.team, "good");
+  assert.equal(state.winner?.reason, "demon-dead");
+  const live = canonicalState(state);
+
+  const replayed = replay(state.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), live, "the journal rebuilds the same shot");
+  assert.equal(replayed.state.players["1"].used.slayer, true);
+  assert.equal(replayed.state.players["7"].alive, false);
+  assert.equal(
+    replayed.state.deaths.find((candidate) => candidate.playerId === "7")?.cause,
+    "slayer",
+  );
+  assert.equal(replayed.state.winner?.team, "good");
+  assert.equal(replayed.state.winner?.reason, "demon-dead");
+
+  const undone = replay({
+    base: state.journal.base,
+    entries: state.journal.entries.slice(0, -1),
+  });
+  assert.equal(undone.ok, true, JSON.stringify(undone));
+  if (!undone.ok) return;
+  assert.deepEqual(canonicalState(undone.state), before, "undo restores the journal base");
+  assert.equal(Boolean(undone.state.players["1"].used.slayer), false);
+  assert.equal(undone.state.players["7"].alive, true);
+  assert.equal(
+    undone.state.deaths.some((candidate) => candidate.playerId === "7"),
+    false,
+    "undo removes the death record",
+  );
+  assert.equal(undone.state.winner, null);
 });
 
 test("a healthy Slayer shot at a non-Demon misses and spends the ability (TB-SLAYER-01)", () => {
@@ -8009,6 +8229,46 @@ test("ties on the maximum block execution, and a lower tie does not dethrone the
   appoint(state, "4", "5", ["1", "2"]);
   result = leader(state);
   assert.equal(result.nomination!.id, third.id);
+});
+
+test("the unique most-voted nominee is executed, and a tie blocks every execution (SYS-VOTES-04)", () => {
+  // Glossary r3168 "Execution": a nominee is executed with at least half the
+  // living players' votes and more votes than any other nominee.
+  const seats = {
+    1: "chef",
+    2: "empath",
+    3: "monk",
+    4: "soldier",
+    5: "mayor",
+    6: "poisoner",
+    7: "imp",
+  };
+  const state = make(seats);
+  toDay(state);
+  openNominations(state);
+  const lower = appoint(state, "1", "2", ["1", "2", "3", "4"]);
+  const higher = appoint(state, "3", "4", ["1", "2", "3", "4", "5"]);
+  assert.equal(lower.result, "qualified");
+  assert.equal(higher.result, "qualified");
+  assert.equal(leader(state).nomination!.id, higher.id);
+  assert.equal(execute(state, higher.id).ok, true);
+  assert.equal(state.players["4"].alive, false);
+  assert.equal(state.players["2"].alive, true, "a qualified lower nominee is not executed");
+  assert.equal(state.executions.length, 1);
+
+  // Rules_Explanation r1310: on a tie, neither player is executed.
+  const tie = make(seats);
+  toDay(tie);
+  openNominations(tie);
+  appoint(tie, "1", "2", ["1", "2", "3", "4"]);
+  appoint(tie, "3", "4", ["1", "2", "3", "4"]);
+  assert.equal(leader(tie).tie, true);
+  const blocked = execute(tie, tie.day.nominations[0]!.id);
+  assert.equal(blocked.ok, false, "a tie permits no execution");
+  assert.equal(tie.day.execution, null);
+  assert.equal(tie.executions.length, 0);
+  assert.equal(tie.players["2"].alive, true);
+  assert.equal(tie.players["4"].alive, true);
 });
 
 test("execution is an execution event, not automatically a death (SYS-WINS-01)", () => {
@@ -8120,6 +8380,36 @@ test("win priorities: no living Demon is checked before the two-alive evil win (
   const winner = checkWin(state);
   assert.equal(winner && winner.team, "good");
   assert.equal(winner!.reason, "demon-dead");
+});
+
+test("every dealt player begins on the team their character prints (SYS-SETUP-05)", () => {
+  // Glossary r3168: Demons and Minions begin evil; Townsfolk and Outsiders
+  // begin good.
+  const state = make({
+    1: "chef",
+    2: "saint",
+    3: "monk",
+    4: "poisoner",
+    5: "imp",
+    6: "soldier",
+  });
+  const teams = state.order.map((id) => [
+    roleTeam(state.players[id]!.roleId!),
+    state.players[id]!.team,
+  ]);
+  assert.deepEqual(teams, [
+    ["townsfolk", "good"],
+    ["outsider", "good"],
+    ["townsfolk", "good"],
+    ["minion", "evil"],
+    ["demon", "evil"],
+    ["townsfolk", "good"],
+  ]);
+  for (const team of ["townsfolk", "outsider", "minion", "demon"] as const) {
+    const id = Object.values(state.players).find((player) => roleTeam(player.roleId!) === team)!.id;
+    const expected = team === "minion" || team === "demon" ? "evil" : "good";
+    assert.equal(state.players[id]!.team, expected, team + " begins " + expected);
+  }
 });
 
 test("execution requires at least half the living players (SYS-VOTES-02)", () => {
@@ -9695,6 +9985,168 @@ test("official execution of a dead player records an event without another death
   assert.equal(state.executions.at(-1)?.playerId, "2");
   assert.equal(state.day.ended, true);
   assert.equal(executeByDecision(state, "3").ok, false);
+});
+
+test("a dead player may be executed again on a later day without a second death (EXEC-007)", () => {
+  const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" });
+  toDay(state);
+  kill(state, "2", "test", dayAt(state));
+  const deaths = state.deaths.length;
+  assert.equal(executeByDecision(state, "2").ok, true);
+  assert.equal(endDay(state).ok, true);
+  skipNight(state);
+  assert.equal(state.phase, "day");
+  assert.equal(state.day.number, 2);
+  assert.equal(executeByDecision(state, "2").ok, true);
+  assert.equal(state.executions.length, 2, "both days record the corpse execution");
+  assert.deepEqual(
+    state.executions.map((execution) => execution.playerId),
+    ["2", "2"],
+  );
+  assert.equal(state.deaths.length, deaths, "the dead player does not die again");
+  assert.equal(state.players["2"].alive, false);
+});
+
+test("the alive and deadAt fields stay one exclusive pair through kill, resurrection and correction (DEATH-001)", () => {
+  const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" });
+  const pair = (id: string) => {
+    const player = state.players[id];
+    assert.equal(player.alive, player.deadAt === null, id + " alive/deadAt");
+  };
+  pair("2");
+  kill(state, "2", "test", { phase: "night", number: 1 });
+  pair("2");
+  assert.equal(state.players["2"].alive, false);
+  resurrectPlayer(state, "2");
+  pair("2");
+  assert.equal(state.players["2"].alive, true);
+  assert.equal(
+    manualCorrection(state, { kind: "alive", playerId: "2", value: false, reason: "DEATH-001" }).ok,
+    true,
+  );
+  pair("2");
+  assert.equal(
+    manualCorrection(state, { kind: "alive", playerId: "2", value: true, reason: "DEATH-001" }).ok,
+    true,
+  );
+  pair("2");
+  assert.equal(state.players["2"].alive, true);
+});
+
+test("every player is exactly one of each exclusive state pair (STATUS-001)", () => {
+  const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" });
+  const at = { phase: "night" as const, number: 1 };
+  state.effects.push(
+    { id: "status-drunk", kind: "drunk", sourceId: "5", targetId: "1", start: at, active: true },
+    { id: "status-poison", kind: "poison", sourceId: "5", targetId: "2", start: at, active: true },
+    {
+      id: "status-mad",
+      kind: "madness",
+      madness: "chef",
+      roleId: "chef",
+      sourceId: "5",
+      targetId: "3",
+      start: at,
+      active: true,
+    },
+  );
+  kill(state, "4", "test", at);
+  const graph = effectGraph(state, at);
+  assert.equal(graph.ok, true, JSON.stringify(graph));
+  const targets = (kind: string, set: Set<string>) =>
+    new Set(
+      state.effects
+        .filter((effect) => effect.kind === kind && set.has(effect.id))
+        .map((effect) => effect.targetId),
+    );
+  const drunk = targets("drunk", graph.activeDrunk);
+  const poisoned = targets("poison", graph.activePoison);
+  for (const id of state.order) {
+    const player = state.players[id];
+    const dead = player.deadAt !== null;
+    const sober = !drunk.has(id);
+    const healthy = !poisoned.has(id);
+    const sane = activeMadness(state, id, at) === null;
+    assert.equal(Number(player.alive) + Number(dead), 1, id + " alive/dead");
+    assert.equal(Number(drunk.has(id)) + Number(sober), 1, id + " drunk/sober");
+    assert.equal(Number(poisoned.has(id)) + Number(healthy), 1, id + " poisoned/healthy");
+    assert.equal(Number(!sane) + Number(sane), 1, id + " mad/sane");
+  }
+  assert.deepEqual(
+    [...drunk, ...poisoned].sort(),
+    ["1", "2"],
+    "the derived state reads the two impairment kinds from their own effects",
+  );
+  assert.equal(activeMadness(state, "3", at)?.kind, "madness");
+});
+
+test("drunkenness and poisoning remove the ability in the same way (STATUS-002)", () => {
+  const makeState = () => make({ 1: "chef", 2: "monk", 3: "poisoner", 4: "soldier", 5: "imp" });
+  const at = { phase: "night" as const, number: 1 };
+  const clean = makeState();
+  assert.equal(isImpaired(clean, "1", at), false);
+  const drunk = makeState();
+  drunk.effects.push({
+    id: "only-drunk",
+    kind: "drunk",
+    sourceId: "3",
+    targetId: "1",
+    start: at,
+    active: true,
+  });
+  assert.equal(isImpaired(drunk, "1", at), true);
+  const poisoned = makeState();
+  poisoned.effects.push({
+    id: "only-poison",
+    kind: "poison",
+    sourceId: "3",
+    targetId: "1",
+    start: at,
+    active: true,
+  });
+  assert.equal(isImpaired(poisoned, "1", at), true);
+});
+
+test("allNeighbors includes dead seats while aliveNeighbors skips them (STATUS-016)", () => {
+  const state = make({ 1: "chef", 2: "empath", 3: "monk", 4: "poisoner", 5: "imp" });
+  kill(state, "2", "test", { phase: "night", number: 1 });
+  kill(state, "4", "test", { phase: "night", number: 1 });
+  assert.deepEqual(allNeighbors(state, "1"), ["5", "2"], "seat 2 is a dead neighbour");
+  assert.deepEqual(aliveNeighbors(state, "1"), ["5", "3"], "the nearest living neighbours");
+});
+
+test("registration changes the reading and grants no character ability (STATUS-012)", () => {
+  const state = make({
+    1: "recluse",
+    2: "spy",
+    3: "chef",
+    4: "empath",
+    5: "monk",
+    6: "soldier",
+    7: "mayor",
+    8: "imp",
+  });
+  const recluse = state.players["1"];
+  const spy = state.players["2"];
+  assert.equal(registersAsTownsfolk(state, spy, { "2": "townsfolk" }), true);
+  assert.equal(registersAsDemon(state, recluse, { "1": "demon" }), true);
+  assert.equal(spy.roleId, "spy");
+  assert.equal(roleTeam(spy.roleId || ""), "minion");
+  assert.equal(recluse.roleId, "recluse");
+  assert.equal(roleTeam(recluse.roleId || ""), "outsider");
+  startNight(state);
+  assert.deepEqual(
+    state.night.queue.filter((step) => step.roleId === "empath").map((step) => step.actorId),
+    ["4"],
+    "the registering Spy takes no Empath step",
+  );
+  assert.equal(
+    state.night.queue.some(
+      (step) => step.actorId === "1" && roleTeam(step.roleId || "") === "demon",
+    ),
+    false,
+    "the registering Recluse takes no Demon step",
+  );
 });
 
 test("official execution without a death blocks the Mayor win at day end", () => {

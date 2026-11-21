@@ -30,13 +30,7 @@ type SvInfoOptions = { targetIds?: string[]; registrations?: Record<string, stri
 // the printed abilities; the engine owns the official night order, setup
 // prompts, death bookkeeping, No Dashii poison, Fang Gu succession and the
 // Vortox/Evil Twin/Witch win conditions.
-import {
-  SUPPORTED_ROLES,
-  isSupportedRole,
-  nightSequence,
-  roleLabel,
-  roleTeam,
-} from "../model/rules.ts";
+import { isSupportedRole, nightSequence, roleLabel, roleTeam } from "../model/rules.ts";
 
 import {
   hasAbility,
@@ -54,13 +48,24 @@ import type { CommandExecutionContext } from "../model/ports.ts";
 import { checkWin, evilTwinPair, kill, setWinner } from "./death.ts";
 import { activeEffects, bmrCannotDie, isImpaired } from "./effects.ts";
 import { vigormortisActive } from "./retention.ts";
-import { firstNightStepOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
+import {
+  deathStepOf,
+  firstNightStepOf,
+  nightResolverFor,
+  nightStepFor,
+} from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
-import { applyRoleAbility, resolveTransformationCapability } from "./ability.ts";
+import {
+  applyRoleAbility,
+  resolveInformationCapability,
+  resolveTransformationCapability,
+} from "./ability.ts";
+import { informationFacts } from "./information-facts.ts";
 import { demonKillerId, stillWakes } from "../roles/sv-common.ts";
 import {
   marksPithagDeathsOnAnyStep,
   recordsAttackSource,
+  recordsEvilTwinShown,
   requiresInfoPair,
 } from "./command-versions.ts";
 
@@ -131,18 +136,9 @@ export function reconcileMutantMadness(state: GameState) {
   }
 }
 
-// Mathematician r3153: the count is the number of characters carrying an
-// ABNORMAL reminder since the last Mathematician wake. The Storyteller marks
-// each abnormal working; the engine only counts and never infers the cause.
-// The step clears the ledger, so the interval is exactly the live marks.
-export function abnormalCount(state: GameState): number {
-  const ids = new Set<string>();
-  for (const mark of state.abnormal || []) {
-    if (!mark || !mark.playerId) continue;
-    ids.add(mark.playerId);
-  }
-  return ids.size;
-}
+// The count lives with the information facts now; `index.ts` still imports it
+// from here.
+export { abnormalCount } from "./information-facts.ts";
 
 export function recordAbnormal(
   state: GameState,
@@ -204,28 +200,6 @@ function numberChoices(max: number): number[] {
   return out;
 }
 
-// The character tokens the ability may show. The official text names a kind,
-// not the script: a custom script does not reduce the legal answers.
-function supportedRolesOf(kinds: readonly string[]): RoleId[] {
-  return SUPPORTED_ROLES.filter((id) => kinds.includes(roleTeam(id) || ""));
-}
-
-// The characters a player may register as to an ability that detects one.
-// Spy r3118 and Recluse r3007 may register as another character; an impaired
-// registrant has no ability, so only its own character remains.
-function possibleCharacters(state: GameState, player: Player | null): RoleId[] {
-  if (!player || !player.roleId) return [];
-  const actual = player.roleId;
-  if (isImpaired(state, player.id)) return [actual];
-  if (actual === "recluse") {
-    return [actual, ...supportedRolesOf(["minion", "demon"])];
-  }
-  if (actual === "spy") {
-    return [actual, ...supportedRolesOf(["townsfolk", "outsider"])];
-  }
-  return [actual];
-}
-
 function everyPair(ids: readonly string[]): string[] {
   const out: string[] = [];
   for (let left = 0; left < ids.length; left += 1) {
@@ -234,18 +208,6 @@ function everyPair(ids: readonly string[]): string[] {
     }
   }
   return out;
-}
-
-// The day that just ended, read by the next night's "today" questions.
-function lastDayFor(state: GameState) {
-  const night = nightAt(state).number;
-  const day = state.lastDay;
-  return day &&
-    typeof day.number === "number" &&
-    Array.isArray(day.nominations) &&
-    day.number === night - 1
-    ? day
-    : null;
 }
 
 // The nearest Townsfolk on each side of a seat, clockwise first. The official
@@ -443,7 +405,7 @@ function holderOf(state: GameState, roleId: RoleId): Player | null {
 // character is in play and its owner is a different seat only when the
 // Philosopher chose their own character. The effect ends when the Philosopher
 // dies or is impaired; effectGraph enforces that for philosopher effects.
-function reconcilePhilosopherDrunk(state: GameState) {
+export function reconcilePhilosopherDrunk(state: GameState) {
   const wanted = new Map<string, { sourceId: string; targetId: string }>();
   for (const player of orderedPlayers(state)) {
     if (player.roleId !== "philosopher") continue;
@@ -798,42 +760,66 @@ export function svInfoForStep(
   const target = targetIds[0] ? playerById(state, targetIds[0]) : null;
 
   if (role === "eviltwin") {
-    const twin = evilTwinPair(state)?.good ?? null;
+    const declared = roleModule(role);
+    const pair = evilTwinPair(state);
+    const decision = declared
+      ? resolveInformationCapability(
+          declared,
+          informationFacts(state, {
+            actorId: actor ? actor.id : "",
+            infoKind: "eviltwin",
+            targetIds: [],
+            registrations: {},
+            impaired,
+            at: currentAt(state),
+            twins: pair ? { goodId: pair.good.id, evilId: pair.evil.id } : null,
+          }),
+        )
+      : null;
+    // The module names the two players and the character each other learns
+    // (Evil Twin r3101); the engine keeps the wording, the journal and the
+    // projection.
+    const shown = decision?.kind === "note" ? decision.shown : undefined;
+    const goodShown = shown?.[1];
+    const twin = goodShown ? playerById(state, goodShown.playerId) : null;
+    const twinRole = goodShown ? goodShown.roleId : null;
     return {
       kind: "note",
       textKey: twin ? "note.sv.evilTwin" : "note.sv.evilTwinMissing",
       textVars: twin
-        ? { actor: actor ? actor.name : "—", twin: twin.name, twinRole: twin.roleId || "" }
+        ? { actor: actor ? actor.name : "—", twin: twin.name, twinRole: twinRole || "" }
         : { actor: actor ? actor.name : "—" },
       text:
         "Покажите Близнецам друг друга: " +
         (actor ? actor.name : "—") +
         " и " +
-        (twin ? twin.name + " (" + roleLabel(twin.roleId) + ")" : "—") +
+        (twin ? twin.name + " (" + roleLabel(twinRole) + ")" : "—") +
         ".",
+      // A recorded command keeps its bytes: only the current version adds the
+      // typed introduction, and only when the note actually showed a pair.
+      ...(recordsEvilTwinShown(version) && shown ? { shown: [...shown] } : {}),
     };
   }
   if (role === "clockmaker") {
-    const demon = orderedPlayers(state).find((player) => roleTeam(player.roleId || "") === "demon");
-    // Glossary "In play": a character exists in the current game, alive or
-    // dead. The distance ends at the nearest Minion in play, not only a living
-    // one (Clockmaker r2967).
-    const minions = orderedPlayers(state).filter(
-      (player) => roleTeam(player.roleId || "") === "minion",
-    );
-    const ids = state.order;
-    let distance = null;
-    if (demon && minions.length) {
-      const seat = ids.indexOf(demon.id);
-      distance = Math.min(
-        ...minions.map((minion) => {
-          const atSeat = ids.indexOf(minion.id);
-          const raw = Math.abs(atSeat - seat);
-          return Math.min(raw, ids.length - raw);
-        }),
-      );
-    }
-    const value = distance == null ? 0 : distance;
+    const declared = roleModule(role);
+    const decision = declared
+      ? resolveInformationCapability(
+          declared,
+          informationFacts(state, {
+            actorId: actor ? actor.id : "",
+            infoKind: "clockmaker",
+            targetIds: [],
+            registrations: {},
+            impaired,
+            at: currentAt(state),
+          }),
+        )
+      : null;
+    // The module counts the distance to the nearest Minion in play, alive or
+    // dead (Clockmaker r2967); the engine keeps who answers and the wording.
+    const value =
+      decision?.kind === "answer" && typeof decision.value === "number" ? decision.value : 0;
+    const possible = decision?.kind === "answer" ? (decision.possible ?? []) : [];
     const vortox = vortoxFalsifies(state, role);
     const falsified = impaired || vortox;
     return {
@@ -841,11 +827,7 @@ export function svInfoForStep(
       value,
       impaired,
       needsChoice: falsified,
-      options: falsified
-        ? numberChoices(orderedPlayers(state).length).filter(
-            (choice) => !vortox || choice !== value,
-          )
-        : [],
+      options: falsified ? possible.filter((choice) => !vortox || choice !== value) : [],
       textKey: "note.sv.clockmaker",
       textVars: { value },
       falsifiedSuffix: vortox,
@@ -857,9 +839,25 @@ export function svInfoForStep(
     };
   }
   if (role === "oracle") {
-    const value = orderedPlayers(state).filter(
-      (player) => !player.alive && realTeamOf(player) === "evil",
-    ).length;
+    const declared = roleModule(role);
+    const decision = declared
+      ? resolveInformationCapability(
+          declared,
+          informationFacts(state, {
+            actorId: actor ? actor.id : "",
+            infoKind: "oracle",
+            targetIds: [],
+            registrations: {},
+            impaired,
+            at: currentAt(state),
+          }),
+        )
+      : null;
+    // The module counts the dead evil players (Oracle r2909); the engine keeps
+    // who answers and the wording.
+    const value =
+      decision?.kind === "answer" && typeof decision.value === "number" ? decision.value : 0;
+    const possible = decision?.kind === "answer" ? (decision.possible ?? []) : [];
     const vortox = vortoxFalsifies(state, role);
     const falsified = impaired || vortox;
     return {
@@ -867,11 +865,7 @@ export function svInfoForStep(
       value,
       impaired,
       needsChoice: falsified,
-      options: falsified
-        ? numberChoices(orderedPlayers(state).length).filter(
-            (choice) => !vortox || choice !== value,
-          )
-        : [],
+      options: falsified ? possible.filter((choice) => !vortox || choice !== value) : [],
       textKey: "note.sv.oracle",
       textVars: { value },
       falsifiedSuffix: vortox,
@@ -908,17 +902,30 @@ export function svInfoForStep(
           : "Выберите игрока: покажите 1 добрую и 1 злую роль.",
       };
     }
-    const good = supportedRolesOf(["townsfolk", "outsider"]);
-    const evil = supportedRolesOf(["minion", "demon"]);
-    const trueRole = target ? target.roleId : null;
-    // Spy r3118 and Recluse r3007 may register as another character: the host
-    // may show a registered character as the correct one.
-    const possible = possibleCharacters(state, target);
-    const possibleGood = good.filter((id) => possible.includes(id));
-    const possibleEvil = evil.filter((id) => possible.includes(id));
-    const options: string[] = [];
-    for (const goodRole of good) {
-      for (const evilRole of evil) {
+    // The role names the target, the two character pools and what the target
+    // may register as. The engine decides which pairs are legal.
+    const declared = roleModule(role);
+    const decision = declared
+      ? resolveInformationCapability(
+          declared,
+          informationFacts(state, {
+            actorId: actor ? actor.id : "",
+            infoKind: "dreamer",
+            targetIds,
+            registrations: {},
+            impaired,
+            at: currentAt(state),
+          }),
+        )
+      : null;
+    const pair = decision?.kind === "role-pair" ? decision : null;
+    const possible = pair ? pair.possible : [];
+    const trueRole = pair ? (playerById(state, pair.subjectId)?.roleId ?? null) : null;
+    const possibleGood = pair ? pair.good.filter((id) => possible.includes(id)) : [];
+    const possibleEvil = pair ? pair.evil.filter((id) => possible.includes(id)) : [];
+    const pairOptions: string[] = [];
+    for (const goodRole of pair ? pair.good : []) {
+      for (const evilRole of pair ? pair.evil : []) {
         // Dreamer r2904: the pair holds the chosen player's character and a
         // character of the opposite kind. A Vortox r3017 makes both false.
         const legal = vortox
@@ -926,13 +933,13 @@ export function svInfoForStep(
           : impaired
             ? true
             : possibleGood.includes(goodRole) || possibleEvil.includes(evilRole);
-        if (legal) options.push(goodRole + "|" + evilRole);
+        if (legal) pairOptions.push(goodRole + "|" + evilRole);
       }
     }
     return {
       kind: "role-pair",
       needsChoice: true,
-      options,
+      options: pairOptions,
       impaired,
       hostAnswer: true,
       textKey: target ? "note.sv.dreamer" : "note.sv.dreamerChoose",
@@ -1079,10 +1086,21 @@ export function svInfoForStep(
     };
   }
   if (role === "flowergirl" || role === "towncrier") {
-    const day = lastDayFor(state);
+    const declared = roleModule(role);
+    const facts = declared
+      ? informationFacts(state, {
+          actorId: actor ? actor.id : "",
+          infoKind: role,
+          targetIds: [],
+          registrations: {},
+          impaired,
+          at: currentAt(state),
+        })
+      : null;
+    const decision = declared && facts ? resolveInformationCapability(declared, facts) : null;
     // Aggregate totals and token markers omit voter and nominator identities.
     // Their presence never establishes the answer from a partial ledger.
-    if (!day || day.voteCounts !== undefined) {
+    if (!facts || facts.votesToday === null) {
       return {
         kind: "yes-no",
         impaired,
@@ -1095,28 +1113,15 @@ export function svInfoForStep(
     }
     const vortox = vortoxFalsifies(state, role);
     const falsified = impaired || vortox;
-    const value = Boolean(
-      day.nominations.some((nomination) => {
-        if (role === "towncrier") {
-          if (typeof nomination.minionNomination === "boolean") {
-            return nomination.minionNomination;
-          }
-          const nominator = playerById(state, nomination.nominatorId);
-          return Boolean(nominator && roleTeam(nominator.roleId || "") === "minion");
-        }
-        if (Array.isArray(nomination.demonVoters)) return nomination.demonVoters.length > 0;
-        return (nomination.votes || []).some((id) => {
-          const voter = playerById(state, String(id));
-          return Boolean(voter && roleTeam(voter.roleId || "") === "demon");
-        });
-      }),
-    );
+    const value =
+      decision?.kind === "answer" && typeof decision.value === "boolean" ? decision.value : false;
+    const possible = decision?.kind === "answer" ? (decision.possible ?? []) : [];
     return {
       kind: "yes-no",
       value,
       impaired,
       needsChoice: falsified,
-      options: falsified ? [true, false].filter((choice) => !vortox || choice !== value) : [],
+      options: falsified ? possible.filter((choice) => !vortox || choice !== value) : [],
       textKey:
         role === "flowergirl"
           ? value
@@ -1165,20 +1170,33 @@ export function svInfoForStep(
     };
   }
   if (role === "mathematician") {
+    const declared = roleModule(role);
+    const decision = declared
+      ? resolveInformationCapability(
+          declared,
+          informationFacts(state, {
+            actorId: actor ? actor.id : "",
+            infoKind: "mathematician",
+            targetIds: [],
+            registrations: {},
+            impaired,
+            at: currentAt(state),
+          }),
+        )
+      : null;
+    // The module counts the distinct characters marked abnormal; the engine
+    // keeps who answers, the wording and the ledger clear.
+    const value =
+      decision?.kind === "answer" && typeof decision.value === "number" ? decision.value : 0;
+    const possible = decision?.kind === "answer" ? (decision.possible ?? []) : [];
     const vortox = vortoxFalsifies(state, role);
     const falsified = impaired || vortox;
-    const value = abnormalCount(state);
-    // A Vortox must not show the true number; an impaired Mathematician may
-    // receive any number because the ability did not work.
-    const options = falsified
-      ? numberChoices(orderedPlayers(state).length).filter((choice) => !vortox || choice !== value)
-      : [];
     return {
       kind: "number",
       value,
       impaired,
       needsChoice: falsified,
-      options,
+      options: falsified ? possible.filter((choice) => !vortox || choice !== value) : [],
       textKey: "note.sv.mathematician",
       falsifiedSuffix: vortox,
       mayBeFalseSuffix: impaired && !vortox,
@@ -1273,8 +1291,11 @@ export function recordKlutzChoice(
   return { ok: true };
 }
 
-// The read-only facts of a character change. "In play" counts a character a
-// Philosopher borrowed, so the Pit-Hag cannot duplicate it.
+// The read-only facts of a character change. "In play" means a seat holds the
+// character: a Philosopher who borrowed an absent character has not put it in
+// play, so the Pit-Hag may create it (Philosopher r2421 Summary: "If the
+// Philosopher chose a character that was not in play at the time but is in
+// play now, that character is drunk").
 function transformationFacts(
   state: GameState,
   actor: Player,
@@ -1291,11 +1312,7 @@ function transformationFacts(
     cause,
     impaired,
     at,
-    roleInPlay: (candidate) =>
-      Boolean(holderOf(state, candidate)) ||
-      orderedPlayers(state).some(
-        (player) => player.used != null && player.used.philosopherAbility === candidate,
-      ),
+    roleInPlay: (candidate) => Boolean(holderOf(state, candidate)),
     nameOf: (playerId) => playerById(state, playerId)?.name || "",
     actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
     hasPlayer: (playerId) => playerById(state, playerId) != null,
@@ -1718,6 +1735,11 @@ export function recordSvOutcome(
         );
         if (death) deaths.push(death);
       }
+      // The jump replaces the Fang Gu holder directly instead of going through
+      // `replaceCharacter`, so the Philosopher's drunk must be re-pointed here:
+      // its chosen character (the Outsider that just became the Fang Gu) left
+      // play, and only a current holder may stay drunk (Philosopher r2421).
+      reconcilePhilosopherDrunk(state);
     }
   }
   if (!jumped) {
@@ -1782,13 +1804,13 @@ export function appendSvConditionalSteps(state: GameState) {
     if (queue.some((candidate) => candidate.key === step.key)) return;
     insertStepInto(queue, step);
   };
-  const sweetheart = roleModule("sweetheart")?.deathStep;
+  const sweetheart = deathStepOf(roleModule("sweetheart"));
   if (sweetheart) add("sweetheart", sweetheart);
-  const barber = roleModule("barber")?.deathStep;
+  const barber = deathStepOf(roleModule("barber"));
   if (barber) add("barber", barber);
-  const sage = roleModule("sage")?.deathStep;
+  const sage = deathStepOf(roleModule("sage"));
   if (sage) add("sage", sage);
-  const klutz = roleModule("klutz")?.deathStep;
+  const klutz = deathStepOf(roleModule("klutz"));
   if (klutz) add("klutz", klutz);
   // A Philosopher who borrowed a death-triggered ability wakes for it after
   // their own death, because their character is still the Philosopher. The
@@ -1797,7 +1819,7 @@ export function appendSvConditionalSteps(state: GameState) {
     if (player.roleId !== "philosopher") continue;
     const ability = player.used ? player.used.philosopherAbility : null;
     if (typeof ability !== "string") continue;
-    const spec = roleModule(ability)?.deathStep;
+    const spec = deathStepOf(roleModule(ability));
     if (!spec) continue;
     add(ability as RoleId, spec, player);
   }
