@@ -65,6 +65,7 @@ function HomePrimary({
   return (
     <button
       type="button"
+      data-act="home-start"
       className={cx(
         HOME_ACTION,
         "bg-amber font-semibold text-white hover:bg-amber-2 active:bg-amber-active",
@@ -90,6 +91,7 @@ function HomeSecondary({
   return (
     <button
       type="button"
+      data-act="home-secondary"
       className={cx(
         HOME_ACTION,
         "border border-edge bg-crypt-3 text-text hover:border-accent-text",

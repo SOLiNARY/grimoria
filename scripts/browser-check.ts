@@ -5036,8 +5036,8 @@ async function storefrontWelcomeAt390() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "storefront-welcome-en-390.png") });
 
-  // The yellow action is the setup entry, not the table.
-  await page.locator("main button.btn--accent").click();
+  // The primary action is the setup entry, not the table.
+  await page.locator('main [data-act="home-start"]').first().click();
   await page.waitForFunction(() => document.body.dataset.route === "bag");
   assert.match(await page.evaluate(() => location.pathname), /\/bag$/);
   await overflow();
@@ -5046,8 +5046,9 @@ async function storefrontWelcomeAt390() {
   await seed(7);
   await home();
   await page.waitForSelector("main h1");
-  const resume = page.locator('main button:has-text("Continue the session")');
+  const resume = page.locator('main [data-act="home-secondary"]');
   assert.equal(await resume.count(), 1, "a live game offers the continuation");
+  assert.match((await resume.textContent()) ?? "", /continue/i);
   await resume.click();
   await page.waitForFunction(() => document.body.dataset.route === "table");
   await overflow();
