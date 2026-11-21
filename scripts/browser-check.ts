@@ -8553,16 +8553,28 @@ async function fullChecks() {
     readPage(target, () => Number(sessionStorage.getItem("pg-test-loads") || "0"));
   // Publish a worker without asking the page to look for it: only the opening
   // check can find this one.
-  const publish = (cache: string) => {
+  const publish = (cache: string, installDelay = 0) => {
     releaseOverride = versionSource(cache);
+    if (installDelay > 0) {
+      releaseOverride += `\nself.addEventListener("install", (event) => {
+  const { promise, resolve } = Promise.withResolvers();
+  setTimeout(resolve, ${installDelay});
+  event.waitUntil(promise);
+});\n`;
+    }
   };
   // The banner can turn visible while the service worker swaps documents.
   // A DOM predicate survives that swap; a CSS selector wait can resolve and
-  // still time out on the stale document.
+  // still time out on the stale document. The actionable prompt is ready only.
   const waitForBanner = (target: Page = page) =>
     target.waitForFunction(() => {
       const banner = document.getElementById("update-banner");
-      return Boolean(banner && !banner.hidden);
+      return Boolean(banner && !banner.hidden && banner.dataset.state === "available");
+    });
+  const waitForDownloading = (target: Page = page) =>
+    target.waitForFunction(() => {
+      const banner = document.getElementById("update-banner");
+      return Boolean(banner && !banner.hidden && banner.dataset.state === "downloading");
     });
   const deploy = async (cache: string) => {
     publish(cache);
@@ -8664,7 +8676,7 @@ async function fullChecks() {
   // Offline clients keep running the cached app; returning online checks again.
   await context.setOffline(true);
   await page.waitForFunction(() => navigator.onLine === false);
-  publish(nextCache);
+  publish(nextCache, 1200);
   // Deliberate: an offline client must not install a worker within this window.
   await page.waitForTimeout(300);
   assert.equal(
@@ -8675,6 +8687,13 @@ async function fullChecks() {
   await context.setOffline(false);
   await page.waitForFunction(() => navigator.onLine === true);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await waitForDownloading();
+  assert.match(
+    (await page.locator("#update-message").textContent()) ?? "",
+    /downloading an update/i,
+  );
+  assert.equal(await page.locator("#update-now").isVisible(), false);
+  assert.equal(await page.locator("#update-later").isVisible(), false);
   await page.waitForFunction(
     async () => !!(await navigator.serviceWorker.getRegistration())?.waiting,
     { timeout: 15000 },
