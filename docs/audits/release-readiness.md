@@ -1,0 +1,159 @@
+# Release readiness matrix
+
+Generated from `docs/audits/verification-gates/traceability.json` and
+`docs/audits/rule-exceptions/*.json`. A `verified` row is sentence-mapped and
+has an executing named test; `partial` is a host-choice rule; the exception
+rows carry their pinned source and reason in the registers. This is not a
+523/523 claim.
+
+## Shared rules
+
+| Outcome | Rules |
+| --- | ---: |
+| verified | 15 |
+| non-mechanical-exception | 30 |
+| mechanical-gap | 19 |
+| covered-but-unmapped | 20 |
+
+## Trouble Brewing
+
+| Outcome | Rules |
+| --- | ---: |
+| verified | 67 |
+| non-mechanical-exception | 9 |
+| mechanical-gap | 26 |
+| covered-but-unmapped | 23 |
+
+| Role | Verified | Partial | Non-mechanical | Mechanical gap | Covered/unmapped |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baron | 3 | 0 | 0 | 1 | 1 |
+| butler | 4 | 0 | 1 | 1 | 1 |
+| chef | 4 | 0 | 0 | 1 | 0 |
+| drunk | 4 | 0 | 0 | 1 | 1 |
+| empath | 3 | 0 | 0 | 0 | 1 |
+| fortuneteller | 2 | 0 | 1 | 3 | 1 |
+| imp | 4 | 0 | 0 | 1 | 2 |
+| investigator | 3 | 0 | 1 | 0 | 1 |
+| librarian | 4 | 0 | 0 | 1 | 1 |
+| mayor | 2 | 0 | 1 | 2 | 2 |
+| monk | 3 | 0 | 1 | 1 | 1 |
+| poisoner | 2 | 0 | 0 | 0 | 4 |
+| ravenkeeper | 2 | 0 | 1 | 0 | 2 |
+| recluse | 2 | 0 | 0 | 3 | 0 |
+| saint | 3 | 0 | 0 | 2 | 0 |
+| scarletwoman | 4 | 0 | 0 | 2 | 0 |
+| slayer | 5 | 0 | 0 | 0 | 1 |
+| soldier | 2 | 0 | 1 | 1 | 0 |
+| spy | 3 | 0 | 0 | 3 | 0 |
+| undertaker | 4 | 0 | 1 | 1 | 0 |
+| virgin | 1 | 0 | 0 | 1 | 3 |
+| washerwoman | 3 | 0 | 1 | 1 | 1 |
+
+## Bad Moon Rising
+
+| Outcome | Rules |
+| --- | ---: |
+| verified | 99 |
+| partial | 2 |
+| non-mechanical-exception | 15 |
+| mechanical-gap | 30 |
+| covered-but-unmapped | 18 |
+
+| Role | Verified | Partial | Non-mechanical | Mechanical gap | Covered/unmapped |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| assassin | 5 | 0 | 0 | 0 | 0 |
+| chambermaid | 5 | 0 | 0 | 1 | 0 |
+| courtier | 3 | 0 | 1 | 3 | 1 |
+| devilsadvocate | 4 | 0 | 0 | 1 | 1 |
+| exorcist | 4 | 0 | 1 | 1 | 0 |
+| fool | 3 | 0 | 0 | 2 | 1 |
+| gambler | 4 | 0 | 0 | 0 | 2 |
+| godfather | 3 | 0 | 0 | 3 | 0 |
+| goon | 6 | 0 | 0 | 1 | 0 |
+| gossip | 3 | 0 | 2 | 2 | 0 |
+| grandmother | 2 | 0 | 0 | 3 | 1 |
+| innkeeper | 6 | 0 | 0 | 2 | 0 |
+| lunatic | 4 | 0 | 0 | 0 | 2 |
+| mastermind | 4 | 0 | 1 | 2 | 0 |
+| minstrel | 3 | 0 | 0 | 3 | 1 |
+| moonchild | 5 | 0 | 1 | 0 | 1 |
+| pacifist | 0 | 0 | 3 | 0 | 2 |
+| po | 6 | 0 | 0 | 1 | 0 |
+| professor | 5 | 0 | 0 | 0 | 1 |
+| pukka | 7 | 0 | 0 | 1 | 0 |
+| sailor | 5 | 0 | 0 | 0 | 2 |
+| shabaloth | 2 | 0 | 2 | 2 | 1 |
+| tealady | 4 | 0 | 0 | 1 | 1 |
+| tinker | 0 | 2 | 4 | 0 | 1 |
+| zombuul | 6 | 0 | 0 | 1 | 0 |
+
+## Sects and Violets
+
+| Outcome | Rules |
+| --- | ---: |
+| verified | 79 |
+| partial | 10 |
+| non-mechanical-exception | 21 |
+| mechanical-gap | 32 |
+| covered-but-unmapped | 8 |
+
+| Role | Verified | Partial | Non-mechanical | Mechanical gap | Covered/unmapped |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| artist | 0 | 2 | 3 | 1 | 0 |
+| barber | 6 | 0 | 0 | 1 | 1 |
+| cerenovus | 0 | 1 | 4 | 2 | 0 |
+| clockmaker | 4 | 0 | 0 | 1 | 0 |
+| dreamer | 0 | 2 | 0 | 3 | 1 |
+| eviltwin | 4 | 0 | 1 | 0 | 3 |
+| fanggu | 6 | 0 | 0 | 1 | 0 |
+| flowergirl | 3 | 0 | 1 | 2 | 0 |
+| juggler | 3 | 0 | 1 | 2 | 0 |
+| klutz | 3 | 0 | 3 | 0 | 0 |
+| mathematician | 4 | 0 | 1 | 1 | 0 |
+| mutant | 0 | 2 | 0 | 4 | 0 |
+| nodashii | 3 | 0 | 0 | 2 | 0 |
+| oracle | 4 | 0 | 0 | 1 | 0 |
+| philosopher | 5 | 0 | 0 | 2 | 0 |
+| pithag | 5 | 0 | 2 | 0 | 0 |
+| sage | 3 | 0 | 1 | 0 | 0 |
+| savant | 0 | 2 | 2 | 1 | 2 |
+| seamstress | 4 | 0 | 0 | 2 | 0 |
+| snakecharmer | 5 | 0 | 0 | 1 | 1 |
+| sweetheart | 3 | 0 | 1 | 0 | 0 |
+| towncrier | 2 | 0 | 1 | 1 | 0 |
+| vigormortis | 6 | 0 | 0 | 1 | 0 |
+| vortox | 2 | 1 | 0 | 2 | 0 |
+| witch | 4 | 0 | 0 | 1 | 0 |
+
+## Total
+
+| Outcome | Rules |
+| --- | ---: |
+| verified | 260 |
+| partial | 12 |
+| non-mechanical-exception | 75 |
+| mechanical-gap | 107 |
+| covered-but-unmapped | 69 |
+| unmapped | 0 |
+## Partially confirmed rules
+
+These 12 rules have an executing host-choice engine rule; the register records whether the remaining clause is evidenced or a mechanical gap.
+
+| Rule | Role | Status | Reason |
+| --- | --- | --- | --- |
+| ROLE-ARTIST-001 | artist | covered-but-unmapped | The engine records the private question and spends the Artist's once-per-game ability; the cited test asserts both, so only the atomic-map entry is missing. |
+| ROLE-ARTIST-006 | artist | covered-but-unmapped | The cited test asserts that used.artist becomes true and a second question is rejected, which is the loss of the ability. |
+| ROLE-CERENOVUS-001 | cerenovus | covered-but-unmapped | The cited test builds the Cerenovus step on the first and a later night with one player target and only good role choices, which is the sentence. |
+| ROLE-DREAMER-003 | dreamer | covered-but-unmapped | The cited test asserts one true character plus one opposite-kind false character, which is the sentence. |
+| ROLE-DREAMER-006 | dreamer | covered-but-unmapped | The cited test asserts that under a living Vortox the true character is not offered, so both shown characters are false. |
+| ROLE-MUTANT-001 | mutant | non-mechanical-exception | Whether the Mutant is "mad about being an Outsider" and whether to execute is the Storyteller's judgment; the engine only stores the madness review. |
+| ROLE-MUTANT-002 | mutant | covered-but-unmapped | The cited test executes the Mutant on the first night, asserting that the penalty can occur outside the nomination phase and at night. |
+| ROLE-SAVANT-002 | savant | mechanical-gap | The test rejects a healthy "both" answer but never rejects a healthy "neither", so only half of the one-true-one-false requirement is asserted. |
+| ROLE-SAVANT-006 | savant | covered-but-unmapped | The cited test rejects a true statement and accepts "neither" under a living Vortox, asserting both statements false. |
+| ROLE-TINKER-001 | tinker | non-mechanical-exception | The Storyteller decides when, and whether, the Tinker dies; the engine exposes the death as a host-choice outcome (ENGINE_PARTIAL) rather than a computed effect. |
+| ROLE-TINKER-004 | tinker | covered-but-unmapped | A protected Tinker does not die from the ability, and an asserting test exists, but the only Tinker engine row is host-choice, so the mapped sentence cannot rise above ENGINE_PARTIAL. |
+| ROLE-VORTOX-002 | vortox | covered-but-unmapped | The cited tests assert that the true answer is removed and a false host answer is required under a living Vortox, including when the information role is impaired. |
+
+Mechanical gaps are open engineering work. Non-mechanical exceptions carry
+an official source and a reason in the registers. `unmapped` means the
+register is incomplete and the checker must fail.
