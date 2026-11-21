@@ -16,7 +16,8 @@ export type ArcaneScreen =
   | "secrets"
   | "player"
   | "sheet"
-  | "reference";
+  | "reference"
+  | "changelog";
 
 export interface AppBarNavItem {
   id: ArcaneScreen;
@@ -66,9 +67,9 @@ export const APP_BAR_BRAND = "setup-brand flex min-h-11 min-w-0 items-center gap
 
 export const APP_BAR_NAME = "grid min-w-0";
 
-export const APP_BAR_TITLE = "font-marquee text-[21px] leading-none tracking-[.02em] text-text";
+export const APP_BAR_TITLE = "text-[16px] leading-none font-semibold tracking-[-0.01em] text-text";
 
-export const APP_BAR_SUBTITLE = "label-mono mt-1 truncate text-[9.5px] text-brass";
+export const APP_BAR_SUBTITLE = "label-mono mt-1 truncate text-[9.5px] text-muted";
 
 export const APP_BAR_TOGGLE =
   "ml-auto inline-flex size-11 shrink-0 cursor-pointer items-center justify-center border-2 border-edge-2 text-text min-[1200px]:hidden";
@@ -95,10 +96,13 @@ export const APP_BAR_PHASE_TOOLS = APP_BAR_PHASE + " max-[1199px]:hidden";
 
 export const APP_BAR_HELP = "btn btn--quiet !min-h-11 !px-1.5 !text-[12px]";
 
+export const APP_BAR_VERSION =
+  "inline-flex min-h-11 items-center px-1 text-[11px] tabular-nums text-muted hover:text-text";
+
 /** The look of one route link: a store tab inline, a full row in the panel. */
 export function appBarNavLink(active: boolean): string {
   return cx(
-    "inline-flex min-h-14 items-center whitespace-nowrap border-x-0 border-t-0 border-b-[3px] px-2.5 font-marquee text-[14px] font-medium uppercase tracking-[.02em]",
+    "inline-flex min-h-14 items-center whitespace-nowrap border-x-0 border-t-0 border-b-2 px-2.5 text-[13px] font-medium",
     active
       ? "border-amber text-text max-[1199px]:bg-crypt-3"
       : "border-transparent text-muted hover:border-edge-2 hover:text-text",

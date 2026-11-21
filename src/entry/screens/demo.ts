@@ -293,7 +293,7 @@ export function mount(root: HTMLElement): () => void {
           winner
             ? `<div class="mt-3 rounded-sm border border-edge-2 bg-crypt-3 p-2.5">
             <span class="text-[9.5px] font-[650] uppercase tracking-[0.18em] text-brass">${esc(t("winner"))}</span>
-            <b class="my-0.5 block font-role text-[20px] font-normal text-amber">${winner.team === "good" ? esc(t("winnerGood")) : esc(t("winnerEvil"))}</b>
+            <b class="my-0.5 block font-role text-[20px] font-normal text-accent-text">${winner.team === "good" ? esc(t("winnerGood")) : esc(t("winnerEvil"))}</b>
             <p class="m-0 text-[12px] leading-[1.5] text-muted">${esc(winner.detail)}</p>
           </div>`
             : ""

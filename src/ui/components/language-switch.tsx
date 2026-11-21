@@ -26,7 +26,7 @@ export function LanguageSwitch({ className }: LanguageSwitchProps) {
           className={[
             "min-h-11 min-w-11 cursor-pointer border px-3 text-[11px] font-medium uppercase tracking-[.08em]",
             current === code
-              ? "border-amber bg-crypt-3 text-amber"
+              ? "border-amber bg-crypt-3 text-accent-text"
               : "border-transparent text-muted hover:border-edge-2 hover:text-text",
           ].join(" ")}
           type="button"

@@ -104,7 +104,7 @@ export function PlayerScreen() {
           onOpenChange={setWarning}
           trigger={
             <button
-              className="player-link ml-auto inline-flex min-h-11 items-center whitespace-nowrap border-0 bg-transparent px-0.5 py-0 text-[12px] text-muted no-underline hover:text-amber hover:underline hover:underline-offset-2 max-[560px]:ml-0"
+              className="player-link ml-auto inline-flex min-h-11 items-center whitespace-nowrap border-0 bg-transparent px-0.5 py-0 text-[12px] text-muted no-underline hover:text-accent-text hover:underline hover:underline-offset-2 max-[560px]:ml-0"
               type="button"
               data-act="back"
             >

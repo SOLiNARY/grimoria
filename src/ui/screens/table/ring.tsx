@@ -255,7 +255,7 @@ function Hub({
   const step = heir ? null : projection.step;
   const actor = step?.actorId ? playerById(state, step.actorId) : null;
   const label = "label-mono text-[9.5px] text-muted min-[620px]:text-[10px]";
-  const phaseLabel = "label-mono text-[9.5px] text-amber min-[620px]:text-[10px]";
+  const phaseLabel = "label-mono text-[9.5px] text-accent-text min-[620px]:text-[10px]";
   const sub = "text-[11px] leading-tight text-muted min-[620px]:text-[12px]";
 
   if (state.phase === "night") {
@@ -367,7 +367,7 @@ function Hub({
           </span>
           <b
             data-nomination-tally
-            className="font-marquee text-[30px] leading-none tabular-nums text-amber min-[620px]:text-[38px]"
+            className="font-marquee text-[30px] leading-none tabular-nums text-accent-text min-[620px]:text-[38px]"
           >
             {nomination.count} / {nomination.threshold}
           </b>

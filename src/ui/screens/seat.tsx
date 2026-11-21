@@ -356,7 +356,7 @@ export function SeatScreen() {
                       {index + 1}
                     </span>
                     {index === 0 ? (
-                      <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border border-amber-dim bg-crypt px-1 py-px text-[9px] uppercase tracking-[.1em] text-amber min-[620px]:text-[10px]">
+                      <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border border-amber-dim bg-crypt px-1 py-px text-[9px] uppercase tracking-[.1em] text-accent-text min-[620px]:text-[10px]">
                         {ports.strings.text("Start")}
                       </span>
                     ) : null}

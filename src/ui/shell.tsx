@@ -10,6 +10,8 @@ import { PlayerScreen } from "./screens/player.tsx";
 import { SeatScreen } from "./screens/seat.tsx";
 import { SecretsScreen } from "./screens/secrets.tsx";
 import { BagScreen } from "./screens/bag.tsx";
+import { ChangelogScreen } from "./screens/changelog.tsx";
+import { PrototypesScreen } from "./screens/prototypes/index.tsx";
 import { SheetScreen } from "./screens/sheet.tsx";
 import { ReferenceScreen } from "./screens/reference/index.tsx";
 import { TableScreen } from "./screens/table/index.tsx";
@@ -20,6 +22,8 @@ function resolveKey(path: string, ports: ShellPorts): string {
   if (path === "/seat") return "/seat";
   if (path === "/secrets") return "/secrets";
   if (path === "/bag") return "/bag";
+  if (path === "/changelog") return "/changelog";
+  if (path === "/prototypes") return "/prototypes";
   if (path === "/reference" || path.startsWith("/reference/")) return "/reference";
   if (Object.hasOwn(ports.legacy.screens, path)) return path;
   if (path.startsWith("/sheet")) return "/sheet";
@@ -60,6 +64,8 @@ export function Shell({ ports, route }: ShellProps) {
   if (key === "/seat") return <SeatScreen key={key} />;
   if (key === "/secrets") return <SecretsScreen key={key} />;
   if (key === "/bag") return <BagScreen key={key} />;
+  if (key === "/changelog") return <ChangelogScreen key={key} />;
+  if (key === "/prototypes") return <PrototypesScreen key={key} />;
   if (key === "/reference")
     return <ReferenceScreen key={key + snapshot.path} roleId={referenceRoleId(snapshot.path)} />;
   if (key === "/table") return <TableScreen key={key} />;

@@ -176,7 +176,7 @@ export const SEAT_BADGE_KEY: Record<SeatBadge, string> = {
 };
 
 export const SEAT_BADGE_TONE: Record<SeatBadge, string> = {
-  acting: "border-table-primary/60 text-table-primary",
+  acting: "border-table-primary/60 text-text",
   nominated: "border-crimson text-danger",
   scheduled: "border-crimson/60 text-danger",
   dead: "border-edge-2 text-muted",
@@ -184,8 +184,8 @@ export const SEAT_BADGE_TONE: Record<SeatBadge, string> = {
   "ghost-vote": "border-townsfolk/60 text-townsfolk",
   "no-ghost-vote": "border-edge-2 text-muted",
   poison: "border-outsider/60 text-outsider",
-  drunk: "border-amber-2/60 text-amber-2",
-  protection: "border-amber-2/60 text-amber-2",
+  drunk: "border-amber-2/60 text-accent-text",
+  protection: "border-amber-2/60 text-accent-text",
 };
 
 /**

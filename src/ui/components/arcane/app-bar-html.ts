@@ -4,6 +4,7 @@
 // render no React.
 import { esc } from "../../dom.ts";
 import { t } from "../../i18n/strings.ts";
+import { APP_VERSION } from "../../version.ts";
 import {
   APP_BAR,
   APP_BAR_BRAND,
@@ -19,6 +20,7 @@ import {
   APP_BAR_TITLE,
   APP_BAR_TOGGLE,
   APP_BAR_TOOLS,
+  APP_BAR_VERSION,
   appBarNavLink,
 } from "./app-bar-parts.ts";
 
@@ -77,6 +79,9 @@ export function appBarMarkup({
             : ""
         }
         <a class="${APP_BAR_HELP}" href="${esc(href("help"))}">${esc(t("help"))}</a>
+        <a class="${APP_BAR_VERSION}" href="${esc(href("changelog"))}" aria-label="${esc(
+          t("changelog"),
+        )}">v${esc(APP_VERSION)}</a>
       </div>
     </div>
   </header>`;

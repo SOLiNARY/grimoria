@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { useShellPorts } from "../../ports.ts";
 import { useGame } from "../../store/use-game.ts";
+import { APP_VERSION } from "../../version.ts";
 import { LanguageSwitch } from "../language-switch.tsx";
 import { initAppBarMenu } from "./app-bar-menu.ts";
 import {
@@ -20,6 +21,7 @@ import {
   APP_BAR_TITLE,
   APP_BAR_TOGGLE,
   APP_BAR_TOOLS,
+  APP_BAR_VERSION,
   appBarNavLink,
   type ArcaneScreen,
 } from "./app-bar-parts.ts";
@@ -133,6 +135,13 @@ export function ArcaneAppBar({ current, nav = true }: { current: ArcaneScreen; n
             ) : null}
             <a className={APP_BAR_HELP} href={ports.router.path("help")}>
               {t("help")}
+            </a>
+            <a
+              className={APP_BAR_VERSION}
+              href={ports.router.path("changelog")}
+              aria-label={t("changelog")}
+            >
+              v{APP_VERSION}
             </a>
             <LanguageSwitch />
           </div>

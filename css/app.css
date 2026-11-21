@@ -118,88 +118,99 @@ html {
   /* Document and shared semantics; the values alias the store materials. */
   --color-panel-2: var(--color-crypt-3);
   --color-line-2: var(--color-edge-2);
-  --color-text: #f2efe6;
-  --color-muted: #a8a6a1;
+  --color-text: #f1eee8;
+  --color-muted: #a6a5a3;
   --color-accent: var(--color-amber);
-  --color-accent-dim: #40340c;
+  --color-accent-text: #6e95d1;
+  --color-accent-dim: #1e2c42;
+  --color-focus: #6e95d1;
   --color-danger: #ff6b5e;
   --color-success: #53d18b;
-  --color-selected: #2a2a14;
-  --color-disabled: #6f6e6b;
+  --color-selected: #23324a;
+  --color-disabled: #7c7d80;
   --color-townsfolk: #6fa8ff;
   --color-outsider: #7fd48d;
   --color-minion: #ffa14a;
   --color-demon: #ff5c4d;
   --color-traveller: #b98cff;
-  --color-btn-hover: #26262e;
+  --color-btn-hover: #2e3033;
   --color-btn-accent-border: var(--color-amber);
-  --color-btn-accent-text: #131313;
+  --color-btn-accent-text: #ffffff;
   --color-btn-accent-hover: var(--color-amber-2);
-  --color-player-role-text: #f2efe6;
-  --color-control-border-hover: #5a5a67;
-  --color-amber-ink: #ffe9a8;
-  --color-amber-raise: #33290c;
+  --color-player-role-text: #f1eee8;
+  --color-control-border-hover: var(--color-focus);
+  --color-amber-ink: #dce8ff;
+  --color-amber-raise: #2b3d59;
   --color-danger-top: #3a1411;
   --color-danger-ink: #ffb3aa;
   --color-danger-raise: #4a1a14;
-  --color-field: #101014;
+  --color-field: #0e0f10;
   --color-alert-surface: #40150f;
   --color-alert-ink: #ffc2b8;
-  --color-banner-surface: #17171d;
+  --color-banner-surface: #242629;
 
-  /* The last video store: tube black, bone print, tape yellow for the one
-     action, rent red for damage, signal blue and cult purple for sections. */
-  --color-crypt: #0b0b0d;
-  --color-crypt-2: #141418;
-  --color-crypt-3: #1d1d23;
-  --color-edge: #2e2e36;
-  --color-edge-2: #46464f;
-  --color-brass: #ffd76a;
-  --color-amber: #ffc93c;
-  --color-amber-2: #ffd964;
-  --color-amber-dim: #4a3a0e;
+  /* Steel ground and surfaces, one blue action, cream role stock. */
+  --color-crypt: #121314;
+  --color-crypt-2: #1d1e20;
+  --color-crypt-3: #292a2c;
+  --color-edge: #393a3c;
+  --color-edge-2: #4a4c4f;
+  --color-brass: #a6a5a3;
+  --color-amber: #3e6fb6;
+  --color-amber-2: #4a78bc;
+  --color-amber-active: #2f568e;
+  --color-amber-dim: #24344e;
   --color-crimson: #ff6b5e;
   --color-crimson-dim: #4d1a14;
-  --color-parchment: #f4efe4;
-  --color-ink: #141414;
-  --color-ink-2: #55524c;
+  --color-parchment: #e8dfcd;
+  --color-ink: #121314;
+  --color-ink-2: #6b6c6e;
 
-  /* Store materials a screen may name directly. */
-  --color-store: #0b0b0d;
-  --color-shelf: #16161b;
-  --color-tape: #101014;
-  --color-label: #f4efe4;
-  --color-tape-yellow: #ffc93c;
-  --color-tape-red: #ff4d3d;
-  --color-tape-blue: #3d7bff;
-  --color-tape-purple: #a06bff;
+  /* Script and handoff materials a screen may name directly. */
+  --color-store: var(--color-crypt);
+  --color-tape: #17181a;
+  --color-label: #e8dfcd;
+  --color-tape-yellow: var(--color-amber);
+  --color-tape-red: #e0655a;
 
-  /* The Storyteller reference is a neutral reading surface: one graphite card
-     on a darker page, divided by hairlines instead of nested cards. */
-  --color-ref-page: #111111;
-  --color-ref-surface: #212121;
-  --color-ref-ink: #ececec;
-  --color-ref-muted: #b4b4b4;
-  --color-ref-dim: #858585;
-  --color-ref-edge: #484848;
-  --color-ref-divider: #444444;
-  --color-ref-rule: #303030;
-  --color-ref-well: #1b1b1b;
-  --color-ref-token: #f0e7d6;
+  /* The Storyteller reference: one graphite card on the darker page. */
+  --color-ref-page: var(--color-crypt);
+  --color-ref-surface: var(--color-crypt-2);
+  --color-ref-ink: var(--color-text);
+  --color-ref-muted: var(--color-muted);
+  --color-ref-dim: #85878a;
+  --color-ref-edge: var(--color-edge);
+  --color-ref-divider: var(--color-edge);
+  --color-ref-rule: #2c2d2f;
+  --color-ref-well: var(--color-crypt-3);
+  --color-ref-token: var(--color-label);
 
-  /* The table aliases the shared palette: a matte shelf, the yellow action,
-     the yellow ticker and the red warning. */
+  /* The catalog prototype keeps its own names for the same palette. */
+  --color-steel-bg: var(--color-crypt);
+  --color-steel-surface: var(--color-crypt-2);
+  --color-steel-raised: var(--color-crypt-3);
+  --color-steel-edge: var(--color-edge);
+  --color-steel-primary: var(--color-amber);
+  --color-steel-primary-hover: var(--color-amber-2);
+  --color-steel-primary-active: var(--color-amber-active);
+  --color-steel-ring: var(--color-focus);
+  --color-steel-text: var(--color-text);
+  --color-steel-muted: var(--color-muted);
+  --color-steel-role: var(--color-label);
+
+  /* The table aliases the shared palette: the steel surfaces, the blue
+     action and the red warning. */
   --color-table-rim: var(--color-edge);
   --color-table-chip: var(--color-crypt-3);
   --color-table-muted: var(--color-muted);
   --color-table-primary: var(--color-amber);
-  --color-table-primary-ink: #131313;
-  --color-table-secondary: #7db4ff;
+  --color-table-primary-ink: #ffffff;
+  --color-table-secondary: var(--color-accent-text);
   --color-table-danger: var(--color-crimson);
-  --color-card-parchment: #f4efe4;
-  --color-card-ink: #141414;
+  --color-card-parchment: var(--color-parchment);
+  --color-card-ink: var(--color-ink);
   --shadow-deep: 0 24px 60px rgba(0, 0, 0, 0.65);
-  --shadow-glow: 0 0 24px rgba(255, 201, 60, 0.22);
+  --shadow-glow: 0 0 24px rgba(62, 111, 182, 0.3);
   --radius-sm: 3px;
   --font-role: "Oswald", "Arial Narrow", Georgia, serif;
   --font-case: "PT Mono", ui-monospace, "SFMono-Regular", monospace;
@@ -236,8 +247,8 @@ html {
   body {
     margin: 0;
     background:
-      radial-gradient(80% 55% at 50% -8%, rgba(255, 201, 60, 0.07) 0%, transparent 60%),
-      linear-gradient(180deg, #101014 0%, var(--color-store) 42%, #08080a 100%);
+      radial-gradient(80% 55% at 50% -8%, rgba(62, 111, 182, 0.1) 0%, transparent 60%),
+      linear-gradient(180deg, #17181a 0%, var(--color-store) 42%, #0d0e0f 100%);
     color: var(--color-text);
     font:
       14px/1.45 "Golos Text",
@@ -247,8 +258,8 @@ html {
   }
 
   ::selection {
-    background: var(--color-tape-yellow);
-    color: #101010;
+    background: var(--color-amber);
+    color: #ffffff;
   }
 
   * {
@@ -277,7 +288,7 @@ html {
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-amber-2);
+    outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
 
@@ -490,8 +501,8 @@ input[type="checkbox"] {
 /* One rental case: black plastic, a printed spine and a soft shelf shadow. */
 .tape-box {
   position: relative;
-  background: linear-gradient(180deg, #17171d, var(--color-tape));
-  border: 2px solid #34343d;
+  background: linear-gradient(180deg, #232528, var(--color-tape));
+  border: 2px solid var(--color-edge-2);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 14px 28px rgba(0, 0, 0, 0.55);
@@ -517,11 +528,11 @@ input[type="checkbox"] {
 .barcode {
   background: repeating-linear-gradient(
     90deg,
-    #141414 0 2px,
-    #f4efe4 2px 3px,
-    #141414 3px 6px,
-    #f4efe4 6px 9px,
-    #141414 9px 10px
+    #121314 0 2px,
+    #e8dfcd 2px 3px,
+    #121314 3px 6px,
+    #e8dfcd 6px 9px,
+    #121314 9px 10px
   );
 }
 
@@ -534,8 +545,8 @@ input[type="checkbox"] {
 
 .screen {
   background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255, 201, 60, 0.08), transparent 60%),
-    #0c0c10;
+    radial-gradient(120% 90% at 50% 0%, rgba(62, 111, 182, 0.1), transparent 60%),
+    #0f1012;
   border: 1px solid var(--color-amber-dim);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),

@@ -242,7 +242,7 @@ export function SheetScreen({ lang }: SheetScreenProps) {
                 {ports.strings.t("roleSheetIntro")}
               </p>
               <p
-                className="sheet-summary m-0 mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber"
+                className="sheet-summary m-0 mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-text"
                 data-sheet-summary=""
                 aria-live="polite"
               >
@@ -273,7 +273,7 @@ export function SheetScreen({ lang }: SheetScreenProps) {
                     type="button"
                     className={
                       on
-                        ? "sheet-scenario-btn is-on inline-flex min-h-11 items-center justify-center gap-1.75 rounded-sm border border-amber-dim bg-amber-dim px-2.5 py-1.75 text-[11px] uppercase tracking-[0.1em] text-amber no-underline disabled:cursor-not-allowed disabled:opacity-40 max-[680px]:px-1.5 max-[680px]:py-1 max-[680px]:text-[10.5px]/[1.2]"
+                        ? "sheet-scenario-btn is-on inline-flex min-h-11 items-center justify-center gap-1.75 rounded-sm border border-amber-dim bg-amber-dim px-2.5 py-1.75 text-[11px] uppercase tracking-[0.1em] text-accent-text no-underline disabled:cursor-not-allowed disabled:opacity-40 max-[680px]:px-1.5 max-[680px]:py-1 max-[680px]:text-[10.5px]/[1.2]"
                         : "sheet-scenario-btn inline-flex min-h-11 items-center justify-center gap-1.75 rounded-sm border border-edge-2 bg-crypt-2 px-2.5 py-1.75 text-[11px] uppercase tracking-[0.1em] text-muted no-underline transition-colors hover:bg-crypt-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 max-[680px]:px-1.5 max-[680px]:py-1 max-[680px]:text-[10.5px]/[1.2]"
                     }
                     data-scenario={id}
@@ -298,7 +298,7 @@ export function SheetScreen({ lang }: SheetScreenProps) {
               type="button"
               className={
                 showTravellers
-                  ? "sheet-travellers-btn is-on inline-flex min-h-11 items-center justify-center gap-1.75 rounded-sm border border-amber-dim bg-amber-dim px-2.5 py-1.75 text-[11px] uppercase tracking-[0.1em] text-amber no-underline disabled:cursor-not-allowed disabled:opacity-40 max-[680px]:grow max-[680px]:shrink-0 max-[680px]:basis-full"
+                  ? "sheet-travellers-btn is-on inline-flex min-h-11 items-center justify-center gap-1.75 rounded-sm border border-amber-dim bg-amber-dim px-2.5 py-1.75 text-[11px] uppercase tracking-[0.1em] text-accent-text no-underline disabled:cursor-not-allowed disabled:opacity-40 max-[680px]:grow max-[680px]:shrink-0 max-[680px]:basis-full"
                   : "sheet-travellers-btn inline-flex min-h-11 items-center justify-center gap-1.75 rounded-sm border border-edge-2 bg-crypt-2 px-2.5 py-1.75 text-[11px] uppercase tracking-[0.1em] text-muted no-underline transition-colors hover:bg-crypt-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 max-[680px]:grow max-[680px]:shrink-0 max-[680px]:basis-full"
               }
               data-travellers=""

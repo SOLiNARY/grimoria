@@ -87,7 +87,7 @@ export function RoleCard({
           {role.ability}
         </p>
         {reminders.length ? (
-          <div className="mt-1 rounded-sm border border-amber-dim bg-amber-dim/40 px-2 py-1.5 text-[10px] leading-relaxed text-amber-2">
+          <div className="mt-1 rounded-sm border border-amber-dim bg-amber-dim/40 px-2 py-1.5 text-[10px] leading-relaxed text-accent-text">
             {reminders.map((reminder) => (
               <p key={reminder} className="m-0">
                 {reminder}
