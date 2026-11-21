@@ -146,15 +146,37 @@ lines.push(
   "",
   `These ${partials.length} rules have an executing host-choice engine rule; the register records whether the remaining clause is evidenced or a mechanical gap.`,
   "",
-  "| Rule | Role | Status | Reason |",
-  "| --- | --- | --- | --- |",
+  "| Rule | Role | Status | Disposition | Reason |",
+  "| --- | --- | --- | --- | --- |",
 );
 for (const rule of partials) {
   const entry = exceptions.get(rule.id);
   const reason = (entry?.reason ?? "no register entry").replace(/\|/g, "\\|");
+  const disposition =
+    entry?.status === "covered-but-unmapped"
+      ? "mechanical constraint covered; remaining Storyteller choice reserved"
+      : entry?.status === "non-mechanical-exception"
+        ? "Storyteller judgment reserved"
+        : "needs review";
   lines.push(
-    `| ${rule.id} | ${rule.role ?? "shared"} | ${entry?.status ?? "unmapped"} | ${reason} |`,
+    `| ${rule.id} | ${rule.role ?? "shared"} | ${entry?.status ?? "unmapped"} | ${disposition} | ${reason} |`,
   );
+}
+const remainingCovered = trace.officialRules.filter((rule) => {
+  const entry = exceptions.get(rule.id);
+  return rule.status === "ROLE_LEVEL_ONLY" && entry?.status === "covered-but-unmapped";
+});
+lines.push(
+  "## Remaining covered rules",
+  "",
+  "These rules have an asserting test but no single existing engine rule that owns the sentence. They stay open for a mapping or a shared engine-rule row; none is recorded as verified.",
+  "",
+  "| Rule | Role | Reason |",
+  "| --- | --- | --- |",
+);
+for (const rule of remainingCovered) {
+  const reason = (exceptions.get(rule.id)?.reason ?? "no register entry").replace(/\\|/g, "\\\\|");
+  lines.push(`| ${rule.id} | ${rule.role ?? "shared"} | ${reason} |`);
 }
 lines.push(
   "",
