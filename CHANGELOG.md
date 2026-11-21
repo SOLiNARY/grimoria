@@ -6,6 +6,8 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-21
+
 ### Added
 
 - Replace the welcome page with the steel catalogue: the three official scripts and their team mix, the full first-night order, the live game continuation, and a staggered composition bar.
