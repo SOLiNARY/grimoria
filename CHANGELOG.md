@@ -6,22 +6,32 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-21
+
 ### Fixed
 
-- Make an executed evil-aligned Saint win for good, as Saint r3119 requires, while a good Saint still loses for good; cover the remaining Trouble Brewing register branches and close every TB mechanical gap (#200)
+- Make an executed evil-aligned Saint win for good, as Saint r3119 requires, while a good Saint still loses for good (#200)
+- Let the Pit-Hag create the Philosopher's chosen absent character, make the new holder drunk, and reconcile the drunk after a Fang Gu jump or a manual role correction (#200)
+- Reveal the Goon's new alignment on the player handoff: `shownAlignment` is populated only for the Goon, the role card shows good or evil after the turn, and the Lunatic and every other masked role stay hidden (#200)
+- Close the Trouble Brewing, Bad Moon Rising and Sects & Violets mechanical gaps with named regression tests, including the evil-Saint, Philosopher, Goon, Courtier, Gambler, Mastermind, No Dashii, Sweetheart and Witch branches (#200)
 
 ### Added
 
 - Add an engine-derived Storyteller reference at `/reference` and `/reference/:roleId`: all 72 supported characters, the engine's rule decisions, the host's decisions, verified scenarios, official interactions and a complete Russian translation (#396)
+- Type the Dreamer pair and the Evil Twin introduction as information capabilities; the stored records preserve the legacy journal, replay, undo/redo and privacy gates (#211)
+- Add an independent source-derived cross-role oracle with 13 scenarios covering Mayor, Spy/Recluse registration, Pukka order, Zombuul, Mastermind, Pit-Hag, Barber, Snake Charmer and Vortox (#220)
+- Record every uncovered official rule in TB/BMR/S&V/shared exception registers, generate the per-script readiness matrix and map the covered rules to their asserting tests (#221, #332)
 
-### Fixed
+### Changed
 
-- Reveal the Goon's new alignment on the player handoff: `shownAlignment` is populated only for the Goon, the role card shows good or evil after the turn, and the Lunatic and every other masked role stay hidden (#200)
+- Accept `release-x.y.z` branches in the Git conventions check, so the release branch no longer needs a `chore/` name (#464)
 
 ## [0.6.0] - 2026-11-20
 
 ### Fixed
 
+- Make the console step action honest and block it while the step has unresolved blockers, and require confirmation before an execution (#311)
+- Clear stale step and day drafts when the target, step or day changes, so a previous answer or execution target cannot leak into the next one (#322)
 - Let a character created mid-game start knowing at that point: a Pit-Hag-created Clockmaker or a Barber swap onto a start-knowing character wakes immediately, a dead created character does not, and a living Vortox falsifies the answer (#314)
 - Refuse the same seat twice in every multi-target night step: Innkeeper, Shabaloth, Po, Barber, Fortune Teller and Chambermaid (#316)
 - Use a borrowed day ability for the Philosopher: the Slayer shoots, the Tinker dies and the Virgin triggers, while a Drunk's shown ability stays inert (#320)
