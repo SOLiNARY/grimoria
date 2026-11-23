@@ -109,6 +109,8 @@ import type { AttackResult } from "./ability.ts";
 import { isImpaired } from "./effects.ts";
 
 import { infoForStep } from "./information.ts";
+import { characterChoices } from "./information-facts.ts";
+import { demonKillerId } from "../roles/sv-common.ts";
 import { checkWin, evilTwinPartnerMissing } from "./death.ts";
 import { secretsErrors, setupErrors } from "./setup.ts";
 import {
@@ -122,6 +124,8 @@ import {
   buildSvNightQueue,
   completeSvStep,
   reconcileVigormortisPoison,
+  recordJinxAbnormalities,
+  vortoxFalsifies,
 } from "./sv.ts";
 import { minionRetainsAbility } from "./retention.ts";
 import { informationOf, nightResolverFor, nightStepFor } from "../roles/night-step.ts";
@@ -787,7 +791,7 @@ export function completeStep(
       };
     }
     if (outcome.kind === "attack") {
-      return finishAttackStep(state, step, options, outcome.attack, outcome.title, ports);
+      return finishAttackStep(state, step, options, targets, outcome.attack, outcome.title, ports);
     }
     return finishStep(state, step, options, targets, at, ports);
   }
@@ -830,10 +834,19 @@ function finishAttackStep(
   state: GameState,
   step: NightStep,
   options: NightOptions,
+  targets: string[],
   attack: AttackResult,
   title: string,
   ports: CommandExecutionContext,
 ) {
+  // The Lunatic jinx compares the Demon's decision, not the death (a Mayor
+  // redirect or a protected target breaks that equality). Store the chosen
+  // target only when that comparison can run, so a single-edition attack keeps
+  // its existing step record and older saved games replay unchanged.
+  const roles = state.script?.roles ?? [];
+  if (roles.includes("lunatic") && roles.includes("mathematician")) {
+    step.targetIds = targets.slice();
+  }
   step.result = attack;
   // The redirect is a Storyteller decision: it belongs in the secret journal
   // even though this path completes the step itself.
@@ -874,11 +887,75 @@ function finishAttackStep(
     ports,
   );
   appendConditionalSteps(state, ports);
+  recordJinxAbnormalities(state, step, ports);
   if (attack.pendingInheritance) {
     step.pending = attack.pendingInheritance;
   }
   checkWin(state, {}, ports);
   return { ok: true, step, result: step.result };
+}
+
+/**
+ * Recluse r3007 + Sage r3009 jinx: choosing a pair that names the Recluse is
+ * the Storyteller's choice to make it register as the Demon. The pair is
+ * already a journaled host answer; record the implied registration as the
+ * existing secret registration choice so the grimoire and replay show it.
+ */
+function recordSageRecluseRegistration(state: GameState, step: NightStep): void {
+  if (step.roleId !== "sage" || !step.actorId) return;
+  const given = step.given as { kind?: string; pair?: unknown } | null;
+  if (!given || given.kind !== "player-pair" || !Array.isArray(given.pair)) return;
+  const sage = playerById(state, step.actorId);
+  if (!sage || isImpaired(state, sage.id, nightAt(state))) return;
+  if (vortoxFalsifies(state, "sage")) return;
+  const pair = given.pair.map(String);
+  const killerId = demonKillerId(state, sage.id);
+  const demon =
+    (killerId ? playerById(state, killerId) : null) ||
+    orderedPlayers(state).find((player) => roleTeam(player.roleId || "") === "demon") ||
+    null;
+  // The Recluse registration is implied only when the pair needs it: no actual
+  // Demon is in the pair. A pair that already names the Demon does not force a
+  // registration, and an impaired/Vortox Sage may be shown any pair.
+  if (demon && pair.includes(demon.id)) return;
+  const recluse = orderedPlayers(state).find(
+    (player) => player.roleId === "recluse" && pair.includes(player.id),
+  );
+  if (!recluse) return;
+  if (step.registrations?.[recluse.id] === "demon") return;
+  step.registrations = { ...step.registrations, [recluse.id]: "demon" };
+}
+
+function drunkAnswerIsFalse(
+  state: GameState,
+  step: NightStep,
+  ports: CommandExecutionContext,
+): boolean {
+  const info = infoForStep(state, step, {}, ports);
+  const given = step.given as Record<string, unknown> | null;
+  if (info.kind === "number" || info.kind === "yes-no") {
+    return !(given && "value" in given && given.value === info.value);
+  }
+  if (info.kind === "character") {
+    return !(given && given.roleId === info.roleId);
+  }
+  if (info.kind === "one-of-two") {
+    if (!given) return true;
+    // The legacy fallback invents a pair and labels it false. It is not a
+    // prepared record, so accepting it is false information.
+    if (step.roleId != null && state.setup.info[step.roleId] == null) return true;
+    if (given.zero === true) {
+      return orderedPlayers(state).some((player) =>
+        characterChoices(state, player.id).some((role) => roleTeam(role) === "outsider"),
+      );
+    }
+    if (typeof given.roleId !== "string" || !Array.isArray(given.pair)) return true;
+    const role = given.roleId as RoleId;
+    return !given.pair.map(String).some((id) => characterChoices(state, id).includes(role));
+  }
+  // A player pair or note from a Drunk has no prepared true record to compare;
+  // it stays the Storyteller's answer and is marked as the jinx says.
+  return true;
 }
 
 export function finishStep(
@@ -891,6 +968,7 @@ export function finishStep(
 ) {
   step.targetIds = targets.slice();
   step.registrations = options.registrations || {};
+  if (step.roleId === "sage" && step.sv) recordSageRecluseRegistration(state, step);
   if (Object.keys(step.registrations).length) {
     recordHostChoice(
       state,
@@ -933,6 +1011,9 @@ export function finishStep(
     line.noteVars = step.noteVars ?? null;
   }
   appendConditionalSteps(state, ports);
+  const actor = step.actorId ? playerById(state, step.actorId) : null;
+  const drunkFailed = actor?.roleId === "drunk" ? drunkAnswerIsFalse(state, step, ports) : true;
+  recordJinxAbnormalities(state, step, ports, drunkFailed);
   checkWin(state, {}, ports);
   return { ok: true, step };
 }

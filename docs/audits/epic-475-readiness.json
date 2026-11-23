@@ -1,7 +1,7 @@
 {
   "epic": 475,
   "issue": "https://github.com/hose1021/grimoria/issues/475",
-  "pull_request": "https://github.com/hose1021/grimoria/pull/476",
+  "pull_request": "https://github.com/hose1021/grimoria/pull/476 (merged); follow-up https://github.com/hose1021/grimoria/pull/477 (targets dev)",
   "updated": "2026-11-23",
   "milestones": [
     {
@@ -47,10 +47,9 @@
       "status": "complete",
       "evidence": [
         "src/core/model/interactions.ts",
-        "all seven official jinxes classified unsupported with a reason",
-        "no verified pair without an asserting test"
-      ],
-      "remaining_behavior": "seven joint jinx behaviors are separate source-backed scopes"
+        "src/core/engine/jinxes.test.ts",
+        "all seven pairs verified with pinned sources and tests"
+      ]
     },
     {
       "id": "M4",
@@ -66,16 +65,22 @@
     {
       "id": "M5",
       "name": "Independent certification and mixed proof",
-      "status": "partial",
+      "status": "complete",
       "evidence": [
         "npm run scenarios: 10/10",
         "node scripts/browser-check.ts: pass",
+        "npm test: 1580/1580",
+        "npm run verification:mutation: 10/10 critical mutations detected",
         "VERIFICATION_BASE_REF=origin/dev gates --scope=all: 0 findings",
-        "MIXED-QUEUE-01, MIXED-EFFECT-01, MIXED-SAFETY-01, MIXED-SUCCESSION-01, MIXED-PROTECTION-01, MIXED-DRUNK-01"
+        "two independent audit rounds; fixes covered by JINX-LUNATIC-03/04/05/06, JINX-DRUNK-03/04, JINX-SAGE-02/03/04/05 and JINX-REPLAY-01",
+        "one-of-two truth is computed from the pair; JINX-DRUNK-05/06 cover the synthetic default and an alternative true role",
+        "third independent re-audit: ACCEPT at 5824197; PR #477 owner review remains",
+        "independent UI/privacy audit: PASS at c50c1e8",
+        "final compliance re-audit: ACCEPT at c50c1e8",
+        "docs/audits/verified-jinx-independent-audits.md"
       ],
       "remaining": [
-        "owner review and merge of PR #476",
-        "independent acceptance on the merged head"
+        "owner review and merge of PR #477"
       ]
     }
   ],
@@ -92,7 +97,6 @@
   "blockers": [
     "PR #476 needs owner review; the agent must not merge, tag, release or close #475",
     "full per-role capability migration remains the existing #211 scope; a new character still needs its edition adapter until that slice moves",
-    "the seven official jinx behaviors are not implemented; pools containing them are explicitly unsupported and manual-only",
     "Al vs Al requires a separate roster and normative-source scope"
   ],
   "followups": [
