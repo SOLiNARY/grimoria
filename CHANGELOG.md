@@ -6,6 +6,10 @@ All notable changes to Grimoria are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Add `TEAM.md` with the five delivery roles and `DECISIONS.md` with the append-only process decision log (#478).
+
 ## [0.9.0] - 2026-11-21
 
 ### Added
