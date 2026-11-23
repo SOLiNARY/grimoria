@@ -7,6 +7,7 @@ Canonical handoff for epic #200, release candidate 0.10.0. Updated 2026-11-23.
 - Released `main`: `5106de2` (0.9.0). Owner-only; do not merge, tag or publish automatically.
 - Integration `dev`: `87b7f06`, including certified mixed-edition scripts (#476), verified official jinx behaviors (#477), the residual contracts (#480), the mixed protection and win rules (#484), the capability-adapter audit (#482), the Al vs Al readiness report (#483) and the team workflow (#478). The release-prep commit follows this baseline.
 - Release candidate is prepared on `dev`, targeting `main`; `VERSION`, `package.json` and `CHANGELOG.md` agree on 0.10.0. Candidate must pass required PR CI on its exact HEAD; no release/merge/tag has occurred as part of preparation.
+- Release PR: [#486](https://github.com/hose1021/grimoria/pull/486) (`dev` → `main`); its CI runs on the exact release head.
 - This is a minor release: it adds certified mixed-script composition and verified jinx behavior, and fixes the mixed protection/win and residual-contract defects. The 72 TB/BMR/S&V roles keep their existing behavior, storage, journal and privacy contracts.
 - #200 and #223 stay OPEN until integrated `main` acceptance, production Pages smoke, privacy/offline/replay evidence and an explicit owner closure decision. This 0.10.0 release is not 1.0.0 and does not imply unrestricted automatic play.
 
