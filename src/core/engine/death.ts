@@ -28,7 +28,11 @@ import { isImpaired, protectionFor, soldierSafe, mayorRedirects, bmrCannotDie } 
 import { HOST_CHOICE_REASONS } from "./host-choice.ts";
 
 import { appendConditionalSteps, demonChangePending } from "./night.ts";
-import { recordsAttackSource, repeatsDemonWake } from "./command-versions.ts";
+import {
+  recordsAttackSource,
+  recordsDemonAttackSource,
+  repeatsDemonWake,
+} from "./command-versions.ts";
 import { mastermindRetainsAbility, minionRetainsAbility } from "./retention.ts";
 import { becomeDemon } from "./becoming.ts";
 import { resolveDeathCapability } from "./death-ability.ts";
@@ -297,6 +301,11 @@ export function resolveAttack(
 
   const victim = playerById(state, victimId) as Player;
   const wasDemon = roleTeam(victim.roleId || "") === "demon";
+  // Sage r3009 and Banshee read the attack source: a typed Demon attack must
+  // record that a Demon made it. Older journals have no such fields, so their
+  // replay stays byte-identical.
+  const attacker = playerById(state, attackerId);
+  const demonAttack = Boolean(attacker && roleTeam(attacker.roleId || "") === "demon");
   // Scarlet Woman r3117: "5 or more players alive" excludes a player other
   // abilities see as dead, such as a registered-dead Zombuul.
   const livingBefore = livingPlayers(state).filter(registersAlive).length;
@@ -306,7 +315,12 @@ export function resolveAttack(
     victimId,
     selfKill ? "imp-self-kill" : "demon",
     at,
-    recordsAttackSource(ports.rulesetVersion) ? { attackerId } : {},
+    recordsAttackSource(ports.rulesetVersion)
+      ? {
+          attackerId,
+          ...(recordsDemonAttackSource(ports.rulesetVersion) ? { demon: demonAttack } : {}),
+        }
+      : {},
     ports,
   );
 
