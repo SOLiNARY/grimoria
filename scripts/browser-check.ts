@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
-import type { Page, PageDialog, Playwright } from "./playwright.ts";
+import type { Page, PageDialog, PageResponse, Playwright } from "./playwright.ts";
 import type { AddressInfo } from "node:net";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createDistServer } from "./serve-dist.ts";
@@ -494,15 +494,15 @@ async function sheetLegibility(widths: number[], expected = 77) {
   }
 }
 async function chooseLanguage(lang: string) {
-  // The bar keeps its list in the burger below 1440 px, so the control is
-  // inside the closed panel until the toggle opens it.
-  const mobile = ((await page.viewportSize())?.width ?? 0) < 1440;
-  if (mobile) {
-    await page.locator("[data-app-bar-toggle]").click();
+  const toggle = page.locator("[data-app-bar-toggle]");
+  const usesMenu = await toggle.isVisible();
+  if (usesMenu && (await toggle.getAttribute("aria-expanded")) !== "true") {
+    await toggle.click();
     await page.locator("[data-app-bar-menu]").waitFor({ state: "visible" });
   }
   await page.locator(`.lang-switch [data-lang="${lang}"]`).click();
-  if (mobile) await page.keyboard.press("Escape");
+  await page.waitForSelector(`html[lang="${lang}"]`);
+  if (usesMenu && (await toggle.getAttribute("aria-expanded")) === "true") await toggle.click();
   await settled();
 }
 // The host tools live in the table menu; open it only when it is closed.
@@ -1000,6 +1000,7 @@ async function seatOrderIsFixedAfterStart() {
   await page.setViewportSize({ width: 390, height: 844 });
   await seed(7);
   await route("/seat");
+  await page.waitForSelector("[data-seat-locked]");
   assert.equal(
     await page.locator("[data-seat-locked]").count(),
     1,
@@ -1023,6 +1024,7 @@ async function seatOrderIsFixedAfterStart() {
   assert.deepEqual(result.after, result.before, "the circle is unchanged");
   await seed(7, "deal");
   await route("/seat");
+  await page.waitForSelector(".seat-ring");
   assert.equal(await page.locator("[data-seat-locked]").count(), 0, "setup renders the ring");
   assert.equal(
     await page.locator('[data-act="use"]').count(),
@@ -1035,22 +1037,19 @@ async function seatOrderIsFixedAfterStart() {
   const status = page.locator(".seat-status");
   const previousLang = await page.locator("html").getAttribute("lang");
   try {
-    await page.getByRole("button", { name: "RU", exact: true }).click();
-    await page.waitForSelector('html[lang="ru"]');
+    await chooseLanguage("ru");
     await seats.first().click();
     assert.match(await status.innerText(), /Выбрано место 1/);
     assert.match((await seats.first().getAttribute("aria-label")) ?? "", /Место 1/);
-    await page.getByRole("button", { name: "AZ", exact: true }).click();
-    await page.waitForSelector('html[lang="az"]');
+    await chooseLanguage("az");
     assert.match(await status.innerText(), /Yer 1 seçildi/);
     await seats.nth(1).click();
     assert.match(await status.innerText(), /Yer 1 ilə yer 2|Yer 2 indi/);
     await page.locator('[data-act="undo"]').click();
     assert.match(await status.innerText(), /geri alındı/);
   } finally {
-    if (previousLang) {
-      await page.getByRole("button", { name: previousLang.toUpperCase(), exact: true }).click();
-      await page.waitForSelector(`html[lang="${previousLang}"]`);
+    if (previousLang && (await page.locator("html").getAttribute("lang")) !== previousLang) {
+      await chooseLanguage(previousLang);
     }
     await page.setViewportSize({ width: 390, height: 844 });
   }
@@ -5809,18 +5808,30 @@ async function storefrontWelcomeAt390() {
     await page.waitForFunction(() => document.body.dataset.route === "home");
     await settled();
   };
+  // Page responses include service-worker cache hits and are independent of the fixture clock.
+  const scriptPathsDuring = async (navigate: () => Promise<void>) => {
+    const paths: string[] = [];
+    const record = (response: PageResponse) => {
+      const path = new URL(response.url()).pathname;
+      if (path.endsWith(".js")) paths.push(path);
+    };
+    page.on("response", record);
+    try {
+      await navigate();
+      return paths;
+    } finally {
+      page.off("response", record);
+    }
+  };
   await page.setViewportSize({ width: 390, height: 844 });
   await home();
   await page.waitForSelector("main h1");
   assert.equal(await page.evaluate(() => document.body.dataset.route), "home");
   await chooseLanguage("en");
-  await page.reload();
-  await page.waitForSelector("main h1");
-  const resourcePaths = () =>
-    page.evaluate(() =>
-      performance.getEntriesByType("resource").map((entry) => new URL(entry.name).pathname),
-    );
-  const homeResources = await resourcePaths();
+  const homeResources = await scriptPathsDuring(async () => {
+    await page.reload();
+    await page.waitForSelector('body[data-route="home"] [data-act="home-start"]');
+  });
   assert.deepEqual(
     homeResources.filter((path) => /\/assets\/data\/[^/]+\.js$/.test(path)),
     ["/pocket/assets/data/en_GB.js"],
@@ -5855,10 +5866,14 @@ async function storefrontWelcomeAt390() {
   await home();
 
   // The primary action is the setup entry, not the table.
-  await page.locator('main [data-act="home-start"]').first().click();
-  await page.waitForFunction(() => document.body.dataset.route === "bag");
+  const bagResources = await scriptPathsDuring(async () => {
+    await page.locator('main [data-act="home-start"]').first().click();
+    await page.waitForSelector('body[data-route="bag"] .setup');
+  });
   assert.ok(
-    (await resourcePaths()).some((url) => url.endsWith(".js") && !homeResources.includes(url)),
+    bagResources.some(
+      (path) => /\/assets\/bag-[^/]+\.js$/.test(path) && !homeResources.includes(path),
+    ),
     "opening the bag requests its deferred screen code",
   );
   assert.match(await page.evaluate(() => location.pathname), /\/bag$/);
@@ -5872,7 +5887,7 @@ async function storefrontWelcomeAt390() {
   assert.equal(await resume.count(), 1, "a live game offers the continuation");
   assert.match((await resume.textContent()) ?? "", /continue/i);
   await resume.click();
-  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await page.waitForSelector('body[data-route="table"] .host');
   await overflow();
   await page.screenshot({ path: join(screenshots, "storefront-continue-390.png") });
 }
@@ -8705,11 +8720,17 @@ async function fullChecks() {
   await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
+  const seatNames = () =>
+    page
+      .locator(".seat-item .seat-name")
+      .evaluateAll((nodes) => nodes.map((node) => node.textContent));
+  const [, secondName, thirdName, ...remainingNames] = await seatNames();
+  await page.locator('.seat-item[data-index="1"]').click();
+  await page.locator('.seat-item[data-index="2"]').click();
   await page.evaluate(async () => {
     const { store } = await window.PG_MODULES();
-    const next = structuredClone(store.state);
-    next.players["1"].name = "Zed";
-    store.replaceState(next);
+    const result = store.dispatch({ type: "claimSeat", payload: { playerId: "1", name: "Zed" } });
+    if (result.status !== "allowed") throw new Error(result.reason);
   });
   await page.waitForFunction(
     () => document.querySelector('.seat-item[data-index="0"] .seat-name')?.textContent === "Zed",
@@ -8718,25 +8739,24 @@ async function fullChecks() {
   );
   await page.evaluate(async () => {
     const { store } = await window.PG_MODULES();
-    const next = structuredClone(store.state);
-    next.order = next.order.slice().reverse();
-    store.replaceState(next);
+    const result = store.dispatch({
+      type: "setOrder",
+      payload: { order: store.state.order.slice().reverse() },
+    });
+    if (result.status !== "allowed") throw new Error(result.reason);
   });
-  await settled();
+  await page.waitForSelector('[data-act="use"]:disabled');
   assert.equal(
     (await page.locator('.seat-item[data-index="0"] .seat-name').textContent()) ?? "",
     "Zed",
     "a publish keeps the seat draft",
   );
+  assert.deepEqual(await seatNames(), ["Zed", thirdName, secondName, ...remainingNames]);
 
   // Regression: dragging a seat onto another must swap them, and enter undo.
   await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
-  const seatNames = () =>
-    page
-      .locator(".seat-item .seat-name")
-      .evaluateAll((nodes) => nodes.map((node) => node.textContent));
   const beforeDrag = await seatNames();
   const beforeIds = await page.evaluate(async () =>
     (await window.PG_MODULES()).store.state.order.slice(),
@@ -9985,6 +10005,7 @@ async function fullChecks() {
   // width and every link/button inside the viewport, unclipped and at least
   // 44x44.
   const auditPhone = async (tab: Page, screen: string, route: string) => {
+    await tab.waitForFunction((expected) => document.body.dataset.route === expected, route);
     const detail = await tab.evaluate(() => {
       const viewport = innerWidth;
       const visible = (el: HTMLElement) => {
@@ -10249,7 +10270,7 @@ async function fullChecks() {
       };
 
       await tab.goto(url + "table");
-      await tab.waitForSelector("#screen > *");
+      await tab.waitForSelector("[data-setup-board]");
       // No configuration or saved-bag registry: a new profile may hold only
       // the language preference before the first interaction.
       assert.deepEqual(
