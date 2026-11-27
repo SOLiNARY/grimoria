@@ -31,7 +31,7 @@ import {
   scriptCompatibility,
   scriptRunsAutomatically,
 } from "../../core/model/script-definition.ts";
-import type { Role, RoleId, Script } from "../../core/model/types.ts";
+import type { GameState, Role, RoleId, Script } from "../../core/model/types.ts";
 import { SetupShell } from "../components/setup-shell.tsx";
 import type { BagEntryInput, BagLibrary, LibraryBag, LibraryPool, LibraryEdit } from "../ports.ts";
 import { useShellPorts } from "../ports.ts";
@@ -188,34 +188,31 @@ function shiftOf(state: { setup: { godfatherOutsider?: 1 | -1 | null } }): 1 | -
   return state.setup.godfatherOutsider === -1 ? -1 : 1;
 }
 
-function snapshotOf(state: {
-  setup: {
-    count: number;
-    roles: string[];
-    bluffs: string[];
-    drunkShownId: string | null;
-    lunaticShownId: string | null;
-    lunaticShownExplicit?: boolean;
-    lunaticBluffs?: string[];
-    godfatherOutsider: 1 | -1 | null;
-    evilTwinGoodId: string | null;
-  };
-  scriptId?: string;
-  script: Script | null;
-}): string {
-  return JSON.stringify({
-    count: state.setup.count,
-    roles: state.setup.roles,
-    bluffs: state.setup.bluffs,
-    drunkShownId: state.setup.drunkShownId,
-    lunaticShownId: state.setup.lunaticShownId,
-    lunaticShownExplicit: state.setup.lunaticShownExplicit,
-    lunaticBluffs: state.setup.lunaticBluffs,
-    godfatherOutsider: state.setup.godfatherOutsider,
-    evilTwinGoodId: state.setup.evilTwinGoodId,
-    scriptId: state.scriptId,
-    script: state.script ? { ...state.script, roles: state.script.roles.slice() } : null,
+// Resetting a roster clears its setup as well. Carry the host's selection
+// into that same command so a single edit never writes an empty bag first.
+function restoreBag(state: GameState, changes: BagPatch = {}): BagPatch {
+  const { setup, script } = state;
+  const pool = changes.script?.roles ?? script?.roles ?? [];
+  const lunaticChoices = bluffCandidates({
+    pool,
+    roles: changes.roles ?? setup.roles,
+    recipient: "lunatic",
   });
+  return {
+    resetRoster: true,
+    phase: "setup",
+    count: setup.count,
+    roles: setup.roles.slice(),
+    bluffs: setup.bluffs.filter((id) => pool.includes(id)),
+    drunkShownId: setup.drunkShownId,
+    lunaticShownId: setup.lunaticShownId,
+    lunaticShownExplicit: setup.lunaticShownExplicit ?? Boolean(setup.lunaticShownId),
+    lunaticBluffs: (setup.lunaticBluffs ?? []).filter((id) => lunaticChoices.includes(id)),
+    godfatherOutsider: shiftOf(state),
+    evilTwinGoodId: setup.evilTwinGoodId,
+    ...(script ? { script: { ...script, roles: script.roles.slice() } } : {}),
+    ...changes,
+  };
 }
 
 export function BagScreen() {
@@ -234,7 +231,9 @@ export function BagScreen() {
   const [preview, setPreview] = useState<BagEntry | null>(null);
   const [bagError, setBagError] = useState("");
   const [armed, setArmed] = useState(false);
-  const [undoStack, setUndoStack] = useState<string[]>([]);
+  const [undoHistory, setUndoHistory] = useState<{ head: string; entries: BagPatch[] } | null>(
+    null,
+  );
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerChoice, setPickerChoice] = useState(() =>
@@ -245,6 +244,7 @@ export function BagScreen() {
   const [pickerPreview, setPickerPreview] = useState<ScriptPreview | null>(null);
   const [pickerUrl, setPickerUrl] = useState("");
   const [pickerText, setPickerText] = useState("");
+  const pickerRead = useRef<AbortController | null>(null);
 
   const [library, setLibrary] = useState<BagLibrary>(() => ports.library.normalize(null));
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -293,6 +293,16 @@ export function BagScreen() {
   const unused = () => poolRoles().filter((role) => !state.setup.roles.includes(role.id));
   const unusedTownsfolk = () => unused().filter((role) => role.team === "townsfolk");
 
+  // One journal head identifies the saved edit this window can undo.
+  const savedHead = () => {
+    const { state: current, gameRevision } = ports.game.getSnapshot();
+    return JSON.stringify([current.createdAt, gameRevision, current.journal.entries.at(-1)?.id]);
+  };
+  const undoApplies = () =>
+    undoHistory !== null &&
+    ports.game.getSnapshot().state.phase === "setup" &&
+    undoHistory.head === savedHead();
+
   const send = (patch: BagPatch) =>
     ports.commands.bagUpdate({
       // Adopt the mode only on a live host edit. A pre-existing legacy mask
@@ -300,25 +310,26 @@ export function BagScreen() {
       ...(state.setup.lunaticShownExplicit === undefined
         ? { lunaticShownExplicit: Boolean(state.setup.lunaticShownId) }
         : {}),
-      ...patch,
+      ...(state.phase !== "setup" && patch.resetRoster !== true && patch.count === undefined
+        ? restoreBag(state, patch)
+        : patch),
     });
 
-  const beginSetup = () => {
-    if (state.phase === "setup") return true;
-    if (!window.confirm(t("ui.changeBag"))) return false;
-    send({ count: state.setup.count, resetRoster: true, phase: "setup" });
-    return true;
+  const sendUndoable = (patch: BagPatch) => {
+    const previousHead = savedHead();
+    const before = restoreBag(state);
+    const result = send(patch);
+    if (result.status === "allowed") {
+      const head = savedHead();
+      setUndoHistory((past) => ({
+        head,
+        entries: [...(past?.head === previousHead ? past.entries.slice(-29) : []), before],
+      }));
+    }
+    return result;
   };
 
-  const pushUndo = () => {
-    // The store mutates the live state, so the snapshot must be taken before
-    // the command runs, not inside the state updater.
-    const snap = snapshotOf(state);
-    setUndoStack((past) => {
-      const next = [...past, snap];
-      return next.length > 30 ? next.slice(1) : next;
-    });
-  };
+  const confirmSetupEdit = () => state.phase === "setup" || window.confirm(t("ui.changeBag"));
 
   const refreshError = () => {
     if (!setupProjection(state).errors.length) setBagError("");
@@ -342,7 +353,7 @@ export function BagScreen() {
       setBagError(t("illegal"));
       return;
     }
-    if (!beginSetup()) return;
+    if (!confirmSetupEdit()) return;
     const result = send({
       count: bag.roles.length,
       resetRoster: true,
@@ -373,35 +384,15 @@ export function BagScreen() {
   };
 
   const undoBag = () => {
-    const last = undoStack[undoStack.length - 1];
-    if (!last) return;
-    setUndoStack((past) => past.slice(0, -1));
-    const parsed = JSON.parse(last) as {
-      count: number;
-      roles: string[];
-      bluffs: string[];
-      drunkShownId: string | null;
-      lunaticShownId: string | null;
-      lunaticShownExplicit?: boolean;
-      lunaticBluffs?: string[];
-      godfatherOutsider: 1 | -1 | null;
-      evilTwinGoodId: string | null;
-      script: Script | null;
-    };
-    send({
-      ...(parsed.script ? { script: parsed.script } : {}),
-      count: parsed.count,
-      resetRoster: true,
-      phase: "setup",
-      roles: parsed.roles,
-      bluffs: parsed.bluffs,
-      drunkShownId: parsed.drunkShownId,
-      lunaticShownId: parsed.lunaticShownId,
-      lunaticShownExplicit: parsed.lunaticShownExplicit ?? Boolean(parsed.lunaticShownId),
-      lunaticBluffs: parsed.lunaticBluffs ?? [],
-      godfatherOutsider: parsed.godfatherOutsider === -1 ? -1 : 1,
-      evilTwinGoodId: parsed.evilTwinGoodId,
-    });
+    const last = undoHistory?.entries.at(-1);
+    if (!last || !undoHistory || !undoApplies()) return;
+    const result = send(last);
+    if (result.status !== "allowed") {
+      setBagError(commandRejectionText(result) || t("illegal"));
+      return;
+    }
+    const entries = undoHistory.entries.slice(0, -1);
+    setUndoHistory(entries.length ? { head: savedHead(), entries } : null);
     setArmed(false);
     setBagError("");
   };
@@ -416,17 +407,15 @@ export function BagScreen() {
     // leave the ref one ahead, and a rejected command must not either.
     if (hasGame && !window.confirm(t("ui.changeCount"))) return;
     countRef.current = next;
-    pushUndo();
     const kept = ports.presets.resize({
       count: next,
       roles: state.setup.roles,
       pool: scriptRoles,
       godfatherOutsider: shiftOf(state),
     });
-    const result = send({ count: next, roles: kept });
+    const result = sendUndoable({ count: next, roles: kept });
     if (result.status !== "allowed") {
       countRef.current = state.setup.count;
-      setUndoStack((past) => past.slice(0, -1));
       setBagError(commandRejectionText(result) || t("illegal"));
       return;
     }
@@ -435,7 +424,7 @@ export function BagScreen() {
   };
 
   const toggleRole = (id: RoleId) => {
-    if (!beginSetup()) return;
+    if (!confirmSetupEdit()) return;
     let script: Script | null = null;
     if (!inPool(id)) {
       if (!isCustom) {
@@ -447,19 +436,17 @@ export function BagScreen() {
       const candidate = { ...(state.script as Script), roles: pool };
       script = { ...candidate, manualOnly: mixedManualOnly(candidate) };
     }
-    pushUndo();
     const roles = state.setup.roles.slice();
     const at = roles.indexOf(id);
     if (at === -1) roles.push(id);
     else roles.splice(at, 1);
-    send({ ...(script ? { script } : {}), roles });
+    sendUndoable({ ...(script ? { script } : {}), roles });
     setArmed(false);
     refreshError();
   };
 
   const togglePoolRole = (id: RoleId) => {
-    if (!isCustom || !beginSetup()) return;
-    pushUndo();
+    if (!isCustom || !confirmSetupEdit()) return;
     const pool = scriptRoles.slice();
     const roles = state.setup.roles.slice();
     const at = pool.indexOf(id);
@@ -470,7 +457,7 @@ export function BagScreen() {
       if (bagAt !== -1) roles.splice(bagAt, 1);
     }
     const candidate = { ...(state.script as Script), roles: pool };
-    send({
+    sendUndoable({
       script: { ...candidate, manualOnly: mixedManualOnly(candidate) },
       roles,
     });
@@ -480,6 +467,19 @@ export function BagScreen() {
 
   const editionLabel = (edition: string | undefined) =>
     ({ tb: "TB", bmr: "BMR", snv: "S&V" })[edition || ""] || edition || "";
+
+  const cancelPickerRead = () => {
+    pickerRead.current?.abort();
+    pickerRead.current = null;
+  };
+
+  const closePicker = () => {
+    cancelPickerRead();
+    setPickerOpen(false);
+    setPickerError("");
+  };
+
+  useEffect(() => cancelPickerRead, []);
 
   const applyScript = (script: Script | null) => {
     if (!script || !Array.isArray(script.roles) || !script.roles.length) return;
@@ -492,16 +492,14 @@ export function BagScreen() {
           script.roles.length === state.script.roles.length &&
           script.roles.every((id, index) => state.script.roles[index] === id)))
     ) {
-      setPickerOpen(false);
-      setPickerError("");
+      closePicker();
       return;
     }
     if (hasGame && !window.confirm(t("ui.changeScript"))) return;
     setActivePool(null);
     setActiveBag(null);
     setLibraryName("");
-    setPickerOpen(false);
-    setPickerError("");
+    closePicker();
     setPickerPreview(null);
     setArmed(false);
     let bag: AnyBag | null = null;
@@ -617,7 +615,7 @@ export function BagScreen() {
   };
 
   const applyRepair = () => {
-    if (!beginSetup()) return;
+    if (!confirmSetupEdit()) return;
     const bag = ports.presets.repair({
       count: state.setup.count,
       roles: state.setup.roles,
@@ -628,8 +626,7 @@ export function BagScreen() {
       setBagError(t("bag.noRepair"));
       return;
     }
-    pushUndo();
-    send({
+    sendUndoable({
       roles: bag.roles.slice(),
       bluffs: bag.bluffs.slice(),
       drunkShownId: bag.drunkShownId,
@@ -873,42 +870,60 @@ export function BagScreen() {
     }
   };
 
+  const startPickerRead = () => {
+    cancelPickerRead();
+    const controller = new AbortController();
+    pickerRead.current = controller;
+    setPickerPreview(null);
+    setPickerChoice("custom");
+    setPickerError("");
+    return controller;
+  };
+
   const loadScriptUrl = async () => {
     const url = pickerUrl.trim();
+    const request = startPickerRead();
     if (!/^https?:\/\//i.test(url)) {
       setPickerError(t("scriptUrlInvalid"));
-      setPickerPreview(null);
       return;
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timer = setTimeout(() => request.abort(), 12000);
     try {
       const response = await fetch(url, {
-        signal: controller.signal,
+        signal: request.signal,
         headers: { Accept: "application/json, text/plain" },
       });
       if (!response.ok) throw new Error("HTTP " + response.status);
-      loadScriptText(await response.text(), "url");
-    } catch (error) {
-      setPickerError(
-        error instanceof Error && error.name === "AbortError"
-          ? t("scriptUrlTimeout")
-          : t("scriptUrlFailed"),
-      );
-      setPickerPreview(null);
+      const text = await response.text();
+      if (!request.signal.aborted && pickerRead.current === request) loadScriptText(text, "url");
+    } catch {
+      if (pickerRead.current === request) {
+        setPickerError(t(request.signal.aborted ? "scriptUrlTimeout" : "scriptUrlFailed"));
+      }
     } finally {
       clearTimeout(timer);
     }
   };
 
+  const loadFile = async (file: File) => {
+    const request = startPickerRead();
+    try {
+      const text = await file.text();
+      if (!request.signal.aborted) loadScriptText(text, "file");
+    } catch {
+      if (!request.signal.aborted) setPickerError(t("scriptFileFailed"));
+    }
+  };
+
   const pasteClipboard = async () => {
+    const request = startPickerRead();
     try {
       const text = await navigator.clipboard.readText();
+      if (request.signal.aborted) return;
       setPickerText(text);
       loadScriptText(text, "clipboard");
     } catch {
-      setPickerError(t("scriptClipboardFailed"));
-      setPickerSection("clipboard");
+      if (!request.signal.aborted) setPickerError(t("scriptClipboardFailed"));
     }
   };
 
@@ -956,8 +971,7 @@ export function BagScreen() {
         event.preventDefault();
         if (preview) setPreview(null);
         else if (pickerOpen) {
-          setPickerOpen(false);
-          setPickerError("");
+          closePicker();
         } else if (libraryOpen) {
           setLibraryOpen(false);
           setLibraryError("");
@@ -1220,7 +1234,7 @@ export function BagScreen() {
     });
     const options = candidates.filter((id) => !selected.includes(id)).map(roleOf);
     const update = (bluffs: string[]) => {
-      const result = send(lunatic ? { lunaticBluffs: bluffs } : { bluffs });
+      const result = sendUndoable(lunatic ? { lunaticBluffs: bluffs } : { bluffs });
       setBagError(result.status === "allowed" ? "" : commandRejectionText(result) || t("illegal"));
     };
     return (
@@ -1241,8 +1255,7 @@ export function BagScreen() {
                 data-lunatic-bluff-slot={lunatic ? index : undefined}
                 aria-label={`${label} ${index + 1}`}
                 onClick={() => {
-                  if (!beginSetup()) return;
-                  pushUndo();
+                  if (!confirmSetupEdit()) return;
                   const bluffs = selected.slice();
                   bluffs.splice(index, 1);
                   update(bluffs);
@@ -1269,9 +1282,8 @@ export function BagScreen() {
             data-shuffle-bluffs={recipient}
             disabled={candidates.length < needed}
             onClick={() => {
-              if (!beginSetup()) return;
-              pushUndo();
-              const result = send({ shuffleBluffs: recipient });
+              if (!confirmSetupEdit()) return;
+              const result = sendUndoable({ shuffleBluffs: recipient });
               setBagError(
                 result.status === "allowed" ? "" : commandRejectionText(result) || t("illegal"),
               );
@@ -1314,8 +1326,7 @@ export function BagScreen() {
                   data-lunatic-bluff-role={lunatic ? role.id : undefined}
                   aria-label={role.name}
                   onClick={() => {
-                    if (!beginSetup()) return;
-                    pushUndo();
+                    if (!confirmSetupEdit()) return;
                     update(chooseBluff(selected, role.id, needed));
                   }}
                 >
@@ -1381,7 +1392,7 @@ export function BagScreen() {
                 </span>
               </>,
               () => {
-                if (!beginSetup()) return;
+                if (!confirmSetupEdit()) return;
                 send({ drunkShownId: role.id });
               },
             );
@@ -1404,7 +1415,7 @@ export function BagScreen() {
               { key: value, "data-godfather": value },
               <span>{value === 1 ? t("godfatherPlus") : t("godfatherMinus")}</span>,
               () => {
-                if (!beginSetup()) return;
+                if (!confirmSetupEdit()) return;
                 send({ godfatherOutsider: value });
               },
             );
@@ -1437,7 +1448,7 @@ export function BagScreen() {
                 </span>
               </>,
               () => {
-                if (!beginSetup()) return;
+                if (!confirmSetupEdit()) return;
                 send({ evilTwinGoodId: id });
               },
             );
@@ -1459,9 +1470,8 @@ export function BagScreen() {
           data-act="lunatic-follow-demon"
           aria-pressed={state.setup.lunaticShownExplicit === false}
           onClick={() => {
-            if (!beginSetup()) return;
-            pushUndo();
-            send({ lunaticShownExplicit: false });
+            if (!confirmSetupEdit()) return;
+            sendUndoable({ lunaticShownExplicit: false });
           }}
         >
           {t("ui.lunaticFollowDemon")}
@@ -1481,9 +1491,8 @@ export function BagScreen() {
                   </span>
                 </>,
                 () => {
-                  if (!beginSetup()) return;
-                  pushUndo();
-                  send({ lunaticShownId: role.id, lunaticShownExplicit: true });
+                  if (!confirmSetupEdit()) return;
+                  sendUndoable({ lunaticShownId: role.id, lunaticShownExplicit: true });
                 },
               );
             })}
@@ -1813,9 +1822,8 @@ export function BagScreen() {
               type="button"
               data-act="clear"
               onClick={() => {
-                if (!beginSetup()) return;
-                pushUndo();
-                send({
+                if (!confirmSetupEdit()) return;
+                sendUndoable({
                   roles: [],
                   bluffs: [],
                   drunkShownId: null,
@@ -1831,7 +1839,7 @@ export function BagScreen() {
               className={tool}
               type="button"
               data-act="undo"
-              disabled={!undoStack.length}
+              disabled={!undoApplies()}
               onClick={undoBag}
             >
               {t("undo")}
@@ -1952,9 +1960,8 @@ export function BagScreen() {
       setBagError(t("random.noSwap"));
       return;
     }
-    if (!beginSetup()) return;
-    pushUndo();
-    const result = send(next);
+    if (!confirmSetupEdit()) return;
+    const result = sendUndoable(next);
     if (result.status !== "allowed") {
       setBagError(commandRejectionText(result) || t("illegal"));
       return;
@@ -2262,10 +2269,7 @@ export function BagScreen() {
           "script-picker-title",
           t("scriptPicker"),
           "close-script",
-          () => {
-            setPickerOpen(false);
-            setPickerError("");
-          },
+          closePicker,
           <>
             <section className="mt-4 border-t border-edge pt-4">
               <h3 className={LABEL}>{t("scriptOfficial")}</h3>
@@ -2290,7 +2294,11 @@ export function BagScreen() {
                         value={entry.id}
                         checked={picked}
                         disabled={!entry.supported}
-                        onChange={() => setPickerChoice(entry.id)}
+                        onChange={() => {
+                          cancelPickerRead();
+                          setPickerError("");
+                          setPickerChoice(entry.id);
+                        }}
                       />
                       <span className="flex-1 text-[14px]">{entry.name}</span>
                       <small className="whitespace-nowrap text-[11px] text-muted">
@@ -2311,7 +2319,10 @@ export function BagScreen() {
                 if (event.currentTarget.open) setPickerSection("file");
               }}
             >
-              <summary className="cursor-pointer py-1 text-[14px] font-semibold">
+              <summary
+                onClick={cancelPickerRead}
+                className="cursor-pointer py-1 text-[14px] font-semibold"
+              >
                 {t("scriptLoadFile")}
               </summary>
               <input
@@ -2324,13 +2335,8 @@ export function BagScreen() {
                   const input = event.currentTarget;
                   const file = input.files?.[0];
                   if (!file) return;
-                  void file
-                    .text()
-                    .then((text) => loadScriptText(text, "file"))
-                    .catch(() => setPickerError(t("scriptFileFailed")))
-                    .finally(() => {
-                      input.value = "";
-                    });
+                  input.value = "";
+                  void loadFile(file);
                 }}
               />
               <p className={`mt-2 ${NOTE}`}>{t("scriptFormatHint")}</p>
@@ -2344,7 +2350,10 @@ export function BagScreen() {
                 if (event.currentTarget.open) setPickerSection("url");
               }}
             >
-              <summary className="cursor-pointer py-1 text-[14px] font-semibold">
+              <summary
+                onClick={cancelPickerRead}
+                className="cursor-pointer py-1 text-[14px] font-semibold"
+              >
                 {t("scriptUrl")}
               </summary>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -2356,7 +2365,10 @@ export function BagScreen() {
                   value={pickerUrl}
                   data-script-url
                   aria-label={t("scriptUrl")}
-                  onChange={(event) => setPickerUrl(event.target.value)}
+                  onChange={(event) => {
+                    cancelPickerRead();
+                    setPickerUrl(event.target.value);
+                  }}
                 />
                 <button
                   className="btn"
@@ -2378,7 +2390,10 @@ export function BagScreen() {
                 if (event.currentTarget.open) setPickerSection("clipboard");
               }}
             >
-              <summary className="cursor-pointer py-1 text-[14px] font-semibold">
+              <summary
+                onClick={cancelPickerRead}
+                className="cursor-pointer py-1 text-[14px] font-semibold"
+              >
                 {t("scriptClipboard")}
               </summary>
               <div className="mt-2 flex flex-wrap gap-2">
@@ -2394,7 +2409,10 @@ export function BagScreen() {
                   className="btn"
                   type="button"
                   data-act="script-text"
-                  onClick={() => loadScriptText(pickerText, "text")}
+                  onClick={() => {
+                    cancelPickerRead();
+                    loadScriptText(pickerText, "text");
+                  }}
                 >
                   {t("scriptParse")}
                 </button>
@@ -2405,7 +2423,10 @@ export function BagScreen() {
                 aria-label={t("scriptClipboard")}
                 placeholder={t("scriptFormatHint")}
                 value={pickerText}
-                onChange={(event) => setPickerText(event.target.value)}
+                onChange={(event) => {
+                  cancelPickerRead();
+                  setPickerText(event.target.value);
+                }}
               />
             </details>
 
@@ -2429,15 +2450,7 @@ export function BagScreen() {
             ) : null}
 
             <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button
-                className="btn"
-                type="button"
-                data-act="close-script"
-                onClick={() => {
-                  setPickerOpen(false);
-                  setPickerError("");
-                }}
-              >
+              <button className="btn" type="button" data-act="close-script" onClick={closePicker}>
                 {t("cancel")}
               </button>
               <button
@@ -2659,6 +2672,7 @@ export function BagScreen() {
         type="button"
         data-act="script"
         onClick={() => {
+          cancelPickerRead();
           setPickerOpen(true);
           setPickerError("");
           setPickerChoice(isOfficial ? state.script?.id || "custom" : "custom");
@@ -2722,7 +2736,7 @@ export function BagScreen() {
                   data-manual-only
                   checked={manualOnly}
                   onChange={(event) => {
-                    if (!beginSetup()) return;
+                    if (!confirmSetupEdit()) return;
                     send({
                       script: { ...(state.script as Script), manualOnly: event.target.checked },
                     });

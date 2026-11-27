@@ -111,6 +111,7 @@ export function createGameStore(ports: StorePorts): GameStore {
   const loadStatus: LoadStatus = { ok: true, error: null, backupKey: null, migrated: false };
   let save: SaveStatus = { status: "saved" };
   let viewVersion = 0;
+  let unbackedPrimary: string | null = null;
 
   const loaded = load();
   const state = loaded.state;
@@ -151,6 +152,7 @@ export function createGameStore(ports: StorePorts): GameStore {
   }
 
   function clearLoadStatus(): void {
+    unbackedPrimary = null;
     Object.assign(loadStatus, { ok: true, error: null, backupKey: null, migrated: false });
     save = { status: "saved" };
   }
@@ -250,6 +252,9 @@ export function createGameStore(ports: StorePorts): GameStore {
     let backupKey: string | null = null;
     if (corruptRaw) {
       backupKey = storage.backup(corruptRaw);
+      // A corrupt legacy key survives a new primary write. A corrupt
+      // primary must be copied before anything may replace its only bytes.
+      if (corruptRaw === disk && !backupKey) unbackedPrimary = corruptRaw;
       message =
         (error || "Saved game is corrupt.") +
         (backupKey
@@ -267,7 +272,17 @@ export function createGameStore(ports: StorePorts): GameStore {
     };
   }
 
-  function persist(markFailing = true, next = state): SaveOutcome {
+  function ensurePrimaryBackup(): boolean {
+    if (unbackedPrimary === null) return true;
+    const key = storage.backup(unbackedPrimary);
+    if (!key) return false;
+    loadStatus.backupKey = key;
+    unbackedPrimary = null;
+    return true;
+  }
+
+  // The caller finishes its undo/redo bookkeeping before publishing success.
+  function writeGame(markFailing = true, next = state): SaveOutcome {
     let failure: string;
     try {
       const raw = storage.readRaw();
@@ -281,6 +296,8 @@ export function createGameStore(ports: StorePorts): GameStore {
           };
         }
         failure = "Another tab changed this game. Reload before continuing.";
+      } else if (!ensurePrimaryBackup()) {
+        failure = "The damaged game is still in storage. Free space for its backup and try again.";
       } else {
         const savedGame = {
           ...next,
@@ -296,7 +313,6 @@ export function createGameStore(ports: StorePorts): GameStore {
         savedRevision = savedGame.revision;
         save = { status: "saved" };
         Object.assign(loadStatus, { ok: true, error: null });
-        publish();
         return { ok: true, error: null };
       }
     } catch (error) {
@@ -355,7 +371,7 @@ export function createGameStore(ports: StorePorts): GameStore {
       resetJournal();
       undoFloor = 0;
     }
-    const saved = persist(false);
+    const saved = writeGame(false);
     if (!saved.ok) {
       replaceContents(state, before);
       undoFloor = floorBefore;
@@ -364,6 +380,7 @@ export function createGameStore(ports: StorePorts): GameStore {
     }
     legacyUndo = null;
     redoStack.length = 0;
+    publish();
     return { ok: true, snapshot };
   }
 
@@ -441,7 +458,7 @@ export function createGameStore(ports: StorePorts): GameStore {
       if (outcome.status !== "allowed") return outcome as DispatchResult;
       if (outcome.idempotent) return { ...outcome, persisted: true };
 
-      const saved = persist(true, next);
+      const saved = writeGame(true, next);
       if (!saved.ok) {
         return {
           status: "rejected",
@@ -464,10 +481,15 @@ export function createGameStore(ports: StorePorts): GameStore {
         // forward step.
         redoStack.length = 0;
       }
+      publish();
       return { ...outcome, persisted: true };
     },
 
-    persist,
+    persist() {
+      const saved = writeGame();
+      if (saved.ok) publish();
+      return saved;
+    },
 
     undo(): StoreMutationResult {
       const index = undoIndex();
@@ -478,7 +500,7 @@ export function createGameStore(ports: StorePorts): GameStore {
         const before = clone(state);
         replaceContents(state, legacyUndo.state);
         state.storageError = null;
-        const saved = persist(false);
+        const saved = writeGame(false);
         if (!saved.ok) {
           replaceContents(state, before);
           markFailed(saved.error || "Could not save.");
@@ -487,6 +509,7 @@ export function createGameStore(ports: StorePorts): GameStore {
         undoFloor = legacyUndo.floor;
         legacyUndo = null;
         redoStack.length = 0;
+        publish();
         return { ok: true, snapshot };
       }
 
@@ -506,13 +529,14 @@ export function createGameStore(ports: StorePorts): GameStore {
       const before = clone(state);
       replaceContents(state, replayed.state);
       state.storageError = null;
-      const saved = persist(false);
+      const saved = writeGame(false);
       if (!saved.ok) {
         replaceContents(state, before);
         markFailed(saved.error || "Could not save.");
         return failMutation(saved.error || "Could not save.");
       }
       redoStack.push({ entry, index });
+      publish();
       return { ok: true, snapshot };
     },
 
@@ -532,13 +556,14 @@ export function createGameStore(ports: StorePorts): GameStore {
       const before = clone(state);
       replaceContents(state, replayed.state);
       state.storageError = null;
-      const saved = persist(false);
+      const saved = writeGame(false);
       if (!saved.ok) {
         replaceContents(state, before);
         markFailed(saved.error || "Could not save.");
         return failMutation(saved.error || "Could not save.");
       }
       redoStack.pop();
+      publish();
       return { ok: true, snapshot };
     },
 
@@ -569,7 +594,7 @@ export function createGameStore(ports: StorePorts): GameStore {
         legacyUndo = { state: before, floor: floorBefore };
         redoStack.length = 0;
         undoFloor = 0;
-        const saved = persist(false);
+        const saved = writeGame(false);
         if (!saved.ok) {
           replaceContents(state, before);
           undoFloor = floorBefore;
@@ -578,6 +603,7 @@ export function createGameStore(ports: StorePorts): GameStore {
           markFailed(saved.error || "Could not save.");
           return { ok: false, error: saved.error, persisted: false, result };
         }
+        publish();
         return { ok: true, error: saved.error, persisted: true, result };
       } catch (error) {
         replaceContents(state, before);
@@ -631,6 +657,7 @@ export function createGameStore(ports: StorePorts): GameStore {
     hasLocalChanges,
 
     clearSaveError() {
+      if (unbackedPrimary !== null) return;
       state.storageError = null;
       Object.assign(loadStatus, { ok: true, error: null });
       const wasFailed = save.status === "failed";

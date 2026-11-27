@@ -1007,6 +1007,16 @@
       "name": "a corrupt save is backed up, left in place and reported with an explicit error"
     },
     {
+      "key": "src/application/store/create-game-store.test.ts::a damaged legacy save remains recoverable when a duplicate backup cannot fit",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "a damaged legacy save remains recoverable when a duplicate backup cannot fit"
+    },
+    {
+      "key": "src/application/store/create-game-store.test.ts::a damaged primary stays intact across every write path until its backup succeeds",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "a damaged primary stays intact across every write path until its backup succeeds"
+    },
+    {
       "key": "src/application/store/create-game-store.test.ts::a dispatch from a tab whose disk moved cannot publish or overwrite",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "a dispatch from a tab whose disk moved cannot publish or overwrite"
@@ -1245,6 +1255,11 @@
       "key": "src/application/store/create-game-store.test.ts::storage denying reads cannot overwrite an unread save even if writes are available",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "storage denying reads cannot overwrite an unread save even if writes are available"
+    },
+    {
+      "key": "src/application/store/create-game-store.test.ts::subscribers see the committed undo and redo choices at every notification",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "subscribers see the committed undo and redo choices at every notification"
     },
     {
       "key": "src/application/store/create-game-store.test.ts::the committed state stays visible throughout a dispatch that fails its storage write",
@@ -7787,6 +7802,11 @@
       "name": "the Witch wakes only while more than three players live (SNV-WITCH-01)"
     },
     {
+      "key": "src/entry/notes-lifecycle.test.ts::a hidden or departing page commits a pending note once and can retry a failed write",
+      "file": "src/entry/notes-lifecycle.test.ts",
+      "name": "a hidden or departing page commits a pending note once and can retry a failed write"
+    },
+    {
       "key": "src/entry/offline.test.ts::an active window confirms an opening update and can retry a failed save before or after activation",
       "file": "src/entry/offline.test.ts",
       "name": "an active window confirms an opening update and can retry a failed save before or after activation"
@@ -8045,6 +8065,11 @@
       "key": "src/infrastructure/offline/offline-worker.test.ts::the worker answers a legacy preflight without asking another window",
       "file": "src/infrastructure/offline/offline-worker.test.ts",
       "name": "the worker answers a legacy preflight without asking another window"
+    },
+    {
+      "key": "src/infrastructure/routing/history-router.test.ts::a Pages deep link restores its local path, query and fragment when session storage is unavailable",
+      "file": "src/infrastructure/routing/history-router.test.ts",
+      "name": "a Pages deep link restores its local path, query and fragment when session storage is unavailable"
     },
     {
       "key": "src/infrastructure/routing/history-router.test.ts::release shortcuts use native fragment navigation and Pages restores the fragment on direct visits",
@@ -8330,6 +8355,11 @@
       "key": "src/ui/screens/structure.test.ts::the boot modules do not import the engine",
       "file": "src/ui/screens/structure.test.ts",
       "name": "the boot modules do not import the engine"
+    },
+    {
+      "key": "src/ui/screens/table/copy-backup.test.ts::copying a private backup reports success or selects the complete text for manual copying",
+      "file": "src/ui/screens/table/copy-backup.test.ts",
+      "name": "copying a private backup reports success or selects the complete text for manual copying"
     },
     {
       "key": "src/ui/screens/table/helpers.test.ts::a blocked attack result is a prevented death",
@@ -8662,6 +8692,11 @@
       "key": "scripts/browser-check.ts::bag",
       "file": "scripts/browser-check.ts",
       "name": "bag"
+    },
+    {
+      "key": "scripts/browser-check.ts::bag-edit-races",
+      "file": "scripts/browser-check.ts",
+      "name": "bag-edit-races"
     },
     {
       "key": "scripts/browser-check.ts::cerenovus-privacy",

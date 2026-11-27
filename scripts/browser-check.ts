@@ -118,6 +118,7 @@ async function gameEndChronicle() {
 const focusedName = process.env.PG_BROWSER_CHECK;
 const focusedChecks: Record<string, () => Promise<void>> = {
   "first-bag-race": firstBagRace,
+  "bag-edit-races": bagEditRaces,
   "saved-custom-bag": savedCustomBagRestoresPool,
   "mixed-script": mixedScriptDiagnostics,
   "verified-jinx": verifiedJinxDiagnostics,
@@ -3156,6 +3157,18 @@ async function notesDebounce() {
   await route("/table");
   await page.locator('[data-act="menu"]').click();
   assert.equal(await page.locator("[data-notes]").inputValue(), text, "the note survives a reload");
+
+  // Suspend during the next input event, before the timer or blur can commit it.
+  await page.evaluate(() => {
+    window.addEventListener("input", () => window.dispatchEvent(new Event("pagehide")), {
+      once: true,
+    });
+  });
+  await field.fill("Last edit before suspension");
+  assert.equal(
+    await page.evaluate(() => JSON.parse(localStorage.getItem("pg.game.v4")!).notes),
+    "Last edit before suspension",
+  );
 }
 
 async function queuePanelReachable() {
@@ -5947,6 +5960,153 @@ async function cerenovusMadnessStaysPrivate() {
   await page.keyboard.press("Escape");
 }
 
+async function bagEditRaces() {
+  const shared = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    await shared.addInitScript(() => {
+      window.PG_MODULES = () => import(String("/pocket/test-entry.js"));
+    });
+    const editor = await shared.newPage();
+    await editor.goto(url + "bag");
+    await editor.waitForSelector(".bag-status.is-ok");
+    await editor.locator('[data-tab="manual"]').click();
+    const undo = editor.locator('[data-act="undo"]');
+    const readSave = (tab: Page) => tab.evaluate(() => localStorage.getItem("pg.game.v4"));
+    const before = JSON.parse((await readSave(editor))!);
+    await editor.locator('[data-act="clear"]').click();
+    await editor.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key === "pg.game.v4") {
+          Storage.prototype.setItem = original;
+          throw new DOMException("Test write failure", "QuotaExceededError");
+        }
+        original.call(this, key, value);
+      };
+    });
+    await undo.click();
+    assert.equal(await undo.isEnabled(), true, "a failed Undo can be retried");
+    await undo.click();
+    await editor.waitForSelector(".bag-status.is-ok");
+    assert.deepEqual(JSON.parse((await readSave(editor))!).setup.roles, before.setup.roles);
+    assert.equal(await undo.isDisabled(), true);
+
+    await editor.locator('[data-shuffle-bluffs="demon"]').click();
+    await editor.locator('[data-shuffle-bluffs="demon"]').click();
+    await undo.click();
+    assert.equal(await undo.isEnabled(), true, "a second local Undo still applies");
+    const sibling = await shared.newPage();
+    await sibling.goto(url + "bag");
+    await sibling.waitForSelector(".bag-status.is-ok");
+    await sibling.locator('[data-shuffle-bluffs="demon"]').click();
+    await editor.waitForSelector('[data-act="undo"]:disabled');
+    assert.equal(await undo.isDisabled(), true, "a sibling setup edit invalidates local Undo");
+    await editor.locator('[data-shuffle-bluffs="demon"]').click();
+    assert.equal(await undo.isEnabled(), true);
+    // Let the other window adopt that last edit before it deals the bag.
+    const revision = JSON.parse((await readSave(editor))!).revision as number;
+    await sibling.waitForFunction(
+      async (revision) => (await window.PG_MODULES()).store.state.revision === revision,
+      revision,
+    );
+    await sibling.locator('[data-act="deal"]').click();
+    await sibling.waitForSelector(".player-numbers");
+    await editor.waitForSelector(".setup-banner");
+    assert.equal(await undo.isDisabled(), true, "local history cannot erase another window's deal");
+    const dealt = JSON.parse((await readSave(editor))!);
+    assert.equal(dealt.phase, "deal");
+    assert.ok(Object.values(dealt.players).every((p) => (p as { roleId: string }).roleId));
+
+    const picked: string = dealt.setup.roles[0];
+    const roleButton = editor.locator(`.bag-role[data-role="${picked}"]`);
+    // Refuse the host's actual selection. An intermediate roster reset would
+    // still reach disk and lose the deal before this failure.
+    await editor.evaluate(() => {
+      const write = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key === "pg.game.v4" && JSON.parse(value).setup.roles.length > 0) {
+          Storage.prototype.setItem = write;
+          throw new DOMException("Test write failure", "QuotaExceededError");
+        }
+        write.call(this, key, value);
+      };
+    });
+    editor.once("dialog", (dialog) => void dialog.accept());
+    await roleButton.click();
+    assert.deepEqual(
+      JSON.parse((await readSave(editor))!),
+      dealt,
+      "a failed edit preserves the deal",
+    );
+    editor.once("dialog", (dialog) => void dialog.accept());
+    await roleButton.click();
+    const edited = JSON.parse((await readSave(editor))!);
+    assert.equal(edited.phase, "setup");
+    assert.equal(edited.revision, dealt.revision + 1, "the edit performs one save");
+    assert.deepEqual(
+      edited.setup.roles,
+      dealt.setup.roles.filter((id: string) => id !== picked),
+    );
+
+    // Hold the response even if the browser cancels the request. This checks
+    // the ownership of the result, independently of transport cancellation.
+    await editor.evaluate(() => {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (resource, options) => {
+        if (String(resource) !== "https://example.test/late-script")
+          return nativeFetch(resource, options);
+        document.body.dataset.pendingScript = "yes";
+        return new Promise<Response>((resolve) => {
+          window.addEventListener(
+            "finish-script",
+            () =>
+              resolve(
+                Response.json([
+                  { id: "_meta", name: "Old request" },
+                  "chef",
+                  "empath",
+                  "monk",
+                  "poisoner",
+                  "imp",
+                ]),
+              ),
+            { once: true },
+          );
+        });
+      };
+    });
+    await editor.locator('[data-act="script"]').click();
+    await editor.locator('[data-script-section="url"] summary').click();
+    await editor.locator("[data-script-url]").fill("https://example.test/late-script");
+    await editor.locator('[data-act="script-url"]').click();
+    await editor.waitForSelector("body[data-pending-script]");
+    const official = editor.locator('input[name="script-pick"][value="bmr"]');
+    await official.check();
+    await editor.evaluate(() => window.dispatchEvent(new Event("finish-script")));
+    await settled(editor);
+    assert.equal(
+      await official.isChecked(),
+      true,
+      "late responses cannot change the chosen script",
+    );
+    assert.equal(await editor.locator(".script-preview").count(), 0);
+
+    await editor.locator('[data-act="script-url"]').click();
+    await editor.locator('[data-act="close-script"]').first().click();
+    await editor.locator('[data-act="script"]').click();
+    await editor.evaluate(() => window.dispatchEvent(new Event("finish-script")));
+    await settled(editor);
+    assert.equal(await editor.locator('input[value="tb"]').isChecked(), true);
+    assert.equal(
+      await editor.locator(".script-preview").count(),
+      0,
+      "a closed picker discards its late read",
+    );
+  } finally {
+    await shared.close();
+  }
+}
+
 async function firstBagRace() {
   const shared = await browser.newContext({ viewport: { width: 390, height: 844 } });
   try {
@@ -6075,6 +6235,7 @@ async function fullChecks() {
 
   phase("load and identity");
   await firstBagRace();
+  await bagEditRaces();
 
   // Pages-like fallback matrix: a real 404 for a nested route, exactly one
   // redirect, the route restored; the same cases at the root base.
@@ -8102,6 +8263,26 @@ async function fullChecks() {
   await openTableMenu();
   await page.locator('[data-act="export"]:visible').first().click();
   assert.match(await page.locator("textarea[readonly]").inputValue(), /pocket-grimoire/);
+  await page.evaluate(() => {
+    const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    try {
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+      document.querySelector<HTMLButtonElement>('[data-act="copy"]')!.click();
+    } finally {
+      if (previous) Object.defineProperty(navigator, "clipboard", previous);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+  await page.waitForFunction(() => {
+    const field = document.querySelector<HTMLTextAreaElement>("textarea[readonly]");
+    return (
+      field &&
+      field.value.length > 0 &&
+      field === document.activeElement &&
+      field.selectionStart === 0 &&
+      field.selectionEnd === field.value.length
+    );
+  });
   const exportDownload = page.waitForEvent("download");
   await page.locator('[data-act="download"]').click();
   assert.match(

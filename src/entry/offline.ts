@@ -178,6 +178,8 @@ export async function prepareOffline(flushNotes: () => boolean): Promise<void> {
 
     // The opening check runs before the throttle.
     adopt();
+    const alreadyWaiting = reg.waiting;
+    if (alreadyWaiting) installed(alreadyWaiting);
     lastCheck = Date.now();
     await reg.update().catch(() => {});
     adopt();
@@ -191,7 +193,8 @@ export async function prepareOffline(flushNotes: () => boolean): Promise<void> {
       automatic.add(reg.waiting);
       installed(reg.waiting);
     };
-    applyWaiting();
+    // A worker offered before the network check may have been deferred by now.
+    if (reg.waiting !== alreadyWaiting) applyWaiting();
     if (!reg.waiting) {
       setTimeout(applyWaiting, 0);
       setTimeout(applyWaiting, 250);

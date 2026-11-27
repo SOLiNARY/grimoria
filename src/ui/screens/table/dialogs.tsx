@@ -30,6 +30,7 @@ import { DayActionsPanel, DayCard, NightCard, SlayerPanel } from "./cards.tsx";
 import { DayPanel, QueuePanel, SidePanel } from "./frame.tsx";
 import { stepContext } from "./step-context.ts";
 import { writeStepDraft } from "./step-draft.ts";
+import { copyBackup } from "./copy-backup.ts";
 import { seatBadges, SEAT_BADGE_KEY } from "./ring.ts";
 import type { TableView } from "./view.ts";
 import { CHIPS, FIELD_BOX, GRIMOIRE, INLINE, MUTED, WARNING } from "./styles.ts";
@@ -1179,6 +1180,11 @@ function CorrectionDialog({ view }: { view: TableView }) {
 function ExportDialog({ view }: { view: TableView }) {
   const { drafts, ports, actions } = view;
   const t = ports.strings.t;
+  const field = useRef<HTMLTextAreaElement>(null);
+  const [copyStatus, setCopyStatus] = useState<"copied" | "manual" | null>(null);
+  const copy = async () => {
+    if (field.current) setCopyStatus(await copyBackup(field.current));
+  };
   return (
     <ShellDialog
       open
@@ -1190,7 +1196,7 @@ function ExportDialog({ view }: { view: TableView }) {
           <button className="btn" type="button" data-act="download" onClick={actions.download}>
             {t("save")}
           </button>
-          <button className="btn" type="button" data-act="copy" onClick={actions.copy}>
+          <button className="btn" type="button" data-act="copy" onClick={copy}>
             {t("ui.copy")}
           </button>
           <DialogClose>
@@ -1203,10 +1209,19 @@ function ExportDialog({ view }: { view: TableView }) {
     >
       <p className={WARNING}>{t("exportWarning")}</p>
       <textarea
+        ref={field}
+        aria-label={t("export")}
         className="field min-h-[220px] w-full resize-y font-mono text-[12px]"
         readOnly
         value={drafts.exportText}
       />
+      <p role="status" className={MUTED}>
+        {copyStatus === "copied"
+          ? t("ui.backupCopied")
+          : copyStatus === "manual"
+            ? t("ui.copyBackupManually")
+            : ""}
+      </p>
     </ShellDialog>
   );
 }

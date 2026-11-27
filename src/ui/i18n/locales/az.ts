@@ -615,6 +615,8 @@ export default {
   "ui.bluffs": "Bleflər",
   "ui.noBluffs": "Blef yoxdur.",
   "ui.copy": "Kopyala",
+  "ui.backupCopied": "Ehtiyat nüsxə kopyalandı.",
+  "ui.copyBackupManually": "Ehtiyat nüsxə seçildi. Cihazınızdakı «Kopyala» əmrindən istifadə edin.",
   "ui.changeBag": "Rol dəstinin dəyişdirilməsi oyunu sıfırlayır və yeni paylama başladır.",
   "ui.changeCount": "Oyunçu sayı dəyişdirilsin? Cari paylama və sirlər sıfırlanacaq.",
   "ui.availableBluffs": "Mövcud bleflər",
