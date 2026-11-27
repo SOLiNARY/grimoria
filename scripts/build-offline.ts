@@ -92,6 +92,7 @@ const ASSETS = ${JSON.stringify(paths, null, 2)};
 // Window client IDs change on a full reload. A group shares one copy of its
 // retiring version's immutable modules for as long as any member still exists.
 const SCOPE = self.registration.scope;
+const STATIC_CACHE = CACHE + ":" + SCOPE;
 const HELD_PREFIX = "pg-window-chunks:" + SCOPE + ":";
 const ACTIVE_MARKER = SCOPE + ".pg-active-cache";
 const members = (key) => key.slice(HELD_PREFIX.length).split(",");
@@ -105,7 +106,7 @@ self.addEventListener("install", (event) => {
     const url = new URL(path, SCOPE);
     return new Request(url, { cache: isChunk(url.href) ? "default" : "no-cache" });
   });
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(requests)));
+  event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(requests)));
 });
 
 async function windowGroups(keys) {
@@ -128,26 +129,42 @@ async function activate() {
   const unpinned = await windowGroups(keys);
   const retired = [];
   let previous;
-  for (const key of keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE)) {
+  for (const key of keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== STATIC_CACHE)) {
+    const separator = key.indexOf(":");
+    if (separator >= 0 && key.slice(separator + 1) !== SCOPE) continue;
     const cache = await caches.open(key);
-    // CacheStorage is origin-wide; a sibling deployment has a different shell URL.
     if (!(await cache.match(SCOPE))) continue;
-    retired.push(key);
-    if (await cache.match(ACTIVE_MARKER)) previous = cache;
+    const requests = await cache.keys();
+    // A legacy build could share one cache between several registration scopes.
+    // Each precache contains its own directory URL as the navigation shell.
+    let own = requests;
+    if (separator < 0) {
+      const nestedScopes = requests.map((request) => request.url).filter((url) =>
+        url !== SCOPE && url.startsWith(SCOPE) && url.endsWith("/"));
+      own = requests.filter(({ url }) =>
+        url.startsWith(SCOPE) && !nestedScopes.some((scope) => url.startsWith(scope)));
+    }
+    const retiring = { key, cache, own, shared: own.length !== requests.length };
+    retired.push(retiring);
+    if (await cache.match(ACTIVE_MARKER)) previous = retiring;
   }
   // Older generators lack an activation marker and predate route splitting.
   if (previous && unpinned.length) {
-    const chunks = (await previous.keys()).filter((request) => isChunk(request.url));
+    const chunks = previous.own.filter((request) => isChunk(request.url));
     if (chunks.length) {
       const held = await caches.open(HELD_PREFIX + unpinned.join(","));
       await Promise.all(chunks.map(async (request) => {
-        await held.put(request, await previous.match(request));
+        await held.put(request, await previous.cache.match(request));
       }));
     }
   }
-  const current = await caches.open(CACHE);
+  const current = await caches.open(STATIC_CACHE);
   await current.put(ACTIVE_MARKER, new Response(CACHE));
-  await Promise.all(retired.map((key) => caches.delete(key)));
+  await Promise.all(retired.map(async ({ key, cache, own, shared }) => {
+    if (!shared) return caches.delete(key);
+    await Promise.all(own.map((request) => cache.delete(request)));
+    if (!(await cache.keys()).length) await caches.delete(key);
+  }));
 }
 
 async function releaseClosedWindows() {
@@ -173,24 +190,26 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || !url.href.startsWith(self.registration.scope)) return;
   if (event.request.mode === "navigate" || /[/]assets[/]index-[^/]+[.]js$/.test(url.pathname))
-    event.waitUntil(releaseClosedWindows());
-  if (event.request.mode === "navigate") {
-    event.respondWith(caches.open(CACHE).then(async (cache) => (await cache.match("./", { ignoreSearch: true })) || fetch(event.request)));
-    return;
-  }
-  event.respondWith(caches.open(CACHE).then(async (cache) => {
-    const cached = await cache.match(event.request, { ignoreSearch: true });
-    if (cached) return cached;
-    if (event.clientId && isChunk(event.request.url)) {
-      const key = (await caches.keys()).find((key) =>
-        key.startsWith(HELD_PREFIX) && members(key).includes(event.clientId));
-      if (key) {
-        const held = await (await caches.open(key)).match(event.request);
-        if (held) return held;
+    event.waitUntil(releaseClosedWindows().catch(() => {}));
+  event.respondWith((async () => {
+    try {
+      const cache = await caches.open(STATIC_CACHE);
+      const navigation = event.request.mode === "navigate";
+      const cached = await cache.match(navigation ? "./" : event.request, { ignoreSearch: true });
+      if (cached) return cached;
+      if (!navigation && event.clientId && isChunk(event.request.url)) {
+        const key = (await caches.keys()).find((key) =>
+          key.startsWith(HELD_PREFIX) && members(key).includes(event.clientId));
+        if (key) {
+          const held = await (await caches.open(key)).match(event.request);
+          if (held) return held;
+        }
       }
+    } catch {
+      // An unavailable local cache must not prevent a working network request.
     }
     return fetch(event.request);
-  }));
+  })());
 });
 `;
 await writeFile(outFile, worker);

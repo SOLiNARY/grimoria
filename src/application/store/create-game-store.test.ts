@@ -1096,6 +1096,31 @@ test("a legacy save migrates once, validates and a second load is unchanged", ()
   }
 });
 
+test("an empty primary is backed up before a usable legacy game replaces it", () => {
+  const legacy = JSON.stringify({ ...createGame(7), v: 3, notes: "legacy table" });
+  const storage = memoryStorage("", { "pg.game.v3": legacy });
+  let allowed = false;
+  let copy: string | null = null;
+  const game = createGameStore({
+    ...ports(storage),
+    storage: {
+      ...storage,
+      backup(text) {
+        if (!allowed) return null;
+        copy = text;
+        return "copy";
+      },
+    },
+  });
+  assert.equal(game.state.notes, "legacy table");
+  assert.equal(storage.readRaw(), "");
+  assert.equal(game.loadStatus.ok, false);
+  allowed = true;
+  assert.equal(game.persist().ok, true);
+  assert.equal(copy, "");
+  assert.equal(storage.read().notes, "legacy table");
+});
+
 test("an invalid legacy save is backed up and the fresh game can be saved", () => {
   for (const raw of ["{", JSON.stringify({ v: 3, players: null })]) {
     const storage = memoryStorage(null, { "pg.game.v3": raw });
@@ -1577,6 +1602,106 @@ for (const { name, patch } of malformedSaves) {
     assert.equal(storage.backupText, corrupt, "recovery keeps the original backup");
   });
 }
+
+test("damage reported by another window keeps the playable game, its export and its undo history", () => {
+  const { game, storage } = store();
+  const order = [...game.state.order].reverse();
+  assert.equal(game.dispatch(orderCommand(game, order)).status, "allowed");
+  assert.equal(
+    game.dispatch(command(game, { type: "setNotes", payload: { notes: "keep this game" } })).status,
+    "allowed",
+  );
+  const corrupt = '{"unfinished"';
+  storage.values.set(KEY, corrupt);
+  storage.emit();
+  assert.equal(game.state.notes, "keep this game");
+  assert.deepEqual(game.state.order, order);
+  const exported = importSavedGame(game.exportGame());
+  assert.ok(exported.ok);
+  assert.equal(exported.state.notes, "keep this game");
+  assert.equal(game.canUndo(), true);
+  assert.equal(game.loadStatus.ok, false);
+  assert.equal(storage.backupText, corrupt);
+  assert.equal(storage.readRaw(), corrupt);
+  assert.equal(game.persist().ok, true);
+  assert.equal(storage.read().notes, "keep this game");
+  assert.equal(game.undo().ok, true);
+});
+
+test("an unedited window adopts a valid external repair after loading a damaged or normalized primary", () => {
+  const legacy = createGame(6);
+  delete (legacy as Partial<typeof legacy>).journal;
+  for (const original of ['{"broken"', JSON.stringify(legacy)]) {
+    const { game, storage } = store(memoryStorage(original));
+    const repaired = { ...createGame(7), notes: "repaired in another tab" };
+    storage.values.set(KEY, JSON.stringify(repaired));
+    storage.emit();
+    assert.equal(game.state.notes, repaired.notes);
+    assert.equal(game.loadStatus.ok, true);
+    assert.equal(storage.writes, 0);
+    assert.equal(
+      game.dispatch(orderCommand(game, [...game.state.order].reverse())).status,
+      "allowed",
+    );
+  }
+});
+
+test("the live game can retry a repair after multiple external damaged writes while backups were blocked", () => {
+  const storage = memoryStorage(JSON.stringify({ ...createGame(7), notes: "keep this game" }));
+  const copies: string[] = [];
+  let blocked = true;
+  const game = createGameStore({
+    ...ports(storage),
+    storage: {
+      ...storage,
+      backup(text) {
+        if (blocked) return null;
+        copies.push(text);
+        return "copy-" + copies.length;
+      },
+    },
+  });
+  for (const text of ['{"first"', '{"second"']) {
+    storage.values.set(KEY, text);
+    storage.emit();
+    assert.equal(game.state.notes, "keep this game");
+    assert.equal(game.persist().ok, false);
+    assert.equal(storage.readRaw(), text);
+  }
+  blocked = false;
+  assert.equal(game.persist().ok, true);
+  assert.deepEqual(copies, ['{"first"', '{"second"']);
+  assert.equal(storage.read().notes, "keep this game");
+});
+
+test("a valid repair remains usable while the previous damaged bytes are waiting for backup space", () => {
+  const storage = memoryStorage('{"previous"');
+  let backupAllowed = false;
+  const backedUp: string[] = [];
+  const game = createGameStore({
+    ...ports(storage),
+    storage: {
+      ...storage,
+      backup(text) {
+        if (!backupAllowed) return null;
+        backedUp.push(text);
+        return "backup";
+      },
+    },
+  });
+  storage.values.set(KEY, JSON.stringify({ ...createGame(7), notes: "repaired" }));
+  storage.emit();
+  assert.equal(game.state.notes, "repaired");
+  assert.equal(game.loadStatus.ok, false);
+  assert.equal(game.hasLocalChanges(), true);
+  assert.equal(game.persist().ok, false);
+  assert.equal(storage.read().notes, "repaired");
+  backupAllowed = true;
+  assert.equal(game.persist().ok, true);
+  assert.deepEqual(backedUp, ['{"previous"']);
+  assert.equal(game.loadStatus.ok, true);
+  assert.equal(storage.read().notes, "repaired");
+});
 
 test("a pristine second window adopts the first save and can immediately write", () => {
   const storage = memoryStorage();

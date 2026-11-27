@@ -24,6 +24,8 @@ export async function prepareOffline(flushNotes: () => boolean): Promise<void> {
   let reloading = false;
   let reloadPending = false;
   let approvedWorker: ServiceWorker | null = null;
+  let offeredWorker: ServiceWorker | null = null;
+  let deferredWorker: ServiceWorker | null = null;
   let lastCheck = 0;
   let activationTimer: ReturnType<typeof setTimeout> | undefined;
   // Only inactive windows may apply an opening update automatically.
@@ -118,6 +120,7 @@ export async function prepareOffline(flushNotes: () => boolean): Promise<void> {
   if (banner && message && updateButton && laterButton) {
     updateButton.addEventListener("click", () => void activate(true));
     laterButton.addEventListener("click", () => {
+      deferredWorker = offeredWorker;
       setPhase("idle");
     });
   }
@@ -145,7 +148,7 @@ export async function prepareOffline(flushNotes: () => boolean): Promise<void> {
     });
     registration = reg;
     const installed = (worker: ServiceWorker): void => {
-      if (worker.state !== "installed") return;
+      if (worker.state !== "installed" || worker === deferredWorker) return;
       if (!navigator.serviceWorker.controller) return;
       if (
         reloadPending ||
@@ -154,6 +157,7 @@ export async function prepareOffline(flushNotes: () => boolean): Promise<void> {
         phase === "saveFailed"
       )
         return;
+      offeredWorker = worker;
       setPhase("available");
       if (!activeGame() && automatic.has(worker)) void activate(false);
     };

@@ -118,6 +118,7 @@ async function gameEndChronicle() {
 const focusedName = process.env.PG_BROWSER_CHECK;
 const focusedChecks: Record<string, () => Promise<void>> = {
   "reference-reading": referenceReading,
+  "language-retry": languageRetry,
   "first-bag-race": firstBagRace,
   "bag-edit-races": bagEditRaces,
   "saved-custom-bag": savedCustomBagRestoresPool,
@@ -315,6 +316,41 @@ async function route(path: string) {
   }, "/pocket" + path);
   await page.waitForFunction((path) => document.body.dataset.route === path.slice(1), path);
   await settled();
+}
+
+async function languageRetry() {
+  const reader = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    await reader.addInitScript(() => {
+      localStorage.setItem("pg.lang", "en");
+      const append = Element.prototype.append;
+      Element.prototype.append = function (...nodes) {
+        for (const node of nodes) {
+          if (node instanceof HTMLScriptElement && node.src.endsWith("/ru_RU.js")) {
+            node.src = "data:text/javascript,void%200";
+            Element.prototype.append = append;
+          }
+        }
+        append.apply(this, nodes);
+      };
+    });
+    const tab = await reader.newPage();
+    await tab.goto(new URL("reference/chef", url).href);
+    await tab.getByRole("button", { name: /^RU$/ }).click();
+    await tab.getByRole("button", { name: /^Retry$/ }).waitFor();
+    assert.equal(await tab.locator("html").getAttribute("lang"), "en");
+    assert.equal(await tab.getByRole("heading", { name: /^Chef$/ }).count(), 1);
+    await tab.getByRole("button", { name: /^Retry$/ }).click();
+    await tab.getByRole("heading", { name: /^Повар$/ }).waitFor();
+    assert.equal(await tab.locator("html").getAttribute("lang"), "ru");
+    assert.equal(
+      await tab.getByRole("button", { name: "RU" }).getAttribute("aria-pressed"),
+      "true",
+    );
+    assert.equal(await tab.locator("#language-status").isVisible(), false);
+  } finally {
+    await reader.close();
+  }
 }
 
 async function referenceReading() {
@@ -993,6 +1029,31 @@ async function seatOrderIsFixedAfterStart() {
     1,
     "setup offers the commit control",
   );
+  // An in-flight interaction is announced again in the new UI language.
+  await page.setViewportSize({ width: 1180, height: 844 });
+  const seats = page.locator(".seat-item");
+  const status = page.locator(".seat-status");
+  const previousLang = await page.locator("html").getAttribute("lang");
+  try {
+    await page.getByRole("button", { name: "RU", exact: true }).click();
+    await page.waitForSelector('html[lang="ru"]');
+    await seats.first().click();
+    assert.match(await status.innerText(), /Выбрано место 1/);
+    assert.match((await seats.first().getAttribute("aria-label")) ?? "", /Место 1/);
+    await page.getByRole("button", { name: "AZ", exact: true }).click();
+    await page.waitForSelector('html[lang="az"]');
+    assert.match(await status.innerText(), /Yer 1 seçildi/);
+    await seats.nth(1).click();
+    assert.match(await status.innerText(), /Yer 1 ilə yer 2|Yer 2 indi/);
+    await page.locator('[data-act="undo"]').click();
+    assert.match(await status.innerText(), /geri alındı/);
+  } finally {
+    if (previousLang) {
+      await page.getByRole("button", { name: previousLang.toUpperCase(), exact: true }).click();
+      await page.waitForSelector(`html[lang="${previousLang}"]`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+  }
 }
 
 // Night 2 of a 5-player Mayor game, with the Poisoner's step waiting. Night 1
@@ -9717,12 +9778,16 @@ async function fullChecks() {
     baseCache,
     "an installed update does not replace the running code",
   );
+  const scopedCache = (version: string) => version + ":" + url;
   const cachesDuringInstall = await page.evaluate(() => caches.keys());
   assert.ok(
-    cachesDuringInstall.includes(baseCache),
+    cachesDuringInstall.includes(scopedCache(baseCache)),
     "the old cache remains active before confirmation",
   );
-  assert.ok(cachesDuringInstall.includes(nextCache), "the new version is precached independently");
+  assert.ok(
+    cachesDuringInstall.includes(scopedCache(nextCache)),
+    "the new version is precached independently",
+  );
   await page.screenshot({ path: join(screenshots, "update-available-phone.png"), fullPage: true });
 
   // Later keeps the running code and the waiting worker.
@@ -9757,8 +9822,11 @@ async function fullChecks() {
   assert.equal(await loadCount(), loadsBeforeOpen + 2, "one navigation and one confirmed reload");
   await keeper.close();
   const cachesAfterUpdate = await page.evaluate(() => caches.keys());
-  assert.ok(cachesAfterUpdate.includes(nextCache));
-  assert.ok(!cachesAfterUpdate.includes(baseCache), "activation prunes the previous cache");
+  assert.ok(cachesAfterUpdate.includes(scopedCache(nextCache)));
+  assert.ok(
+    !cachesAfterUpdate.includes(scopedCache(baseCache)),
+    "activation prunes the previous cache",
+  );
   assert.equal(
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["1"].name),
     "Alice",
@@ -10571,6 +10639,7 @@ async function fullChecks() {
   phase("phone acceptance");
 
   await timed("reference-reading", referenceReading);
+  await timed("language-retry", languageRetry);
   await timed("saved-custom-bag", savedCustomBagRestoresPool);
   await timed("mixed-script", mixedScriptDiagnostics);
   await timed("no-beta-labels", officialScriptsAreNotBeta);

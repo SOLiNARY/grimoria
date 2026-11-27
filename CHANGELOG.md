@@ -11,6 +11,15 @@ All notable changes to Grimoria are recorded here. The format follows
 - Show the rolled roles on the Setup screen's Random tab, grouped by type, and let the host swap any one of them for another legal role of the same type or reroll it; bluffs and masks the swap puts in play are redrawn (#17).
 - Make picked roles in the setup role grid wear their team colour, and show team names in the chosen language (#17).
 
+## [0.12.6] - 2026-11-27
+
+### Fixed
+
+- Keep the running game available when another window writes a damaged save. Clean windows can adopt a repair, and repeated recovery preserves distinct originals without filling storage with duplicate backups.
+- Fall back to the network when offline caches cannot be read, and keep installations on the same origin from deleting each other's offline data during updates.
+- Respect the host's choice to defer an update when overlapping checks report the same worker.
+- Keep the current language when a replacement catalog fails to load and offer a retry. Translate seat controls and announcements in all three languages and preserve player names literally in localized messages.
+
 ## [0.12.5] - 2026-11-27
 
 ### Fixed

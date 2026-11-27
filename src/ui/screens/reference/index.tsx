@@ -63,7 +63,7 @@ export interface ReferenceScreenProps {
 
 export function ReferenceScreen({ roleId }: ReferenceScreenProps) {
   const ports = useShellPorts();
-  const [lang, setLang] = useState(() => ports.locale.current());
+  const lang = ports.locale.current();
   const [query, setQuery] = useState("");
   const t = ports.strings.t;
 
@@ -72,13 +72,11 @@ export function ReferenceScreen({ roleId }: ReferenceScreenProps) {
   }, [roleId]);
 
   const role = roleId ? ports.roles.byId(roleId) : null;
-  const choose = async (code: string) => {
-    await ports.locale.change(code);
-    setLang(ports.locale.current());
-  };
 
   if (!roleId)
-    return <ReferenceIndex lang={lang} onLang={choose} query={query} onQuery={setQuery} />;
+    return (
+      <ReferenceIndex lang={lang} onLang={ports.locale.change} query={query} onQuery={setQuery} />
+    );
   if (!role)
     return (
       <div className={PAGE}>
@@ -93,7 +91,7 @@ export function ReferenceScreen({ roleId }: ReferenceScreenProps) {
       </div>
     );
 
-  return <ReferenceDetail key={lang} role={role} lang={lang} onLang={choose} />;
+  return <ReferenceDetail key={lang} role={role} lang={lang} onLang={ports.locale.change} />;
 }
 
 function ReferenceDetail({

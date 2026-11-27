@@ -3,12 +3,18 @@
 import type { GameStorage } from "../../application/ports/index.ts";
 import { LEGACY_KEY, LEGACY_V2_KEY, STORAGE_KEY } from "../../core/model/state.ts";
 
+const BACKUP_PREFIX = "pg.game.broken.";
 const LEGACY_KEYS = [LEGACY_KEY, LEGACY_V2_KEY];
 
-type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 
 export function createLocalGameStorage(target?: StorageLike): GameStorage {
   const storage = () => target ?? localStorage;
+  // Separate windows can both observe an unused timestamp before either writes.
+  // The numeric suffix keeps recovery keys compatible with existing backups.
+  const writer = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
+    .toString()
+    .padStart(16, "0");
   return {
     read() {
       const raw = storage().getItem(STORAGE_KEY);
@@ -25,9 +31,16 @@ export function createLocalGameStorage(target?: StorageLike): GameStorage {
       storage().removeItem(STORAGE_KEY);
     },
     backup(text: string) {
-      const key = "pg.game.broken." + Date.now();
       try {
-        storage().setItem(key, text);
+        const disk = storage();
+        for (let index = 0; index < disk.length; index++) {
+          const key = disk.key(index);
+          if (key?.startsWith(BACKUP_PREFIX) && disk.getItem(key) === text) return key;
+        }
+        let timestamp = Date.now();
+        while (disk.getItem(BACKUP_PREFIX + timestamp + writer) !== null) timestamp++;
+        const key = BACKUP_PREFIX + timestamp + writer;
+        disk.setItem(key, text);
         return key;
       } catch {
         return null;
