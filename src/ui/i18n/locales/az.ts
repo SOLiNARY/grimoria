@@ -1246,4 +1246,12 @@ export default {
   referenceRegistration: "Hekayəçi oyunçunun necə qeydə alındığını seçir.",
   referenceFirstNightOrder: "İlk gecə sırası",
   referenceOtherNightOrder: "Digər gecələrin sırası",
+  "random.rolled": "Düşən rollar",
+  "random.swap": "Dəyiş",
+  "random.reroll": "Yenidən at",
+  "random.swapFor": "«{role}» əvəzinə:",
+  "random.noSwap": "Ssenaridə uyğun əvəz yoxdur.",
+  "random.empty": "Rolları görmək üçün təsadüfi dəst yığın.",
+  "random.rerollAll": "Bütün dəsti yenidən at",
+  "random.hint": "Rolu başqa uyğun rolla dəyişmək üçün ona toxunun.",
 };

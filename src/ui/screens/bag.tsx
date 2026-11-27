@@ -16,7 +16,8 @@ import {
   requiredBluffs,
   roleLabel,
   roleTeam,
-  teamLabel,
+  swapBagRole,
+  swapCandidates,
 } from "../../core/model/rules.ts";
 import {
   OFFICIAL_SCRIPTS,
@@ -93,6 +94,63 @@ const CheckMark = () => (
   </svg>
 );
 
+const SwapMark = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+    <path
+      d="M3 5h9l-2.5-2.5M13 11H4l2.5 2.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </svg>
+);
+
+const DiceMark = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+    <rect
+      x="2.5"
+      y="2.5"
+      width="11"
+      height="11"
+      rx="2"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      fill="none"
+    />
+    <circle cx="5.5" cy="5.5" r="1" fill="currentColor" />
+    <circle cx="8" cy="8" r="1" fill="currentColor" />
+    <circle cx="10.5" cy="10.5" r="1" fill="currentColor" />
+  </svg>
+);
+
+// A picked role card wears its team: a thick spine, a tinted fill, a ringed
+// icon and a check in the team colour.
+const TEAM_PICKED: Record<string, string> = {
+  townsfolk: "!border-townsfolk from-townsfolk/25",
+  outsider: "!border-outsider from-outsider/25",
+  minion: "!border-minion from-minion/25",
+  demon: "!border-demon from-demon/25",
+  traveller: "!border-traveller from-traveller/25",
+};
+
+const TEAM_RING: Record<string, string> = {
+  townsfolk: "ring-townsfolk",
+  outsider: "ring-outsider",
+  minion: "ring-minion",
+  demon: "ring-demon",
+  traveller: "ring-traveller",
+};
+
+const TEAM_CHECK: Record<string, string> = {
+  townsfolk: "bg-townsfolk",
+  outsider: "bg-outsider",
+  minion: "bg-minion",
+  demon: "bg-demon",
+  traveller: "bg-traveller",
+};
+
 const NOTE = "bag-note m-0 text-[13px] leading-relaxed text-muted";
 const LABEL = "text-[11px] font-semibold uppercase tracking-[0.16em] text-brass";
 const TEAM_GROUP = "bag-grid mt-2 grid grid-cols-1 gap-2 md:grid-cols-3";
@@ -165,9 +223,12 @@ export function BagScreen() {
   const snapshot = useGame(ports.game);
   const state = snapshot.state;
   const t = ports.strings.t;
+  // Team names come from the UI catalog so AZ and EN do not show Russian.
+  const teamName = (team: string | null | undefined) => (team ? t(team) : "");
 
   const [tab, setTab] = useState("recommended");
   const [bluffEdit, setBluffEdit] = useState(false);
+  const [swapFrom, setSwapFrom] = useState<RoleId | null>(null);
   const [lunaticBluffEdit, setLunaticBluffEdit] = useState(false);
   const [poolMode, setPoolMode] = useState(false);
   const [preview, setPreview] = useState<BagEntry | null>(null);
@@ -925,19 +986,18 @@ export function BagScreen() {
     const allowed = inPool(role.id) || isCustom || poolMode;
     const pressed = poolMode ? inPool(role.id) : selected;
     const tone = pressed
-      ? "border-amber-dim bg-crypt-3 text-parchment"
+      ? `border-l-[6px] bg-gradient-to-r to-crypt-3 to-70% text-parchment ${TEAM_PICKED[role.team] ?? ""}`
       : allowed
-        ? "border-edge bg-crypt-3 text-text hover:border-edge-2"
-        : "border-edge/60 bg-transparent text-muted opacity-40";
+        ? `border-l-2 border-edge bg-crypt-3 text-text hover:border-edge-2 ${TEAM_EDGE[role.team] ?? ""}`
+        : `border-l-2 border-edge/60 bg-transparent text-muted opacity-40 ${TEAM_EDGE[role.team] ?? ""}`;
     return (
       <button
         key={role.id}
         className={[
-          "bag-role relative grid grid-cols-[40px_minmax(0,1fr)] items-start gap-2.5 rounded-md border border-l-2 p-2.5 text-left transition-colors",
-          TEAM_EDGE[role.team] ?? "",
+          "bag-role relative grid grid-cols-[40px_minmax(0,1fr)] items-start gap-2.5 rounded-md border p-2.5 text-left transition-colors",
           tone,
           pressed ? "is-on" : "is-off",
-          isCustom && inPool(role.id) ? "is-pool ring-1 ring-amber/40" : "",
+          isCustom && inPool(role.id) && !pressed ? "is-pool ring-1 ring-amber/40" : "",
           allowed ? "" : "is-locked",
         ]
           .filter(Boolean)
@@ -950,24 +1010,36 @@ export function BagScreen() {
         title={allowed ? "" : t("bag.roleOutside")}
         onClick={() => (poolMode ? togglePoolRole(role.id) : toggleRole(role.id))}
       >
-        <img className="size-10 object-contain" src={ports.roles.image(role)} alt="" />
-        <span className="min-w-0">
-          <b className="block text-[12.5px] font-medium leading-snug text-inherit">{role.name}</b>
+        <img
+          className={
+            pressed
+              ? `size-10 rounded-full bg-crypt object-contain ring-2 ring-offset-2 ring-offset-crypt-3 ${TEAM_RING[role.team] ?? ""}`
+              : "size-10 object-contain"
+          }
+          src={ports.roles.image(role)}
+          alt=""
+        />
+        <span className="min-w-0 pr-6">
+          <b
+            className={`block text-[12.5px] leading-snug text-inherit ${pressed ? "font-semibold" : "font-medium"}`}
+          >
+            {role.name}
+          </b>
           <span className="mt-0.5 block line-clamp-2 text-[11px] leading-snug text-muted">
             {role.ability || ""}
           </span>
           <em className="mt-1 block text-[9px] not-italic uppercase tracking-[0.12em] text-brass">
-            {teamLabel(role.team)} · {editionLabel(role.edition)}
+            {teamName(role.team)} · {editionLabel(role.edition)}
           </em>
         </span>
-        {poolMode ? (
-          <span className="absolute right-2 top-2 text-[13px] text-accent-text">
-            {pressed ? <CheckMark /> : "+"}
-          </span>
-        ) : pressed ? (
-          <span className="absolute right-2 top-2 text-accent-text">
+        {pressed ? (
+          <span
+            className={`bag-role-check absolute right-2 top-2 grid size-6 place-items-center rounded-full text-crypt ${TEAM_CHECK[role.team] ?? "bg-accent-text"}`}
+          >
             <CheckMark />
           </span>
+        ) : poolMode ? (
+          <span className="absolute right-2 top-2 text-[13px] text-accent-text">+</span>
         ) : null}
       </button>
     );
@@ -1004,7 +1076,7 @@ export function BagScreen() {
               />
               <span className="min-w-0 flex-1">
                 <span className="block text-[8px] uppercase leading-tight tracking-[0.06em] text-muted">
-                  {teamLabel(team)}
+                  {teamName(team)}
                 </span>
                 <b
                   className={`block font-role text-[16px] font-normal leading-none tabular-nums ${
@@ -1424,7 +1496,7 @@ export function BagScreen() {
             if (!roles.length) return null;
             return (
               <div className="mt-4" key={team}>
-                <h3 className={LABEL}>{teamLabel(team)}</h3>
+                <h3 className={LABEL}>{teamName(team)}</h3>
                 <div className="bag-token-row mt-1.5 flex flex-wrap gap-1.5">
                   {roles.map((id) => {
                     const role = roleOf(id);
@@ -1560,7 +1632,7 @@ export function BagScreen() {
                     className={`mt-0.5 inline-block size-1 shrink-0 rounded-full ${TEAM_DOT[team] ?? "bg-muted"}`}
                     aria-hidden="true"
                   />
-                  {teamLabel(team)}
+                  {teamName(team)}
                 </span>
                 <div className="flex min-h-[58px] flex-wrap gap-[3px]">
                   {ids.map((id) => {
@@ -1777,7 +1849,7 @@ export function BagScreen() {
                     className={`inline-block size-1.5 rounded-full ${TEAM_DOT[group.team] ?? "bg-muted"}`}
                     aria-hidden="true"
                   />
-                  <h3 className={TEAM_NAME}>{teamLabel(group.team)}</h3>
+                  <h3 className={TEAM_NAME}>{teamName(group.team)}</h3>
                   <span className={TEAM_COUNT} data-team-count={group.roles.length}>
                     <b className={delta === 0 ? "text-text" : "text-danger"}>
                       {selected}/{wanted}
@@ -1796,22 +1868,211 @@ export function BagScreen() {
     );
   };
 
-  const randomMarkup = () => (
-    <div className="bag-empty grid gap-2.5 rounded-md border border-dashed border-edge p-4">
-      <p className={NOTE}>{t("legalRandom")}</p>
-      <button
-        className="btn w-full justify-center min-[700px]:w-fit"
-        type="button"
-        data-act="random"
-        onClick={() => {
-          const bag = tryRandomBag(count);
-          if (bag) applyBag(bag);
-        }}
-      >
-        {t("randomBag")}
-      </button>
-    </div>
-  );
+  const swapOptions = (id: RoleId) =>
+    swapCandidates({
+      count,
+      roles: state.setup.roles,
+      pool: scriptRoles,
+      from: id,
+      godfatherOutsider: shiftOf(state),
+    });
+
+  const swapRole = (from: RoleId, to: RoleId) => {
+    const next = swapBagRole(
+      {
+        count,
+        roles: state.setup.roles,
+        bluffs: state.setup.bluffs,
+        drunkShownId: state.setup.drunkShownId,
+        lunaticShownId: state.setup.lunaticShownId,
+        lunaticShownExplicit: state.setup.lunaticShownExplicit,
+        lunaticBluffs: state.setup.lunaticBluffs ?? [],
+        evilTwinGoodId: state.setup.evilTwinGoodId ?? null,
+        godfatherOutsider: shiftOf(state),
+      },
+      from,
+      to,
+      scriptRoles,
+      Math.random,
+    );
+    if (!next) {
+      setBagError(t("random.noSwap"));
+      return;
+    }
+    if (!beginSetup()) return;
+    pushUndo();
+    const result = send(next);
+    if (result.status !== "allowed") {
+      setBagError(commandRejectionText(result) || t("illegal"));
+      return;
+    }
+    setSwapFrom(null);
+    setArmed(false);
+    refreshError();
+  };
+
+  const rerollRole = (id: RoleId) => {
+    const options = swapOptions(id);
+    if (!options.length) {
+      setBagError(t("random.noSwap"));
+      return;
+    }
+    swapRole(id, options[Math.floor(Math.random() * options.length)]!);
+  };
+
+  const randomMarkup = () => {
+    const rolled = TEAMS.map((team) => ({
+      team,
+      roles: state.setup.roles.filter((id) => roleTeam(id) === team).map(roleOf),
+    })).filter((group) => group.roles.length);
+    return (
+      <div className="bag-random grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="grid min-w-0 gap-0.5">
+            <h3 className="m-0 font-role text-[18px] leading-tight text-parchment">
+              {t("random.rolled")}
+            </h3>
+            <p className={NOTE}>
+              {t("legalRandom")} {rolled.length ? t("random.hint") : t("random.empty")}
+            </p>
+          </div>
+          <button
+            className="btn min-h-11 w-full justify-center gap-1.5 min-[700px]:w-fit"
+            type="button"
+            data-act="random"
+            onClick={() => {
+              setSwapFrom(null);
+              const bag = tryRandomBag(count);
+              if (bag) applyBag(bag);
+            }}
+          >
+            <DiceMark />
+            {rolled.length ? t("random.rerollAll") : t("randomBag")}
+          </button>
+        </div>
+        {rolled.map((group) => {
+          const target = group.roles.find((role) => role.id === swapFrom) ?? null;
+          const options = target ? swapOptions(target.id) : [];
+          return (
+            <section key={group.team} className="grid gap-2" data-rolled-team={group.team}>
+              <div className={TEAM_HEAD}>
+                <i
+                  className={`inline-block size-1.5 rounded-full ${TEAM_DOT[group.team] ?? "bg-muted"}`}
+                  aria-hidden="true"
+                />
+                <h4 className={TEAM_NAME}>{teamName(group.team)}</h4>
+                <span className={TEAM_COUNT}>{group.roles.length}</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                {group.roles.map((role) => {
+                  const open = swapFrom === role.id;
+                  return (
+                    <button
+                      key={role.id}
+                      type="button"
+                      data-rolled={role.id}
+                      aria-expanded={open}
+                      aria-label={`${t("random.swap")}: ${role.name}`}
+                      onClick={() => setSwapFrom(open ? null : role.id)}
+                      className={`group relative grid grid-cols-[44px_minmax(0,1fr)] items-start gap-2.5 rounded-md border border-l-[3px] p-2.5 text-left transition-colors ${TEAM_EDGE[role.team] ?? ""} ${
+                        open
+                          ? "border-amber-2 bg-amber-dim/50"
+                          : "border-edge bg-crypt-3 hover:border-edge-2"
+                      }`}
+                    >
+                      <img
+                        className="size-11 object-contain"
+                        src={ports.roles.image(role)}
+                        alt=""
+                      />
+                      <span className="min-w-0 pr-16">
+                        <b className="block text-[13.5px] font-semibold leading-snug text-parchment">
+                          {role.name}
+                        </b>
+                        <span className="mt-0.5 block line-clamp-3 text-[11.5px] leading-snug text-muted">
+                          {role.ability}
+                        </span>
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`absolute right-2 top-2 inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] ${
+                          open ? "bg-amber-2 text-white" : "text-muted group-hover:text-text"
+                        }`}
+                      >
+                        <SwapMark />
+                        {t("random.swap")}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {target ? (
+                <div
+                  className="bag-swap grid gap-2 rounded-md border border-amber-2/70 bg-crypt-2 p-3"
+                  data-swap-from={target.id}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <b className="text-[12.5px] text-parchment">
+                      {t("random.swapFor", { role: target.name })}
+                    </b>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        className="btn min-h-11 gap-1 px-2.5 text-[11px]"
+                        data-act="reroll-role"
+                        disabled={!options.length}
+                        onClick={() => rerollRole(target.id)}
+                      >
+                        <DiceMark />
+                        {t("random.reroll")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn min-h-11 px-2.5 text-[11px]"
+                        onClick={() => setSwapFrom(null)}
+                      >
+                        {t("cancel")}
+                      </button>
+                    </div>
+                  </div>
+                  {options.length ? (
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                      {options.map((id) => {
+                        const role = roleOf(id);
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            data-swap-to={id}
+                            onClick={() => swapRole(target.id, id)}
+                            className="grid grid-cols-[32px_minmax(0,1fr)] items-start gap-2 rounded-[4px] border border-edge bg-crypt p-2 text-left transition-colors hover:border-amber-2"
+                          >
+                            <img
+                              className="size-8 object-contain"
+                              src={ports.roles.image(role)}
+                              alt=""
+                            />
+                            <span className="min-w-0">
+                              <b className="block text-[12px] font-medium text-text">{role.name}</b>
+                              <span className="block line-clamp-2 text-[10.5px] leading-snug text-muted">
+                                {role.ability}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className={NOTE}>{t("random.noSwap")}</p>
+                  )}
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
+      </div>
+    );
+  };
 
   const currentScenario = isOfficial ? state.script?.id : "custom";
 
@@ -1886,7 +2147,7 @@ export function BagScreen() {
     if (!pickerPreview || pickerChoice !== "custom") return null;
     const script = pickerPreview.script;
     const counts = bagCounts(script.roles);
-    const teamText = TEAMS.map((team) => `${teamLabel(team)} ${counts[team]}`).join(" · ");
+    const teamText = TEAMS.map((team) => `${teamName(team)} ${counts[team]}`).join(" · ");
     return (
       <div
         className="script-preview mt-3 grid gap-0.5 rounded-md border border-amber/45 bg-amber-dim/40 p-3 text-[12px]"
