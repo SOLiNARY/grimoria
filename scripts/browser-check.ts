@@ -1000,6 +1000,7 @@ async function seatOrderIsFixedAfterStart() {
   await page.setViewportSize({ width: 390, height: 844 });
   await seed(7);
   await route("/seat");
+  await page.waitForSelector("[data-seat-locked]");
   assert.equal(
     await page.locator("[data-seat-locked]").count(),
     1,
@@ -1023,6 +1024,7 @@ async function seatOrderIsFixedAfterStart() {
   assert.deepEqual(result.after, result.before, "the circle is unchanged");
   await seed(7, "deal");
   await route("/seat");
+  await page.waitForSelector(".seat-ring");
   assert.equal(await page.locator("[data-seat-locked]").count(), 0, "setup renders the ring");
   assert.equal(
     await page.locator('[data-act="use"]').count(),
@@ -8705,11 +8707,17 @@ async function fullChecks() {
   await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
+  const seatNames = () =>
+    page
+      .locator(".seat-item .seat-name")
+      .evaluateAll((nodes) => nodes.map((node) => node.textContent));
+  const [, secondName, thirdName, ...remainingNames] = await seatNames();
+  await page.locator('.seat-item[data-index="1"]').click();
+  await page.locator('.seat-item[data-index="2"]').click();
   await page.evaluate(async () => {
     const { store } = await window.PG_MODULES();
-    const next = structuredClone(store.state);
-    next.players["1"].name = "Zed";
-    store.replaceState(next);
+    const result = store.dispatch({ type: "claimSeat", payload: { playerId: "1", name: "Zed" } });
+    if (result.status !== "allowed") throw new Error(result.reason);
   });
   await page.waitForFunction(
     () => document.querySelector('.seat-item[data-index="0"] .seat-name')?.textContent === "Zed",
@@ -8718,25 +8726,24 @@ async function fullChecks() {
   );
   await page.evaluate(async () => {
     const { store } = await window.PG_MODULES();
-    const next = structuredClone(store.state);
-    next.order = next.order.slice().reverse();
-    store.replaceState(next);
+    const result = store.dispatch({
+      type: "setOrder",
+      payload: { order: store.state.order.slice().reverse() },
+    });
+    if (result.status !== "allowed") throw new Error(result.reason);
   });
-  await settled();
+  await page.waitForSelector('[data-act="use"]:disabled');
   assert.equal(
     (await page.locator('.seat-item[data-index="0"] .seat-name').textContent()) ?? "",
     "Zed",
     "a publish keeps the seat draft",
   );
+  assert.deepEqual(await seatNames(), ["Zed", thirdName, secondName, ...remainingNames]);
 
   // Regression: dragging a seat onto another must swap them, and enter undo.
   await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
-  const seatNames = () =>
-    page
-      .locator(".seat-item .seat-name")
-      .evaluateAll((nodes) => nodes.map((node) => node.textContent));
   const beforeDrag = await seatNames();
   const beforeIds = await page.evaluate(async () =>
     (await window.PG_MODULES()).store.state.order.slice(),

@@ -11,6 +11,12 @@ All notable changes to Grimoria are recorded here. The format follows
 - Show the rolled roles on the Setup screen's Random tab, grouped by type, and let the host swap any one of them for another legal role of the same type or reroll it; bluffs and masks the swap puts in play are redrawn (#17).
 - Make picked roles in the setup role grid wear their team colour, and show team names in the chosen language (#17).
 
+## [0.12.7] - 2026-11-27
+
+### Fixed
+
+- Exercise an actual unsaved seat swap in the browser regression. Wait for the seat and secrets screens to render before full-game scenarios check player privacy, translations and reminders.
+
 ## [0.12.6] - 2026-11-27
 
 ### Fixed
