@@ -471,6 +471,8 @@ export default {
   "ui.correctAction": "Action",
   "ui.correctStatus": "Status",
   "ui.seatEmptyNote": "Tap one seat, then another, to swap them.",
+  "ui.seatOrderChanged": "Another window saved a different seat order.",
+  "ui.seatLoadOrder": "Load saved order",
   "ui.seatReorderFailed": "The seat order was not changed.",
   "ui.sheetMissingRoles": "No data for the roles: {roles}.",
   "ui.grimoire": "Grimoire",
@@ -1010,6 +1012,9 @@ export default {
   "bag.delete": "Delete",
   "bag.libraryEmpty": "Nothing saved yet.",
   "bag.nameRequired": "Enter a name.",
+  "bag.libraryBusy": "Another window is saving the library. Try again.",
+  "bag.libraryConflict":
+    "The library changed in another window. Review the current entries and retry.",
   "bag.saveFailed": "Could not save.",
   "bag.libraryCapacity":
     "The limit is 200 bags and 200 pools. Remove an entry from the full list and try again.",

@@ -7,26 +7,27 @@ const LEGACY_KEYS = [LEGACY_KEY, LEGACY_V2_KEY];
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export function createLocalGameStorage(target: StorageLike = localStorage): GameStorage {
+export function createLocalGameStorage(target?: StorageLike): GameStorage {
+  const storage = () => target ?? localStorage;
   return {
     read() {
-      const raw = target.getItem(STORAGE_KEY);
+      const raw = storage().getItem(STORAGE_KEY);
       if (!raw) return null;
       return JSON.parse(raw) as unknown;
     },
     readRaw() {
-      return target.getItem(STORAGE_KEY);
+      return storage().getItem(STORAGE_KEY);
     },
     write(text: string) {
-      target.setItem(STORAGE_KEY, text);
+      storage().setItem(STORAGE_KEY, text);
     },
     remove() {
-      target.removeItem(STORAGE_KEY);
+      storage().removeItem(STORAGE_KEY);
     },
     backup(text: string) {
       const key = "pg.game.broken." + Date.now();
       try {
-        target.setItem(key, text);
+        storage().setItem(key, text);
         return key;
       } catch {
         return null;
@@ -34,7 +35,7 @@ export function createLocalGameStorage(target: StorageLike = localStorage): Game
     },
     readFallback() {
       for (const key of LEGACY_KEYS) {
-        const value = target.getItem(key);
+        const value = storage().getItem(key);
         if (value) return { key, value };
       }
       return null;

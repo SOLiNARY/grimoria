@@ -474,6 +474,8 @@ export default {
   "ui.correctAction": "Действие",
   "ui.correctStatus": "Статус",
   "ui.seatEmptyNote": "Нажмите место, затем другое, чтобы поменять.",
+  "ui.seatOrderChanged": "В другом окне сохранён новый порядок мест.",
+  "ui.seatLoadOrder": "Загрузить сохранённый порядок",
   "ui.seatReorderFailed": "Не удалось изменить порядок мест.",
   "ui.sheetMissingRoles": "Нет данных для ролей: {roles}.",
   "ui.grimoire": "Гримуар",
@@ -1006,6 +1008,9 @@ export default {
   "bag.delete": "Удалить",
   "bag.libraryEmpty": "Пока ничего не сохранено.",
   "bag.nameRequired": "Введите название.",
+  "bag.libraryBusy": "Библиотека сохраняется в другом окне. Попробуйте ещё раз.",
+  "bag.libraryConflict":
+    "Библиотека изменилась в другом окне. Проверьте записи и повторите действие.",
   "bag.saveFailed": "Не удалось сохранить.",
   "bag.libraryCapacity":
     "Можно сохранить до 200 наборов и 200 пулов. Удалите запись из заполненного списка и попробуйте снова.",

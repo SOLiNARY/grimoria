@@ -178,30 +178,20 @@ export function SheetScreen({ lang, edition }: SheetScreenProps) {
   );
 
   useEffect(() => {
-    let alive = true;
+    const request = new AbortController();
     setError(null);
-    const apply = () => {
-      ports.locale.use(lang);
-      setCatalog(ports.roles.all());
-    };
-    if (ports.locale.current() === lang) {
-      apply();
-      return () => {
-        alive = false;
-      };
-    }
-    setCatalog(null);
+    if (ports.locale.current() !== lang) setCatalog(null);
     ports.locale
-      .load(lang)
-      .then(() => {
-        if (alive) apply();
+      .load(lang, request.signal)
+      .then((applied) => {
+        if (request.signal.aborted || !applied || ports.locale.current() !== lang) return;
+        ports.locale.use(lang);
+        setCatalog(ports.roles.all());
       })
       .catch((failure: unknown) => {
-        if (alive) setError(messageOf(failure));
+        if (!request.signal.aborted) setError(messageOf(failure));
       });
-    return () => {
-      alive = false;
-    };
+    return () => request.abort();
   }, [lang, attempt, ports]);
 
   const chooseScenario = (next: ScenarioKey) => {

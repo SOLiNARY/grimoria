@@ -1,6 +1,5 @@
-// The store owns the transaction: prepare → validate → apply on the live draft
-// → invariants (inside apply) → persist → publish. It never value-imports the
-// legacy tree; command execution and the save format arrive as ports.
+// The engine validates and executes the command on an isolated draft. The
+// store persists the result before handing that draft to its subscribers.
 import type {
   CommandInput,
   PrepareResult,
@@ -12,7 +11,6 @@ import {
   applyCommand,
   previewCommand,
   replay,
-  validateCommand,
 } from "../../core/engine/index.ts";
 import { createGame, exportGame, importGame, validateState } from "../../core/model/state.ts";
 import type { GameState, JournalEntry } from "../../core/model/types.ts";
@@ -75,7 +73,7 @@ export interface GameStore {
   replaceState(next: GameState): StoreMutationResult;
   run(mutator: (state: GameState) => unknown): RunOutcome;
   importGame(text: string): { ok: true } | { ok: false; error: string };
-  exportGame(): string;
+  exportGame(notes?: string): string;
   getSnapshot(): GameSnapshot;
   subscribe(listener: () => void): () => void;
   canUndo(): boolean;
@@ -117,6 +115,7 @@ export function createGameStore(ports: StorePorts): GameStore {
   const loaded = load();
   const state = loaded.state;
   let diskSnapshot = loaded.disk;
+  let pristineSnapshot = capturePristineSnapshot();
   let savedRevision = loaded.revision;
   // Commands that arrived with the load are history for replay, not for undo.
   let undoFloor = state.journal?.entries?.length || 0;
@@ -124,7 +123,14 @@ export function createGameStore(ports: StorePorts): GameStore {
   let snapshot = build();
   const stopWatching = storage.watch(() => {
     // Another window wrote; adopt only when this window has nothing pending.
-    if (!hasLocalChanges()) reload();
+    if (hasLocalChanges()) return;
+    let raw: string | null;
+    try {
+      raw = storage.readRaw();
+    } catch {
+      return;
+    }
+    reload(raw);
   });
 
   function build(): GameSnapshot {
@@ -144,9 +150,13 @@ export function createGameStore(ports: StorePorts): GameStore {
     }
   }
 
-  function load(): { state: ValidatedState; disk: string | null; revision: number } {
+  function clearLoadStatus(): void {
     Object.assign(loadStatus, { ok: true, error: null, backupKey: null, migrated: false });
     save = { status: "saved" };
+  }
+
+  function load(): { state: ValidatedState; disk: string | null; revision: number } {
+    clearLoadStatus();
     let raw: string | null = null;
     let readError = false;
     try {
@@ -154,7 +164,7 @@ export function createGameStore(ports: StorePorts): GameStore {
     } catch {
       readError = true;
     }
-    if (!raw) {
+    if (!raw && !readError) {
       const fallback = readFallback();
       if (fallback) {
         let fallbackValue: unknown;
@@ -186,15 +196,25 @@ export function createGameStore(ports: StorePorts): GameStore {
       }
     }
     if (!raw) return fresh(readError ? "Could not read the saved game." : null, raw);
+    const loaded = readPrimary(raw);
+    return loaded.ok ? loaded : fresh(loaded.error, raw);
+  }
+
+  function readPrimary(raw: string) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch (error) {
-      return fresh("Could not parse the saved game: " + messageOf(error), raw);
+      return { ok: false, error: "Could not parse the saved game: " + messageOf(error) } as const;
     }
     const outcome = parseSaved(parsed);
-    if (!outcome.ok) return fresh(outcomeMessage(outcome), raw);
-    return { state: outcome.state, disk: raw, revision: Number(outcome.state.revision) || 0 };
+    if (!outcome.ok) return { ok: false, error: outcomeMessage(outcome) } as const;
+    return {
+      ok: true,
+      state: outcome.state,
+      disk: raw,
+      revision: Number(outcome.state.revision) || 0,
+    } as const;
   }
 
   // A saved value may be a v2/v3 legacy record; importGame migrates it and
@@ -247,39 +267,40 @@ export function createGameStore(ports: StorePorts): GameStore {
     };
   }
 
-  function persist(markFailing = true): SaveOutcome {
-    let failure: string | null = null;
-    let disk: string | null = null;
+  function persist(markFailing = true, next = state): SaveOutcome {
+    let failure: string;
     try {
-      disk = storage.readRaw();
-    } catch {
-      disk = null;
-    }
-    if (disk !== diskSnapshot) {
-      failure = "Another tab changed this game. Reload before continuing.";
-    } else {
-      // A write that throws keeps the persisted revision and timestamp: the
-      // save status reports the failure, the game claims no new version.
-      const previousUpdatedAt = state.updatedAt;
-      const previousRevision = state.revision;
-      try {
-        state.updatedAt = clock.now().toISOString();
-        state.revision = savedRevision + 1;
-        state.storageError = null;
-        const text = serialize(state);
+      const raw = storage.readRaw();
+      if (raw !== diskSnapshot) {
+        // A command drafted before the first disk write belongs to this
+        // window's initial game. Adopt the winner without replaying the command.
+        if (next !== state && diskSnapshot === null && !hasLocalChanges() && reload(raw, true)) {
+          return {
+            ok: false,
+            error: "Another tab saved the game first. Review the loaded game and try again.",
+          };
+        }
+        failure = "Another tab changed this game. Reload before continuing.";
+      } else {
+        const savedGame = {
+          ...next,
+          updatedAt: clock.now().toISOString(),
+          revision: savedRevision + 1,
+          storageError: null,
+        };
+        const text = JSON.stringify(savedGame);
         storage.write(text);
+        replaceContents(state, savedGame);
         diskSnapshot = text;
-        savedRevision = Number(state.revision) || 0;
+        pristineSnapshot = null;
+        savedRevision = savedGame.revision;
         save = { status: "saved" };
         Object.assign(loadStatus, { ok: true, error: null });
         publish();
         return { ok: true, error: null };
-      } catch (error) {
-        state.updatedAt = previousUpdatedAt;
-        if (previousRevision === undefined) delete (state as Partial<GameState>).revision;
-        else state.revision = previousRevision;
-        failure = "Could not save the game: " + messageOf(error) + ". Export your game.";
       }
+    } catch (error) {
+      failure = "Could not save the game: " + messageOf(error) + ". Export your game.";
     }
     if (markFailing) markFailed(failure);
     return { ok: false, error: failure };
@@ -346,19 +367,42 @@ export function createGameStore(ports: StorePorts): GameStore {
     return { ok: true, snapshot };
   }
 
-  function reload(): void {
-    const next = load();
+  function reload(raw: string | null, validPrimaryOnly = false): boolean {
+    if (raw === diskSnapshot) return false;
+    const primary = raw ? readPrimary(raw) : null;
+    let next;
+    if (primary?.ok) {
+      if (ports.canAdoptExternal?.(primary.state) === false) return false;
+      next = primary;
+      clearLoadStatus();
+    } else {
+      if (validPrimaryOnly || ports.canAdoptExternal?.(null) === false) return false;
+      next = load();
+    }
     replaceContents(state, next.state);
     diskSnapshot = next.disk;
+    pristineSnapshot = capturePristineSnapshot();
     savedRevision = next.revision;
     undoFloor = state.journal?.entries?.length || 0;
     legacyUndo = null;
     redoStack.length = 0;
     publish();
+    return true;
+  }
+
+  // A newly opened window has a clean in-memory game before its first write.
+  // An unpersisted legacy migration still needs saving or exporting.
+  function capturePristineSnapshot(): string | null {
+    return diskSnapshot === null && loadStatus.ok ? serialize(state) : null;
   }
 
   function hasLocalChanges(): boolean {
-    if (diskSnapshot === null) return true;
+    if (diskSnapshot === null)
+      return (
+        save.status === "failed" ||
+        pristineSnapshot === null ||
+        serialize(state) !== pristineSnapshot
+      );
     try {
       return serialize(JSON.parse(diskSnapshot) as GameState) !== serialize(state);
     } catch {
@@ -390,18 +434,15 @@ export function createGameStore(ports: StorePorts): GameStore {
     },
 
     dispatch(command): DispatchResult {
-      const validation = asDomainOutcome(validateCommand(state, command));
-      if (validation.status !== "allowed") return validation as DispatchResult;
-
-      const before = clone(state);
-      const outcome = asDomainOutcome(applyCommand(state, command));
+      // applyCommand checks identity, validates and edits its own deep draft.
+      // Its destination receives new top-level fields only after those checks.
+      const next = { ...state };
+      const outcome = asDomainOutcome(applyCommand(next, command));
       if (outcome.status !== "allowed") return outcome as DispatchResult;
       if (outcome.idempotent) return { ...outcome, persisted: true };
 
-      const saved = persist(false);
+      const saved = persist(true, next);
       if (!saved.ok) {
-        replaceContents(state, before);
-        markFailed(saved.error || "Could not save.");
         return {
           status: "rejected",
           id: command.id,
@@ -554,8 +595,20 @@ export function createGameStore(ports: StorePorts): GameStore {
       return result.ok ? { ok: true } : { ok: false, error: result.error };
     },
 
-    exportGame() {
-      return exportGame(state);
+    exportGame(notes = state.notes) {
+      if (notes === state.notes) return exportGame(state);
+      // The pending editor text belongs in the backup's journal as well as
+      // its state, so importing or replaying the exported game recovers it.
+      const backup = { ...state, storageError: null };
+      const result = applyCommand(backup, {
+        id: ids.next(),
+        at: clock.now().toISOString(),
+        type: "setNotes",
+        payload: { notes },
+        rulesetVersion: RULESET_VERSION,
+      });
+      if (result.status !== "allowed") throw new Error(result.reason);
+      return exportGame(backup);
     },
 
     getSnapshot() {

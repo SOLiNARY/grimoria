@@ -28,6 +28,7 @@ import {
 } from "../../core/engine/command-versions.ts";
 import { systemPorts } from "../../core/model/ports.ts";
 import { fingerprintOf } from "../../core/engine/command-state.ts";
+import { defaultRuntime } from "../../core/engine/runtime.ts";
 import { createGameStore } from "./create-game-store.ts";
 import type { GameStore } from "./create-game-store.ts";
 import type { StorePorts } from "../ports/index.ts";
@@ -1479,3 +1480,154 @@ for (const { name, patch } of malformedSaves) {
     assert.equal(storage.backupText, corrupt, "recovery keeps the original backup");
   });
 }
+
+test("a pristine second window adopts the first save and can immediately write", () => {
+  const storage = memoryStorage();
+  const first = store(storage).game;
+  const second = store(storage).game;
+  assert.equal(
+    first.dispatch(command(first, { type: "setNotes", payload: { notes: "shared" } })).status,
+    "allowed",
+  );
+  storage.emit();
+  assert.equal(second.state.notes, "shared");
+  assert.equal(second.state.createdAt, first.state.createdAt);
+  assert.equal(
+    second.dispatch(command(second, { type: "setNotes", payload: { notes: "continued" } })).status,
+    "allowed",
+  );
+  assert.equal(JSON.parse(storage.readRaw()!).notes, "continued");
+});
+
+test("a local edit before the first save protects the draft from another window", () => {
+  const storage = memoryStorage();
+  const first = store(storage).game;
+  const second = store(storage).game;
+  second.state.notes = "pending";
+  assert.equal(first.persist().ok, true);
+  storage.emit();
+  assert.equal(second.state.notes, "pending");
+  assert.equal(second.persist().ok, false);
+});
+
+test("export recovers pending notes in the replayable backup without saving the live draft", () => {
+  const { game, storage } = store();
+  const saveNote = (notes: string) =>
+    game.dispatch(command(game, { type: "setNotes", payload: { notes } }));
+  assert.equal(saveNote("stored").status, "allowed");
+  storage.fail = true;
+  assert.equal(saveNote("latest draft").status, "rejected");
+  const before = JSON.stringify(game.state);
+  const disk = storage.readRaw();
+  const backup = game.exportGame("latest draft");
+  assert.equal(JSON.stringify(game.state), before);
+  assert.equal(storage.readRaw(), disk);
+  assert.equal(storage.writes, 1);
+  assert.equal(game.getSnapshot().save.status, "failed");
+
+  const decoded = importSavedGame(backup);
+  assert.ok(decoded.ok);
+  assert.equal(decoded.state.notes, "latest draft");
+  const replayed = replay(decoded.state.journal);
+  assert.ok(replayed.ok);
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(decoded.state));
+  const restored = store().game;
+  assert.ok(restored.importGame(backup).ok);
+  assert.equal(restored.state.notes, "latest draft");
+});
+
+test("the committed state stays visible throughout a dispatch that fails its storage write", () => {
+  const { game, storage } = store();
+  assert.equal(
+    game.dispatch(command(game, { type: "setNotes", payload: { notes: "committed" } })).status,
+    "allowed",
+  );
+  let observed: string | undefined;
+  storage.write = () => {
+    observed = game.getSnapshot().state.notes;
+    throw new Error("quota exceeded");
+  };
+  const sent = game.dispatch(
+    command(game, { type: "setNotes", payload: { notes: "uncommitted" } }),
+  );
+  assert.equal(sent.status, "rejected");
+  assert.equal(observed, "committed");
+  assert.equal(game.getSnapshot().state.notes, "committed");
+});
+
+test("one dispatch executes one command draft and an idempotent retry executes none", (t) => {
+  const { game, storage } = store();
+  const prepared = command(game, { type: "setNotes", payload: { notes: "updated" } });
+  // Each engine execution creates exactly one seeded command context.
+  const seed = t.mock.method(defaultRuntime.random, "seed");
+  assert.equal(game.dispatch(prepared).status, "allowed");
+  assert.equal(seed.mock.callCount(), 1);
+  const retry = game.dispatch(prepared);
+  assert.equal(retry.status, "allowed");
+  assert.equal(retry.idempotent, true);
+  assert.equal(seed.mock.callCount(), 1);
+  assert.equal(storage.writes, 1);
+});
+
+test("a failed first save keeps its recovery session when another window creates a game", () => {
+  const storage = memoryStorage();
+  const first = store(storage).game;
+  const second = store(storage).game;
+  storage.fail = true;
+  assert.equal(
+    second.dispatch(command(second, { type: "setNotes", payload: { notes: "pending" } })).status,
+    "rejected",
+  );
+  storage.fail = false;
+  assert.equal(
+    first.dispatch(command(first, { type: "setNotes", payload: { notes: "other window" } })).status,
+    "allowed",
+  );
+  storage.emit();
+  assert.equal(second.getSnapshot().save.status, "failed");
+  assert.equal(second.state.notes, "");
+  const recovered = importSavedGame(second.exportGame("pending"));
+  assert.ok(recovered.ok);
+  assert.equal(recovered.state.notes, "pending");
+  assert.equal(first.state.notes, "other window");
+});
+
+test("storage denying reads cannot overwrite an unread save even if writes are available", () => {
+  const original = JSON.stringify({ ...createGame(7), notes: "unread save" });
+  const legacy = JSON.stringify({ ...createGame(6), v: 3 });
+  const storage = memoryStorage(original, { "pg.game.v3": legacy });
+  storage.readRaw = () => {
+    throw new Error("read denied");
+  };
+  const { game } = store(storage);
+  assert.equal(game.loadStatus.ok, false);
+  assert.equal(game.persist().ok, false);
+  assert.equal(storage.writes, 0);
+  assert.equal(storage.values.get(KEY), original);
+});
+
+test("a pristine window losing its first command adopts the winning save without replaying its command", () => {
+  const storage = memoryStorage();
+  const first = createGameStore(ports(storage));
+  const second = createGameStore(ports(storage));
+  const losing = command(second, { type: "setNotes", payload: { notes: "for my original table" } });
+  assert.equal(
+    first.dispatch(command(first, { type: "newGame", payload: { count: 6 } })).status,
+    "allowed",
+  );
+  const disk = storage.readRaw();
+  const result = second.dispatch(losing);
+  assert.equal(result.status, "rejected");
+  assert.equal(result.persisted, false);
+  assert.equal(storage.readRaw(), disk);
+  assert.equal(second.getSnapshot().state.order.length, 6);
+  assert.equal(second.state.applied[losing.id], undefined);
+  assert.equal(second.state.notes, "");
+  assert.equal(second.getSnapshot().save.status, "saved");
+  assert.equal(second.hasLocalChanges(), false);
+  assert.equal(second.canUndo(), false);
+  const next = command(second, { type: "setNotes", payload: { notes: "for the loaded table" } });
+  assert.equal(second.dispatch(next).status, "allowed");
+  assert.equal(first.getSnapshot().state.notes, "");
+  assert.equal(storage.read().notes, "for the loaded table");
+});

@@ -16,7 +16,7 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const fixture = await mkdtemp(join(tmpdir(), "pg-worker-"));
 await writeFile(join(fixture, "index.html"), "<!doctype html>");
 await mkdir(join(fixture, "assets"));
-await writeFile(join(fixture, "assets/app.js"), "console.log('app');");
+await writeFile(join(fixture, "assets/app-BBBBBBBB.js"), "console.log('release B');");
 await writeFile(join(fixture, "assets/reference-chunk.js"), "// lazy route");
 await writeFile(
   join(fixture, "assets/app.css"),
@@ -27,18 +27,24 @@ for (const font of ["body", "title", "unused"]) {
   await writeFile(join(fixture, "assets/fonts", font + ".woff2"), font);
 }
 await mkdir(join(fixture, "assets/img/roles"), { recursive: true });
-for (const image of ["token_e", "token_g", "translated", "unused"]) {
+for (const image of ["token_e", "token_g", "translated", "unused", "voudon", "acrobat"]) {
   await writeFile(join(fixture, "assets/img/roles", image + ".webp"), image);
 }
 await mkdir(join(fixture, "assets/data"), { recursive: true });
 for (const name of ["ru_RU", "en_GB", "az_AZ", "cs_CZ"]) {
   const role = {
+    id: "poisoner",
     team: "minion",
     image: name === "az_AZ" ? "translated.webp" : ["token_g.webp", "token_e.webp"],
   };
+  const roles = [
+    role,
+    { id: "voudon", team: "traveller", image: "voudon.webp" },
+    { id: "acrobat", team: "townsfolk", image: "acrobat.webp" },
+  ];
   await writeFile(
     join(fixture, "assets/data", name + ".js"),
-    "var PG=" + JSON.stringify({ roles: [role] }) + ";",
+    "var PG=" + JSON.stringify({ roles }) + ";",
   );
 }
 await run(process.execPath, [
@@ -111,11 +117,13 @@ function createWorker({
   entries = new Map<string, Map<string, unknown>>(),
   version = cacheName,
   match = async () => null,
+  loadAsset = (request) => request.url,
   windows = [],
 }: {
   entries?: Map<string, Map<string, unknown>>;
   version?: string;
   match?: (request: unknown) => Promise<unknown>;
+  loadAsset?: (request: Request) => string;
   windows?: Array<{ id: string }>;
 } = {}) {
   const listeners = new Map<string, (event: WorkerEvent) => void>();
@@ -144,9 +152,12 @@ function createWorker({
       const files = entries.get(name) ?? new Map<string, unknown>();
       entries.set(name, files);
       return {
-        addAll: async (paths: string[]) => {
-          calls.added.push(...paths);
-          for (const path of paths) files.set(requestUrl(path), path);
+        addAll: async (inputs: (string | Request)[]) => {
+          for (const input of inputs) {
+            const request = typeof input === "string" ? new Request(requestUrl(input)) : input;
+            calls.added.push(request.url);
+            files.set(request.url, loadAsset(request));
+          }
         },
         match: async (request: string | { url: string }) =>
           files.get(requestUrl(request)) ?? (await match(request)),
@@ -181,6 +192,7 @@ function createWorker({
     caches,
     fetch,
     URL,
+    Request,
     Response,
     console,
     Promise,
@@ -226,11 +238,44 @@ test("the generator requires an explicit root and output path", async () => {
 test("the generated worker precaches one versioned asset set", async () => {
   assert.match(cacheName, /^pg-static-[0-9a-f]{16}$/);
   assert.ok(assets.includes("index.html"));
-  assert.ok(assets.includes("assets/app.js"));
+  assert.ok(assets.includes("assets/app-BBBBBBBB.js"));
   const { calls, fire } = createWorker();
   await fire("install");
   assert.deepEqual(calls.opened, [cacheName]);
-  assert.deepEqual(calls.added, assets);
+  assert.deepEqual(
+    calls.added,
+    assets.map((path) => new URL(path, scope).href),
+  );
+});
+
+test("an install revalidates the earlier release's fresh shell and catalog before serving them offline", async () => {
+  const oldEntry = "assets/app-AAAAAAAA.js";
+  const newEntry = "assets/app-BBBBBBBB.js";
+  const catalog = scope + "assets/data/ru_RU.js";
+  const previous = new Map([
+    [scope, oldEntry],
+    [scope + "index.html", oldEntry],
+    [catalog, "old catalog"],
+  ]);
+  const server = new Map([
+    [scope, newEntry],
+    [scope + "index.html", newEntry],
+    [catalog, "new catalog"],
+  ]);
+  const worker = createWorker({
+    loadAsset(request) {
+      if (request.cache === "default" && previous.has(request.url))
+        return previous.get(request.url)!;
+      return server.get(request.url) ?? request.url;
+    },
+  });
+  await worker.fire("install");
+  const cache = worker.entries.get(cacheName)!;
+  const shellEntry = cache.get(scope);
+  assert.equal(shellEntry, newEntry);
+  assert.ok(cache.has(scope + shellEntry), "the shell can boot offline with its cached entry");
+  assert.equal(cache.get(scope + "index.html"), newEntry);
+  assert.equal(cache.get(catalog), "new catalog");
 });
 
 test("the asset list keeps every reachable catalog and drops the rest", () => {
@@ -244,11 +289,13 @@ test("offline navigation retains lazy chunks, selectable art and stylesheet font
   assert.ok(assets.includes("assets/reference-chunk.js"));
   assert.ok(assets.includes("assets/img/roles/token_e.webp"));
   assert.ok(assets.includes("assets/img/roles/translated.webp"));
+  assert.ok(assets.includes("assets/img/roles/voudon.webp"));
   assert.ok(assets.includes("assets/fonts/body.woff2"));
   assert.ok(assets.includes("assets/fonts/title.woff2"));
   for (const unused of [
     "assets/img/roles/token_g.webp",
     "assets/img/roles/unused.webp",
+    "assets/img/roles/acrobat.webp",
     "assets/fonts/unused.woff2",
   ]) {
     assert.ok(!assets.includes(unused), unused + " should not enter the precache");

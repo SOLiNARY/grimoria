@@ -210,8 +210,13 @@ export function TableScreen() {
     },
     openExport: () => {
       captureFocus();
-      drafts.setExportText(ports.game.exportGame());
-      drafts.setOverlay("export");
+      try {
+        drafts.setExportText(ports.game.exportGame(ports.notes.read()));
+        drafts.setOverlay("export");
+      } catch (error) {
+        closeOverlay();
+        setRejection({ code: null, text: error instanceof Error ? error.message : String(error) });
+      }
     },
     openImport: () => {
       captureFocus();

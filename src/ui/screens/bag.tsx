@@ -33,7 +33,7 @@ import {
 } from "../../core/model/script-definition.ts";
 import type { Role, RoleId, Script } from "../../core/model/types.ts";
 import { SetupShell } from "../components/setup-shell.tsx";
-import type { BagEntryInput, BagLibrary } from "../ports.ts";
+import type { BagEntryInput, BagLibrary, LibraryBag, LibraryPool, LibraryEdit } from "../ports.ts";
 import { useShellPorts } from "../ports.ts";
 import { useGame } from "../store/use-game.ts";
 import { chooseBluff } from "./bluff-selection.ts";
@@ -248,10 +248,11 @@ export function BagScreen() {
 
   const [library, setLibrary] = useState<BagLibrary>(() => ports.library.normalize(null));
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const libraryFile = useRef<HTMLInputElement>(null);
   const [libraryError, setLibraryError] = useState("");
   const [libraryName, setLibraryName] = useState("");
-  const [activePoolId, setActivePoolId] = useState<string | null>(null);
-  const [activeBagId, setActiveBagId] = useState<string | null>(null);
+  const [activePool, setActivePool] = useState<LibraryPool | null>(null);
+  const [activeBag, setActiveBag] = useState<LibraryBag | null>(null);
 
   const root = useRef<HTMLDivElement>(null);
   const started = useRef(false);
@@ -336,7 +337,7 @@ export function BagScreen() {
     }
   };
 
-  const applyBag = (bag: AnyBag | null) => {
+  const applyBag = (bag: AnyBag | null, initialSeed = false) => {
     if (!bag || bag.valid === false) {
       setBagError(t("illegal"));
       return;
@@ -356,6 +357,14 @@ export function BagScreen() {
       evilTwinGoodId: bag.evilTwinGoodId || null,
     });
     if (result.status !== "allowed") {
+      if (initialSeed && result.errorCode === "persist-failed") {
+        const published = ports.game.getSnapshot();
+        // Another setup window may have seeded the empty game first.
+        if (published.save.status === "saved" && !setupProjection(published.state).errors.length) {
+          setBagError("");
+          return;
+        }
+      }
       setBagError(commandRejectionText(result) || t("illegal"));
       return;
     }
@@ -474,14 +483,22 @@ export function BagScreen() {
 
   const applyScript = (script: Script | null) => {
     if (!script || !Array.isArray(script.roles) || !script.roles.length) return;
-    if (state.script && script.id === state.script.id) {
+    if (
+      state.script &&
+      script.id === state.script.id &&
+      (SCRIPT_IDS.includes(script.id) ||
+        (script.author === state.script.author &&
+          script.name === state.script.name &&
+          script.roles.length === state.script.roles.length &&
+          script.roles.every((id, index) => state.script.roles[index] === id)))
+    ) {
       setPickerOpen(false);
       setPickerError("");
       return;
     }
     if (hasGame && !window.confirm(t("ui.changeScript"))) return;
-    setActivePoolId(null);
-    setActiveBagId(null);
+    setActivePool(null);
+    setActiveBag(null);
     setLibraryName("");
     setPickerOpen(false);
     setPickerError("");
@@ -550,8 +567,8 @@ export function BagScreen() {
         lunaticBluffs: [],
         evilTwinGoodId: null,
       });
-      setActivePoolId(null);
-      setActiveBagId(null);
+      setActivePool(null);
+      setActiveBag(null);
       setLibraryName("");
       setTab("manual");
       setPoolMode(true);
@@ -625,28 +642,33 @@ export function BagScreen() {
     setBagError("");
   };
 
-  const showLibrarySaveError = (error: string) => {
-    setLibraryError(t(error === "capacity" ? "bag.libraryCapacity" : "bag.saveFailed"));
-  };
-
-  const persistLibrary = (next: BagLibrary) => {
-    const result = ports.library.write(next);
+  const persistLibrary = async (change: LibraryEdit) => {
+    const result = await ports.library.edit(library, change);
+    if (result.ok || result.error === "conflict" || result.error === "capacity")
+      setLibrary(result.library);
     if (!result.ok) {
-      showLibrarySaveError(result.error);
-      return false;
+      const key =
+        result.error === "capacity"
+          ? "bag.libraryCapacity"
+          : result.error === "busy"
+            ? "bag.libraryBusy"
+            : result.error === "conflict"
+              ? "bag.libraryConflict"
+              : "bag.saveFailed";
+      setLibraryError(t(key));
+    } else {
+      setLibraryError("");
     }
-    setLibrary(next);
-    setLibraryError("");
-    return true;
+    return result;
   };
 
-  const saveCurrentBag = () => {
+  const saveCurrentBag = async () => {
     const name = libraryName.trim();
     if (!name) {
       setLibraryError(t("bag.nameRequired"));
       return;
     }
-    const existing = library.bags.find((entry) => entry.id === activeBagId || entry.name === name);
+    const existing = activeBag ?? library.bags.find((entry) => entry.name === name);
     const entry: BagEntryInput = {
       ...(existing ? { id: existing.id } : {}),
       name,
@@ -661,37 +683,49 @@ export function BagScreen() {
       godfatherOutsider: shiftOf(state),
       evilTwinGoodId: state.setup.evilTwinGoodId,
     };
-    const result = ports.library.saveBag(library, entry);
+    const result = await persistLibrary({
+      type: "saveBag",
+      entry,
+      ...(existing ? { expected: existing } : {}),
+    });
     if (!result.ok) {
-      showLibrarySaveError(result.error);
+      if (
+        result.error === "conflict" &&
+        !result.library.bags.some((item) => item.id === activeBag?.id)
+      )
+        setActiveBag(null);
       return;
     }
-    if (!persistLibrary(result.library)) return;
     setLibraryName("");
-    setActiveBagId(result.bag.id);
+    setActiveBag(result.library.bags.find((item) => item.id === result.id) ?? null);
   };
 
-  const saveCurrentPool = () => {
+  const saveCurrentPool = async () => {
     const name = libraryName.trim();
     if (!name) {
       setLibraryError(t("bag.nameRequired"));
       return;
     }
-    const existing = library.pools.find(
-      (entry) => entry.id === activePoolId || entry.name === name,
-    );
-    const result = ports.library.savePool(library, {
-      ...(existing ? { id: existing.id } : {}),
-      name,
-      roles: scriptRoles,
+    const existing = activePool ?? library.pools.find((entry) => entry.name === name);
+    const result = await persistLibrary({
+      type: "savePool",
+      ...(existing ? { expected: existing } : {}),
+      entry: {
+        ...(existing ? { id: existing.id } : {}),
+        name,
+        roles: scriptRoles,
+      },
     });
     if (!result.ok) {
-      showLibrarySaveError(result.error);
+      if (
+        result.error === "conflict" &&
+        !result.library.pools.some((item) => item.id === activePool?.id)
+      )
+        setActivePool(null);
       return;
     }
-    if (!persistLibrary(result.library)) return;
     setLibraryName("");
-    setActivePoolId(result.pool.id);
+    setActivePool(result.library.pools.find((item) => item.id === result.id) ?? null);
   };
 
   const loadBag = (id: string) => {
@@ -750,8 +784,8 @@ export function BagScreen() {
     setLibraryOpen(false);
     setArmed(false);
     setTab("manual");
-    setActiveBagId(bag.id);
-    setActivePoolId(null);
+    setActiveBag(bag);
+    setActivePool(null);
     setLibraryName(bag.name);
   };
 
@@ -788,13 +822,18 @@ export function BagScreen() {
     setArmed(false);
     setTab("manual");
     setPoolMode(false);
-    setActivePoolId(pool.id);
-    setActiveBagId(null);
+    setActivePool(pool);
+    setActiveBag(null);
     setLibraryName(pool.name);
   };
 
   const exportFile = () => {
-    const text = ports.library.export(library);
+    const current = ports.library.read(library);
+    if (!current.ok) {
+      setLibraryError(t("bag.saveFailed"));
+      return;
+    }
+    const text = ports.library.export(current.library);
     const blob = new Blob([text], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -811,7 +850,11 @@ export function BagScreen() {
         setLibraryError(t(parsed.error === "capacity" ? "bag.importCapacity" : "bag.importFail"));
         return;
       }
-      persistLibrary(parsed.library);
+      const imported = await persistLibrary({ type: "replace", library: parsed.library });
+      if (imported.ok) {
+        setActiveBag(null);
+        setActivePool(null);
+      }
     } catch {
       setLibraryError(t("bag.importFail"));
     }
@@ -877,7 +920,7 @@ export function BagScreen() {
     if (!loaded.ok) setLibraryError(t("bag.importFail"));
     if (!state.setup.roles.length && scriptRoles.length >= 5) {
       const bag = tryRandomBag(state.setup.count);
-      if (bag) applyBag(bag);
+      if (bag) applyBag(bag, true);
     }
   }, []);
 
@@ -2481,9 +2524,7 @@ export function BagScreen() {
                         className="btn"
                         type="button"
                         data-delete-bag={bag.id}
-                        onClick={() =>
-                          persistLibrary(ports.library.removeBag(library, bag.id).library)
-                        }
+                        onClick={() => void persistLibrary({ type: "removeBag", id: bag.id })}
                       >
                         {t("bag.delete")}
                       </button>
@@ -2519,9 +2560,7 @@ export function BagScreen() {
                         className="btn"
                         type="button"
                         data-delete-pool={pool.id}
-                        onClick={() =>
-                          persistLibrary(ports.library.removePool(library, pool.id).library)
-                        }
+                        onClick={() => void persistLibrary({ type: "removePool", id: pool.id })}
                       >
                         {t("bag.delete")}
                       </button>
@@ -2536,23 +2575,29 @@ export function BagScreen() {
               <button className="btn" type="button" data-act="export-library" onClick={exportFile}>
                 {t("export")}
               </button>
-              <label className="btn">
+              <button
+                type="button"
+                className="btn"
+                data-act="import-library"
+                onClick={() => libraryFile.current?.click()}
+              >
                 {t("import")}
-                <input
-                  type="file"
-                  accept=".json,application/json"
-                  data-library-file
-                  hidden
-                  onChange={(event) => {
-                    const input = event.currentTarget;
-                    const file = input.files?.[0];
-                    if (!file) return;
-                    void importFile(file).finally(() => {
-                      input.value = "";
-                    });
-                  }}
-                />
-              </label>
+              </button>
+              <input
+                ref={libraryFile}
+                type="file"
+                accept=".json,application/json"
+                data-library-file
+                hidden
+                onChange={(event) => {
+                  const input = event.currentTarget;
+                  const file = input.files?.[0];
+                  if (!file) return;
+                  void importFile(file).finally(() => {
+                    input.value = "";
+                  });
+                }}
+              />
               <button
                 className="btn"
                 type="button"
@@ -2634,8 +2679,10 @@ export function BagScreen() {
         type="button"
         data-act="library"
         onClick={() => {
+          const current = ports.library.read(library);
+          if (current.ok) setLibrary(current.library);
+          setLibraryError(current.ok ? "" : t("bag.importFail"));
           setLibraryOpen(true);
-          setLibraryError("");
         }}
       >
         {t("bag.library")}

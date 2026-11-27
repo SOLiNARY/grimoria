@@ -117,6 +117,7 @@ async function gameEndChronicle() {
 
 const focusedName = process.env.PG_BROWSER_CHECK;
 const focusedChecks: Record<string, () => Promise<void>> = {
+  "first-bag-race": firstBagRace,
   "saved-custom-bag": savedCustomBagRestoresPool,
   "mixed-script": mixedScriptDiagnostics,
   "verified-jinx": verifiedJinxDiagnostics,
@@ -1532,8 +1533,18 @@ async function savedCustomBagRestoresPool() {
     return { script: structuredClone(state.script), roles: state.setup.roles.slice() };
   });
   await page.locator('[data-act="library"]').click();
+  await page.locator('[data-act="export-library"]').focus();
+  await page.keyboard.press("Tab");
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.matches('[data-act="import-library"]')),
+    true,
+    "keyboard navigation reaches library import",
+  );
   await page.locator("[data-library-name]").fill("Same-ID custom bag regression");
   await page.locator('[data-act="save-bag"]').click();
+  await page.waitForFunction(
+    () => document.querySelector<HTMLInputElement>("[data-library-name]")?.value === "",
+  );
   const savedBagId = await page.evaluate(() => {
     const library = JSON.parse(localStorage.getItem("pg.library.v1") || "{}");
     return library.bags.find(
@@ -2058,6 +2069,9 @@ async function lunaticSetupControls() {
   await page.locator('[data-act="library"]').click();
   await page.locator("[data-library-name]").fill("Legacy Lunatic defaults");
   await page.locator('[data-act="save-bag"]').click();
+  await page.waitForFunction(
+    () => document.querySelector<HTMLInputElement>("[data-library-name]")?.value === "",
+  );
   const legacyBagId = await page.evaluate(() => {
     const library = JSON.parse(localStorage.getItem("pg.library.v1") || "{}") as {
       bags: { id: string; name: string; lunaticBluffs?: string[] }[];
@@ -2209,6 +2223,9 @@ async function lunaticSetupControls() {
   await page.locator('[data-act="library"]').click();
   await page.locator("[data-library-name]").fill("Independent Lunatic setup");
   await page.locator('[data-act="save-bag"]').click();
+  await page.waitForFunction(
+    () => document.querySelector<HTMLInputElement>("[data-library-name]")?.value === "",
+  );
   const savedBagId = await page.evaluate(() => {
     const library = JSON.parse(localStorage.getItem("pg.library.v1") || "{}");
     return library.bags.find((bag: { name: string }) => bag.name === "Independent Lunatic setup")
@@ -5487,6 +5504,23 @@ async function playerCardHasNoCountdown() {
   );
   await page.keyboard.press("Escape");
   assert.equal(await page.locator(".player-card").count(), 0, "Escape closes the card");
+  await page.locator('[data-seat="0"]').click();
+  await page.waitForSelector(".player-card");
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const [first, second, ...rest] = store.state.order;
+    const result = store.dispatch({
+      type: "setOrder",
+      payload: { order: [second, first, ...rest] },
+    });
+    if (result.status !== "allowed") throw new Error(result.reason);
+  });
+  await page.waitForSelector(".player-card", { state: "detached" });
+  assert.equal(
+    await page.locator("[data-seat]").count(),
+    7,
+    "a reordered handoff requires a fresh reveal",
+  );
   await page.clock.resume();
 }
 
@@ -5913,6 +5947,48 @@ async function cerenovusMadnessStaysPrivate() {
   await page.keyboard.press("Escape");
 }
 
+async function firstBagRace() {
+  const shared = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    await shared.addInitScript(() => {
+      window.PG_MODULES = () => import(String("/pocket/test-entry.js"));
+    });
+    const first = await shared.newPage();
+    const second = await shared.newPage();
+    await Promise.all([first.goto(url), second.goto(url)]);
+    await Promise.all([
+      first.waitForSelector("#screen > *"),
+      second.waitForSelector("#screen > *"),
+    ]);
+    // Hold the storage notification until after both tabs have tried to seed.
+    // The second tab must then discover the first bag during its own save.
+    await second.evaluate(() => {
+      window.addEventListener("storage", (event) => event.stopImmediatePropagation(), true);
+    });
+    const openBag = async (tab: Page) => {
+      await tab.evaluate(() => {
+        history.pushState(null, "", "/pocket/bag");
+        dispatchEvent(new PopStateEvent("popstate"));
+      });
+      await tab.waitForSelector("#bag-composition");
+      await settled(tab);
+    };
+    await openBag(first);
+    const winner = await first.evaluate(() => localStorage.getItem("pg.game.v4"));
+    assert.ok(winner && JSON.parse(winner).setup.roles.length, "the first tab seeds an empty bag");
+    await openBag(second);
+    assert.equal(await second.evaluate(() => localStorage.getItem("pg.game.v4")), winner);
+    assert.deepEqual(
+      await second.evaluate(async () => (await window.PG_MODULES()).store.state.setup.roles),
+      JSON.parse(winner).setup.roles,
+      "the second tab displays the winning roles",
+    );
+    assert.equal(await second.locator(".setup-banner.is-error").count(), 0);
+  } finally {
+    await shared.close();
+  }
+}
+
 async function fullChecks() {
   phaseStarted = Date.now();
   await page.goto(url);
@@ -5998,6 +6074,7 @@ async function fullChecks() {
   }
 
   phase("load and identity");
+  await firstBagRace();
 
   // Pages-like fallback matrix: a real 404 for a nested route, exactly one
   // redirect, the route restored; the same cases at the root base.
@@ -6928,6 +7005,33 @@ async function fullChecks() {
     "the auto-filled bag uses only the new script's roles",
   );
 
+  // Manual edits preserve the custom script ID. The original file must still
+  // restore its contents when it is applied a second time.
+  await page.locator('[data-act="edit-pool"]').click();
+  await page.locator('.bag-role[data-role="slayer"]').click();
+  await page.locator('[data-act="edit-pool"]').click();
+  assert.equal(
+    await page.evaluate(async () =>
+      (await window.PG_MODULES()).store.state.script.roles.includes("slayer"),
+    ),
+    false,
+  );
+  await page.locator('[data-act="script"]').click();
+  await page.locator("[data-script-file]").setInputFiles({
+    name: "browser-script.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(customJson),
+  });
+  await page.waitForSelector(
+    `.script-preview [data-support-level="verified"][data-support-count="${customRoles.length}"]`,
+  );
+  await page.locator('[data-act="apply-script"]').click();
+  await page.waitForSelector(".script-modal", { state: "detached" });
+  assert.deepEqual(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.script.roles),
+    customRoles,
+  );
+
   // Switching back to the official script restores the full roster.
   await page.locator('[data-act="script"]').click();
   await page.waitForSelector(".script-modal");
@@ -7112,6 +7216,9 @@ async function fullChecks() {
   await page.waitForSelector("[data-library-name]");
   await page.locator("[data-library-name]").fill("Browser bag");
   await page.locator('[data-act="save-bag"]').click();
+  await page.waitForFunction(
+    () => document.querySelector<HTMLInputElement>("[data-library-name]")?.value === "",
+  );
   await page.waitForSelector("[data-load-bag]");
   await page.locator('[data-act="close-library"]').last().click();
   await page.locator('[data-tab="manual"]').click();

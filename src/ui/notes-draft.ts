@@ -13,6 +13,16 @@ export function createNotesDraft(readGame: () => Pick<GameState, "createdAt" | "
 
   return {
     read,
+    canAdoptExternal(next: Pick<GameState, "createdAt" | "notes"> | null): boolean {
+      if (!pending) return true;
+      read(); // A local import or reset may already have superseded the editor.
+      return (
+        !pending ||
+        (next !== null &&
+          next.createdAt === pending.game &&
+          (next.notes === pending.original || next.notes === pending.text))
+      );
+    },
     edit(text: string): void {
       const { createdAt, notes } = readGame();
       pending = text === notes ? null : { game: createdAt, original: notes, text };

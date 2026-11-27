@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LIBRARY_KEY,
+  editLibrary,
   emptyLibrary,
   exportLibrary,
   normalizeLibrary,
@@ -18,7 +19,9 @@ import { STORAGE_KEY } from "../../core/model/state.ts";
 function fakeStorage(): Map<string, string> {
   const values = new Map<string, string>();
   globalThis.localStorage = {
-    length: 0,
+    get length() {
+      return values.size;
+    },
     clear: () => values.clear(),
     key: (index: number) => [...values.keys()][index] ?? null,
     getItem: (key: string) => values.get(key) ?? null,
@@ -215,4 +218,84 @@ test("a corrupt library read does not throw", () => {
   const loaded = readLibrary();
   assert.equal(loaded.ok, false);
   assert.deepEqual(loaded.library, emptyLibrary());
+});
+
+test("concurrent library writers keep independent additions and reject stale edits, deletions and replacement imports", async () => {
+  fakeStorage();
+  const base = emptyLibrary();
+  const [a, b] = await Promise.all([
+    editLibrary(base, { type: "saveBag", entry: { ...bag, name: "A" } }),
+    editLibrary(base, { type: "saveBag", entry: { ...bag, name: "B" } }),
+  ]);
+  assert.ok(a.ok && b.ok);
+  const loaded = readLibrary().library;
+  assert.deepEqual(loaded.bags.map((item) => item.name).sort(), ["A", "B"]);
+  const first = loaded.bags.find((item) => item.name === "A")!;
+  const renamed = await editLibrary(loaded, {
+    type: "saveBag",
+    entry: { ...first, name: "Renamed" },
+  });
+  assert.ok(renamed.ok);
+  const stale = await editLibrary(loaded, { type: "removeBag", id: first.id });
+  assert.ok(!stale.ok && stale.error === "conflict");
+  const staleSave = await editLibrary(loaded, {
+    type: "saveBag",
+    entry: { ...first, name: "Overwrite" },
+  });
+  assert.ok(!staleSave.ok && staleSave.error === "conflict");
+  const fromLoadedBag = await editLibrary(readLibrary().library, {
+    type: "saveBag",
+    entry: { ...first, name: "Stale loaded bag" },
+    expected: first,
+  });
+  assert.ok(!fromLoadedBag.ok && fromLoadedBag.error === "conflict");
+  const staleImport = await editLibrary(loaded, { type: "replace", library: emptyLibrary() });
+  assert.ok(!staleImport.ok && staleImport.error === "conflict");
+  const imported = await editLibrary(readLibrary().library, {
+    type: "replace",
+    library: emptyLibrary(),
+  });
+  assert.ok(imported.ok);
+  assert.deepEqual(readLibrary().library, emptyLibrary());
+});
+
+test("without Web Locks a writer can retry a busy library without losing an independent entry", async (t) => {
+  const values = fakeStorage();
+  t.mock.getter(Object.getPrototypeOf(navigator), "locks", () => undefined);
+  const base = emptyLibrary();
+  values.set(LIBRARY_KEY + ".writer.expired", String(Date.now() - 1));
+  const operations = [
+    { type: "savePool", entry: { name: "Pool A", roles: bag.roles } },
+    { type: "savePool", entry: { name: "Pool B", roles: bag.roles } },
+  ] as const;
+  const results = await Promise.all(operations.map((op) => editLibrary(base, op)));
+  assert.equal(results.filter((res) => res.ok).length, 1);
+  const index = results.findIndex((res) => !res.ok && res.error === "busy");
+  assert.ok(index >= 0);
+  assert.ok((await editLibrary(base, operations[index]!)).ok);
+  assert.deepEqual(
+    readLibrary()
+      .library.pools.map((pool) => pool.name)
+      .sort(),
+    ["Pool A", "Pool B"],
+  );
+  assert.deepEqual([...values.keys()], [LIBRARY_KEY]);
+});
+
+test("updating an older library retains generated entry identifiers while its bytes are unchanged", async () => {
+  const values = fakeStorage();
+  values.set(LIBRARY_KEY, JSON.stringify({ bags: [bag] }));
+  const loaded = readLibrary().library;
+  const existing = loaded.bags[0]!;
+  const reopened = readLibrary(loaded).library;
+  const result = await editLibrary(reopened, {
+    type: "saveBag",
+    entry: { ...existing, name: "Restored" },
+    expected: existing,
+  });
+  assert.ok(result.ok);
+  assert.deepEqual(
+    readLibrary().library.bags.map((item) => [item.id, item.name]),
+    [[existing.id, "Restored"]],
+  );
 });

@@ -78,3 +78,32 @@ test("platform ports provide a clock, unique ids and a stable seed", () => {
   assert.equal(ports.random.seed("same"), ports.random.seed("same"));
   assert.notEqual(ports.random.seed("same"), ports.random.seed("other"));
 });
+
+test("denying access to the localStorage getter still permits store initialization and preferences", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new DOMException("Storage access is denied", "SecurityError");
+    },
+  });
+  try {
+    const { createGameStore } = await import("../application/store/create-game-store.ts");
+    const preferences = createLocalPreferences();
+    const game = createGameStore({
+      ...createSystemPorts(),
+      storage: createLocalGameStorage(),
+      preferences,
+    });
+    assert.equal(game.state.phase, "setup");
+    assert.equal(game.loadStatus.ok, false);
+    assert.doesNotThrow(() => preferences.set("pg.lang", "en"));
+    assert.equal(preferences.get("pg.lang"), null);
+    assert.equal(game.persist().ok, false);
+    assert.equal(game.getSnapshot().save.status, "failed");
+    game.dispose();
+  } finally {
+    if (original) Object.defineProperty(globalThis, "localStorage", original);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});

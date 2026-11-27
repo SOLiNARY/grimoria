@@ -11,6 +11,19 @@ All notable changes to Grimoria are recorded here. The format follows
 - Show the rolled roles on the Setup screen's Random tab, grouped by type, and let the host swap any one of them for another legal role of the same type or reroll it; bluffs and masks the swap puts in play are redrawn (#17).
 - Make picked roles in the setup role grid wear their team colour, and show team names in the chosen language (#17).
 
+## [0.12.3] - 2026-11-27
+
+### Fixed
+
+- Close a private role card when its seat assignment changes, and protect seating and library changes made in another window.
+- Install matching offline HTML and JavaScript after deployment. Open the app on the supported Safari baseline and honor the last language selected, including after a slow catalog download.
+- Recover pending notes in game backups, keep read-only screens available when browser storage is blocked, and synchronize the first save across open windows.
+- Reapply the contents of imported custom scripts, make library import keyboard-accessible, and restore release links on the changelog.
+
+### Changed
+
+- Omit unused role art from the offline download and avoid repeating command execution when saving an edit.
+
 ## [0.12.2] - 2026-11-27
 
 ### Fixed

@@ -7,8 +7,13 @@ export { imageName };
 
 type CatalogWindow = Window & { PG?: { roles?: Role[] } };
 
+const browser = window as CatalogWindow;
+let activeCatalog = browser.PG;
+let requested = 0;
+let lang = "ru";
+
 function catalog(): Role[] {
-  return (window as CatalogWindow).PG?.roles ?? [];
+  return activeCatalog?.roles ?? [];
 }
 
 function filter(): Role[] {
@@ -20,28 +25,38 @@ function filter(): Role[] {
 }
 
 export let TB: Role[] = filter();
-let lang = "ru";
 
 export function currentLang(): string {
   return lang;
 }
 
-function loadScript(src: string): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  const script = document.createElement("script");
-  script.src = assetUrl(src);
-  script.onload = () => resolve();
-  script.onerror = () => reject(new Error("Could not load " + src));
-  document.head.append(script);
-  return promise;
-}
-
-export async function loadLocale(code: string): Promise<void> {
-  const next = LOCALE_FILES[code] ? code : "en";
-  if (next === lang && Array.isArray((window as CatalogWindow).PG?.roles)) return;
-  await loadScript("assets/data/" + LOCALE_FILES[next]! + ".js");
-  TB = filter();
-  lang = next;
+export async function loadLocale(code: string, signal?: AbortSignal): Promise<boolean> {
+  const next = Object.hasOwn(LOCALE_FILES, code) ? code : "en";
+  const request = ++requested;
+  if (next === lang && Array.isArray(activeCatalog?.roles)) return true;
+  const src = assetUrl("assets/data/" + LOCALE_FILES[next]! + ".js");
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => {
+      // Each shipped script assigns window.PG. Restore the committed catalog
+      // synchronously when an older request finishes after the latest selection.
+      if (request !== requested || signal?.aborted) {
+        browser.PG = activeCatalog ?? {};
+        resolve(false);
+        return;
+      }
+      activeCatalog = browser.PG;
+      TB = filter();
+      lang = next;
+      resolve(true);
+    };
+    script.onerror = () => {
+      if (request === requested && !signal?.aborted) reject(new Error("Could not load " + src));
+      else resolve(false);
+    };
+    document.head.append(script);
+  });
 }
 
 export function allRoles(): Role[] {

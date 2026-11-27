@@ -7,7 +7,8 @@ import type { GameSnapshot } from "../../application/store/create-game-store.ts"
 import { ArcaneAppBar } from "../components/arcane/index.ts";
 import { useShellPorts } from "../ports.ts";
 import { useGame } from "../store/use-game.ts";
-import { publicSeats } from "./seat-projection.ts";
+import { publicSeats, seatOrderDraft } from "./seat-projection.ts";
+import { handoffSession } from "./player-projection.ts";
 import { commandRejectionText } from "./setup-messages.ts";
 import { SEAT_LABEL_SIDE } from "./table/ring.ts";
 import { TableFelt, useTableLayout } from "./table/surface.tsx";
@@ -27,16 +28,22 @@ interface Drag {
 export function SeatScreen() {
   const ports = useShellPorts();
   const snapshot = useGame(ports.game);
+  return <SeatEditor key={handoffSession(snapshot.state)} snapshot={snapshot} />;
+}
+
+function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
+  const ports = useShellPorts();
   const state = snapshot.state;
   const t = ports.strings.t;
-
-  const [draft, setDraft] = useState<string[]>(() => orderOf(state));
+  const [edited, setDraft] = useState<string[]>([]);
   const [history, setHistory] = useState<string[][]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
-  const selectedRef = useRef<number | null>(null);
+  const { order: draft, conflict } = seatOrderDraft(orderOf(state), edited, history[0]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const selectedRef = useRef<string | null>(null);
   const pick = (value: number | null) => {
-    selectedRef.current = value;
-    setSelected(value);
+    const id = value === null ? null : (draft[value] ?? null);
+    selectedRef.current = id;
+    setSelected(id);
   };
   const [status, setStatus] = useState(t("ui.seatEmptyNote"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -49,14 +56,6 @@ export function SeatScreen() {
   const suppressClick = useRef(false);
   const listeners = useRef<AbortController | null>(null);
   const { ref: ringRef, layout } = useTableLayout(draft.length);
-
-  // A publish never replaces a draft, but it fills an empty one: another tab can
-  // deal the bag while this screen still shows the empty state.
-  useEffect(() => {
-    if (draft.length) return;
-    const published = orderOf(snapshot.state);
-    if (published.length) setDraft(published);
-  }, [snapshot, draft.length]);
 
   useEffect(() => {
     return () => listeners.current?.abort();
@@ -89,8 +88,8 @@ export function SeatScreen() {
   };
 
   const activate = (index: number) => {
-    const current = selectedRef.current;
-    if (current === null) {
+    const current = selectedRef.current === null ? -1 : draft.indexOf(selectedRef.current);
+    if (current < 0) {
       pick(index);
       announce(`Seat ${index + 1} picked. Activate another seat to swap.`);
       return;
@@ -129,7 +128,9 @@ export function SeatScreen() {
   };
 
   const useOrder = () => {
-    const result = ports.commands.setOrder(draft.slice());
+    const current = seatOrderDraft(orderOf(ports.game.getSnapshot().state), edited, history[0]);
+    if (current.conflict) return;
+    const result = ports.commands.setOrder(current.order.slice());
     if (result.status !== "allowed") {
       window.alert(commandRejectionText(result) || t("ui.seatReorderFailed"));
       return;
@@ -318,7 +319,7 @@ export function SeatScreen() {
               const placement = layout.seats[index];
               if (!placement) return null;
               const name = nameOf(id);
-              const isSelected = selected === index;
+              const isSelected = selected === id;
               const isTarget = dragTarget === index;
               return (
                 <button
@@ -413,7 +414,9 @@ export function SeatScreen() {
                 role="status"
               >
                 <i className="size-1.5 shrink-0 rounded-full bg-table-primary" aria-hidden="true" />
-                <span className="truncate">{ports.strings.text(status)}</span>
+                <span className="truncate">
+                  {conflict ? t("ui.seatOrderChanged") : ports.strings.text(status)}
+                </span>
               </span>
             </div>
             <div
@@ -441,10 +444,24 @@ export function SeatScreen() {
               >
                 {ports.strings.text("Shuffle")}
               </button>
+              {conflict && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setHistory([]);
+                    pick(null);
+                    setStatus(t("ui.seatEmptyNote"));
+                  }}
+                >
+                  {t("ui.seatLoadOrder")}
+                </button>
+              )}
               <button
                 className="btn min-h-11 !justify-center !border-table-primary !bg-table-primary !bg-none font-semibold !text-table-primary-ink disabled:!border-edge-2 disabled:!bg-transparent disabled:!text-muted disabled:!opacity-100"
                 type="button"
                 data-act="use"
+                disabled={conflict}
                 onClick={useOrder}
               >
                 {ports.strings.text("Use this order")}

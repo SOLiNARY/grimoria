@@ -133,12 +133,16 @@ function exceedsCapacity(library: Library): boolean {
   return library.bags.length > MAX_ENTRIES || library.pools.length > MAX_ENTRIES;
 }
 
-export function readLibrary(): LibraryRead {
+// Retain generated identifiers for a legacy library while its bytes are unchanged.
+const readBytes = new WeakMap<Library, string>();
+export function readLibrary(base?: Library): LibraryRead {
   try {
     const raw = localStorage.getItem(LIBRARY_KEY);
     if (!raw) return { ok: true, library: emptyLibrary() };
-    const parsed = JSON.parse(raw);
-    return { ok: true, library: normalizeLibrary(parsed) };
+    if (base && readBytes.get(base) === raw) return { ok: true, library: base };
+    const library = normalizeLibrary(JSON.parse(raw));
+    readBytes.set(library, raw);
+    return { ok: true, library };
   } catch (error) {
     return { ok: false, library: emptyLibrary(), error: (error as Error).message };
   }
@@ -153,6 +157,123 @@ export function writeLibrary(library: unknown): LibraryWrite {
   } catch (error) {
     return { ok: false, error: (error as Error).message };
   }
+}
+
+export type LibraryEdit =
+  | { type: "saveBag"; entry: BagEntry; expected?: Bag }
+  | { type: "savePool"; entry: PoolEntry; expected?: Pool }
+  | { type: "removeBag" | "removePool"; id: string }
+  | { type: "replace"; library: Library };
+type EditResult = LibraryRead & { id?: string };
+
+function commitEdit(base: Library, edit: LibraryEdit): EditResult {
+  const disk = readLibrary(base);
+  if (!disk.ok) return disk;
+  const current = disk.library;
+  const conflict = { ok: false, library: current, error: "conflict" } as const;
+  let next: Library;
+  let savedId: string | undefined;
+  if (edit.type === "replace") {
+    if (JSON.stringify(base) !== JSON.stringify(current)) return conflict;
+    next = edit.library;
+  } else {
+    const kind = edit.type === "saveBag" || edit.type === "removeBag" ? "bags" : "pools";
+    const id = "entry" in edit ? edit.entry.id : edit.id;
+    const previous =
+      ("expected" in edit ? edit.expected : undefined) ?? base[kind].find((item) => item.id === id);
+    const stored = current[kind].find((item) => item.id === id);
+    if (JSON.stringify(previous) !== JSON.stringify(stored)) return conflict;
+    if (
+      "entry" in edit &&
+      current[kind].some(
+        (item) =>
+          item.id !== id &&
+          item.name === text(edit.entry.name) &&
+          !base[kind].some((old) => old.id === item.id && old.name === item.name),
+      )
+    )
+      return conflict;
+    switch (edit.type) {
+      case "saveBag": {
+        const result = upsertBag(current, edit.entry);
+        if (!result.ok) return { ...result, library: current };
+        next = result.library;
+        savedId = result.bag.id;
+        break;
+      }
+      case "savePool": {
+        const result = upsertPool(current, edit.entry);
+        if (!result.ok) return { ...result, library: current };
+        next = result.library;
+        savedId = result.pool.id;
+        break;
+      }
+      case "removeBag":
+        next = removeBag(current, edit.id).library;
+        break;
+      case "removePool":
+        next = removePool(current, edit.id).library;
+        break;
+    }
+  }
+  const saved = writeLibrary(next);
+  if (!saved.ok) return { ...saved, library: current };
+  return { ok: true, library: next, ...(savedId ? { id: savedId } : {}) };
+}
+
+// Older and insecure contexts can lack Web Locks. Each writer advertises its
+// own short-lived intent. A contender reports a retryable conflict before it
+// writes the shared document. A crashed tab cannot block later visits forever.
+async function withStorageIntent(base: Library, commit: () => EditResult): Promise<EditResult> {
+  const prefix = LIBRARY_KEY + ".writer.";
+  const mine = prefix + newId();
+  try {
+    const expires = Date.now() + 15_000;
+    localStorage.setItem(mine, String(expires));
+    // Publish this writer in a separate task before checking competing windows.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const now = Date.now();
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+    const busy = keys.some(
+      (key) =>
+        key !== null &&
+        key.startsWith(prefix) &&
+        key !== mine &&
+        Number(localStorage.getItem(key)) > now,
+    );
+    if (busy || now >= expires || localStorage.getItem(mine) !== String(expires)) {
+      return { ok: false, library: base, error: "busy" };
+    }
+    for (const key of keys) {
+      if (key && key.startsWith(prefix) && key !== mine && Number(localStorage.getItem(key)) <= now)
+        localStorage.removeItem(key);
+    }
+    return commit();
+  } catch (error) {
+    return {
+      ok: false,
+      library: base,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    try {
+      localStorage.removeItem(mine);
+    } catch {
+      /* A denied store cannot remove an intent. */
+    }
+  }
+}
+
+export async function editLibrary(base: Library, edit: LibraryEdit): Promise<EditResult> {
+  const commit = () => commitEdit(base, edit);
+  try {
+    if (globalThis.navigator?.locks) {
+      return await navigator.locks.request(LIBRARY_KEY, () => withStorageIntent(base, commit));
+    }
+  } catch {
+    /* A denied lock manager uses the same fallback as an unavailable one. */
+  }
+  return withStorageIntent(base, commit);
 }
 
 export function upsertPool(library: unknown, entry: PoolEntry): PoolSave {
