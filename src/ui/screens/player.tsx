@@ -9,22 +9,18 @@ import { useShellPorts } from "../ports.ts";
 import { useGame } from "../store/use-game.ts";
 import { projectSeats } from "./player-projection.ts";
 
-const HIDE_SECONDS = 45;
-const TICK_MS = 100;
-
 // Preflight is on and the legacy stylesheets are gone, so every control is
 // Tailwind utilities plus the shared tokens. The `.player-*` class names stay
 // as inert hooks for the browser checks.
 const SURFACE = "rounded-md border border-edge-2 bg-crypt-2 shadow-deep";
 
 const SEAT =
-  "player-num relative grid aspect-square min-h-11 place-items-center rounded-sm border border-edge-2 bg-crypt-3 text-[24px] font-semibold tabular-nums text-text hover:not-disabled:border-amber hover:not-disabled:bg-crypt-2 disabled:cursor-not-allowed disabled:border-solid disabled:border-edge-2 disabled:bg-crypt-2 disabled:text-disabled disabled:opacity-100";
+  "player-num relative flex aspect-square min-h-11 flex-col items-center justify-center gap-0.5 rounded-[2px] border border-edge-2 bg-crypt-3 text-[22px] font-semibold leading-none tabular-nums text-text hover:not-disabled:border-amber hover:not-disabled:bg-crypt-2 disabled:cursor-not-allowed disabled:border-solid disabled:border-edge-2 disabled:bg-crypt-2 disabled:text-disabled disabled:opacity-100";
 
 const ACTION =
   "inline-flex min-h-11 items-center justify-center rounded-sm border px-3 py-2 text-[13px]";
 const ACCENT = `${ACTION} border-amber-2 bg-amber font-semibold text-ink hover:bg-amber-2`;
 const NEUTRAL = `${ACTION} border-edge-2 bg-crypt-3 text-text hover:bg-crypt-2`;
-const QUIET = `${ACTION} border-transparent bg-transparent text-muted hover:text-text`;
 
 export function PlayerScreen() {
   const ports = useShellPorts();
@@ -33,35 +29,16 @@ export function PlayerScreen() {
   const seats = useMemo(() => projectSeats(snapshot.state), [snapshot]);
 
   const [seatIndex, setSeatIndex] = useState<number | null>(null);
-  const [remaining, setRemaining] = useState(HIDE_SECONDS);
   const [name, setName] = useState("");
   const [warning, setWarning] = useState(false);
-  const deadline = useRef<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
-  const hide = useCallback(() => {
-    deadline.current = null;
-    setSeatIndex(null);
-  }, []);
+  const hide = useCallback(() => setSeatIndex(null), []);
 
   const seat = seatIndex === null ? null : (seats[seatIndex] ?? null);
   const role = seat?.shownRoleId ? ports.roles.byId(seat.shownRoleId) : null;
   const roleImage = ports.roles.image(role);
   const showing = seat !== null && role !== null;
-
-  // The deadline is absolute: a publish re-renders the card, but it must not
-  // restart the countdown.
-  useEffect(() => {
-    if (!showing) return;
-    const end = deadline.current ?? Date.now() + HIDE_SECONDS * 1000;
-    deadline.current = end;
-    const tick = setInterval(() => {
-      const left = Math.max(0, (end - Date.now()) / 1000);
-      setRemaining(left);
-      if (left <= 0) hide();
-    }, TICK_MS);
-    return () => clearInterval(tick);
-  }, [showing, hide]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -91,8 +68,6 @@ export function PlayerScreen() {
   const reveal = (index: number) => {
     const target = seats[index];
     if (!target || target.claimed || !target.shownRoleId) return;
-    deadline.current = Date.now() + HIDE_SECONDS * 1000;
-    setRemaining(HIDE_SECONDS);
     setName(target.name);
     setSeatIndex(index);
   };
@@ -120,7 +95,7 @@ export function PlayerScreen() {
   const header = (
     <>
       <header className="player-bar mx-auto flex w-[min(430px,100%)] items-center gap-2.5 px-4 pt-3 max-[560px]:flex-wrap max-[560px]:px-3.5">
-        <span className="player-tag rounded-sm border border-edge bg-crypt-2 px-2.5 py-1.5 text-[9.5px] font-[650] uppercase tracking-[.18em] text-brass">
+        <span className="player-tag label-mono px-0 text-[9.5px] text-brass">
           {t("hostHandoff")}
         </span>
 
@@ -129,7 +104,7 @@ export function PlayerScreen() {
           onOpenChange={setWarning}
           trigger={
             <button
-              className="player-link ml-auto inline-flex min-h-11 items-center whitespace-nowrap border-0 bg-transparent px-0.5 py-0 text-[12px] text-muted no-underline hover:text-amber hover:underline hover:underline-offset-2"
+              className="player-link ml-auto inline-flex min-h-11 items-center whitespace-nowrap border-0 bg-transparent px-0.5 py-0 text-[12px] text-muted no-underline hover:text-accent-text hover:underline hover:underline-offset-2 max-[560px]:ml-0"
               type="button"
               data-act="back"
             >
@@ -168,9 +143,6 @@ export function PlayerScreen() {
         {header}
         <section className="player-view mx-auto flex min-h-[calc(100dvh-56px)] w-[min(430px,100%)] flex-col justify-center gap-4 px-4 pt-2.5 pb-[calc(28px+env(safe-area-inset-bottom))] max-[560px]:px-3.5 short:gap-3 player-view--numbers justify-start pt-4.5">
           <div className={`${SURFACE} grid gap-3 p-5`}>
-            <p className="m-0 text-[9.5px] font-[650] uppercase tracking-[.18em] text-brass">
-              {t("player")}
-            </p>
             <h1 className="player-title m-0 font-role text-[clamp(26px,7vw,34px)] leading-[1.1] tracking-[-0.02em] text-text">
               {t("noRoles")}
             </h1>
@@ -194,20 +166,6 @@ export function PlayerScreen() {
       <>
         {header}
         <section className="player-view mx-auto flex min-h-[calc(100dvh-56px)] w-[min(430px,100%)] flex-col justify-center gap-4 px-4.5 pt-2.5 pb-[calc(28px+env(safe-area-inset-bottom))] max-[560px]:px-3.5 short:gap-3 player-view--role">
-          <div className="player-clock grid gap-1.5">
-            <div
-              className="player-timer h-1 overflow-hidden rounded-sm bg-crypt-3"
-              aria-hidden="true"
-            >
-              <span
-                className="block h-full w-full origin-left bg-amber"
-                style={{ transform: `scaleX(${remaining / HIDE_SECONDS})` }}
-              />
-            </div>
-            <p className="player-timer-text m-0 text-right text-[10.5px] uppercase tracking-[.12em] text-muted tabular-nums">
-              {t("autoHide", { seconds: Math.ceil(remaining) })}
-            </p>
-          </div>
           <div className="player-card grid gap-2.5">
             <h1 className="player-role-name sr-only">{role.name}</h1>
             <p className="player-card-seat m-0 text-center text-[9.5px] font-[650] uppercase tracking-[.18em] text-brass">
@@ -217,7 +175,7 @@ export function PlayerScreen() {
               className="animate-[player-reveal_.22s_ease-out_both] motion-reduce:animate-none"
               role={{
                 name: role.name,
-                teamLabel: ports.strings.teamText(role.team),
+                teamLabel: ports.strings.teamText(seat.shownAlignment ?? role.team),
                 ability: role.ability ?? "",
               }}
               image={roleImage}
@@ -247,9 +205,6 @@ export function PlayerScreen() {
             <button className={`player-save ${ACCENT}`} type="submit">
               {t("playerSave")}
             </button>
-            <button className={QUIET} type="button" data-act="cancel" onClick={hide}>
-              {t("cancel")}
-            </button>
           </form>
         </section>
       </>
@@ -261,7 +216,7 @@ export function PlayerScreen() {
     <>
       {header}
       <section className="player-view mx-auto flex min-h-[calc(100dvh-56px)] w-[min(560px,100%)] flex-col justify-center gap-4 px-4 pt-2.5 pb-[calc(28px+env(safe-area-inset-bottom))] max-[560px]:px-3.5 short:gap-3 player-view--numbers">
-        <div className="player-cover grid w-[min(520px,100%)] gap-0 rounded-[8px] border border-edge-2 bg-gradient-to-b from-crypt-2 to-crypt p-[38px_26px] text-center shadow-deep max-[560px]:p-6">
+        <div className="tape-box player-cover grid w-[min(520px,100%)] gap-0 border-t-[4px] border-t-amber p-[38px_26px] text-center max-[560px]:p-6">
           <svg
             className="mx-auto mb-3.5 size-11 text-brass/80"
             viewBox="0 0 40 40"
@@ -295,10 +250,10 @@ export function PlayerScreen() {
                     aria-label={`${t("seatNumber", { seat: entry.seat })}, ${entry.name}`}
                   >
                     {entry.seat}
-                    <small className="absolute inset-x-1 bottom-5 truncate text-[9px] uppercase tracking-[.08em] text-muted">
+                    <small className="max-w-full truncate px-0.5 text-[8px] font-normal uppercase tracking-[.06em] text-muted">
                       {t("occupied")}
                     </small>
-                    <small className="absolute inset-x-1 bottom-1.5 truncate text-[11px] font-medium text-muted">
+                    <small className="max-w-full truncate px-0.5 text-[10px] font-medium leading-tight text-muted">
                       {entry.name}
                     </small>
                   </button>
@@ -314,7 +269,7 @@ export function PlayerScreen() {
                     aria-label={`${t("seatNumber", { seat: entry.seat })}, ${t("noRoles")}`}
                   >
                     {entry.seat}
-                    <small className="absolute inset-x-1 bottom-1.5 truncate text-[11px] font-medium text-muted">
+                    <small className="max-w-full truncate px-0.5 text-[10px] font-medium leading-tight text-muted">
                       {t("noRoles")}
                     </small>
                   </button>
@@ -339,7 +294,7 @@ export function PlayerScreen() {
           </p>
           {open === 0 ? (
             <button
-              className={ACCENT}
+              className={`${ACCENT} mt-3`}
               type="button"
               data-act="to-seat"
               onClick={() => ports.router.go("/seat")}
@@ -349,9 +304,6 @@ export function PlayerScreen() {
           ) : null}
         </div>
         <p className="player-note m-0 text-center text-[10.5px] text-muted">{t("playerWarning")}</p>
-        <p className="player-note m-0 text-center text-[10.5px] text-muted">
-          {t("abandonedClaim")}
-        </p>
       </section>
     </>
   );

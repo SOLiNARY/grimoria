@@ -37,6 +37,9 @@ const DICT: Record<string, Dict> = {
     Minion: "Приспешники",
     Demon: "Демоны",
     "Seat order": "Порядок мест",
+    "Seat order is fixed once the game starts.": "После начала игры порядок мест не меняется.",
+    "Neighbour abilities use the physical circle. Set the seating before the first night.":
+      "Способности соседей зависят от реального круга. Задайте рассадку до первой ночи.",
     Circle: "Круг",
     Actions: "Действия",
     Start: "Старт",
@@ -145,6 +148,9 @@ const DICT: Record<string, Dict> = {
     Minion: "Minionlar",
     Demon: "Demonlar",
     "Seat order": "Yer sırası",
+    "Seat order is fixed once the game starts.": "Oyun başladıqdan sonra yer sırası dəyişmir.",
+    "Neighbour abilities use the physical circle. Set the seating before the first night.":
+      "Qonşu qabiliyyətləri real dairədən asılıdır. Yerləri ilk gecədən əvvəl təyin edin.",
     Circle: "Dairə",
     Actions: "Fəaliyyətlər",
     Start: "Başlanğıc",
@@ -353,8 +359,12 @@ export function apply(root: Element): void {
 
 function ensureSwitch(root: Element, onChange: (code: string) => void): void {
   // Only the app bar carries the control; a screen's own header must not get a
-  // second one. The React-free screens keep it in the menu panel.
-  const host = root.querySelector("[data-app-bar-menu]") ?? root.querySelector("header");
+  // second one. The React-free screens keep it in the menu panel, at the end of
+  // the tools strip so it lines up with the bar's other controls.
+  const host =
+    root.querySelector("[data-app-bar-tools]") ??
+    root.querySelector("[data-app-bar-menu]") ??
+    root.querySelector("header");
   if (!host) return;
   const existing = root.querySelector(".lang-switch");
   if (existing) {

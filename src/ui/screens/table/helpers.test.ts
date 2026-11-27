@@ -11,18 +11,24 @@ import {
   skipStep,
   startNight,
 } from "../../../core/engine/index.ts";
+import { systemPorts } from "../../../core/model/ports.ts";
+import { ANY_STEP_RESURRECTS_RULESET_VERSION } from "../../../core/engine/command-versions.ts";
 import { createGame } from "../../../core/model/state.ts";
-import type { NightStep, Player, Role } from "../../../core/model/types.ts";
+import type { GameState, NightStep, Player, Role } from "../../../core/model/types.ts";
 import { setUiLang, t as catalogT } from "../../i18n/strings.ts";
 import type { PreviewOutcome } from "../../ports.ts";
 import {
   applyGiven,
+  blockerActionText,
   blockerText,
+  canMarkStepDeaths,
+  cardRoleId,
   consequencesOf,
   dayHelpFormCount,
   dayHelpForms,
   defaultCorrectionValue,
   displayName,
+  executionDraftKey,
   givenLabelKey,
   infoText,
   jugglerGuessingDay,
@@ -91,6 +97,21 @@ test("applyGiven records a role answer as the role id", () => {
   });
 });
 
+test("applyGiven keeps the Storyteller's wording in the same answer", () => {
+  const info = {
+    kind: "one-of-two",
+    roleId: "chef",
+    pair: ["6", "5"],
+    answerText: "P6 или P5 — Монах.",
+    needsChoice: true,
+    options: ["chef", "monk"],
+  };
+  const next = applyGiven(info, "monk", "role");
+  assert.equal(next!.roleId, "monk");
+  assert.equal(next!.answerText, "P6 или P5 — Монах.", "the wording belongs to the answer");
+  assert.equal(next!.needsChoice, false);
+});
+
 test("applyGiven clears the truthful zero flag when a role replaces it", () => {
   const info = {
     kind: "one-of-two",
@@ -123,6 +144,48 @@ test("the day-help count names the role forms the sheet can show", () => {
   assert.deepEqual(dayHelpForms(game), []);
   game.day.ended = true;
   assert.equal(dayHelpFormCount(game), 0);
+});
+
+test("the day-help sheet offers a borrowed ability and hides a Drunk's shown one (SNV-PHILOSOPHER-02)", () => {
+  const game = createGame(7);
+  game.phase = "day";
+  game.players["1"].roleId = "philosopher";
+  game.players["1"].used.philosopherAbility = "slayer";
+  assert.deepEqual(dayHelpForms(game), ["slayer"], "a borrowed Slayer is offered");
+  game.players["1"].used.philosopherAbility = "virgin";
+  assert.deepEqual(dayHelpForms(game), ["virgin"], "a borrowed Virgin is offered");
+  game.players["1"].roleId = "drunk";
+  game.players["1"].used = {};
+  game.players["1"].shownRoleId = "virgin";
+  assert.deepEqual(dayHelpForms(game), [], "a Drunk's shown Virgin does not act");
+  game.players["1"].shownRoleId = "slayer";
+  assert.deepEqual(dayHelpForms(game), ["slayer"], "the Drunk may still publicly attempt");
+});
+
+test("the day-help sheet offers the Klutz choice after an execution", () => {
+  const game = createGame(7);
+  game.phase = "day";
+  game.players["1"].roleId = "klutz";
+  game.players["1"].alive = false;
+  game.day.ended = true;
+  assert.ok(dayHelpForms(game).includes("klutz"), "a death-triggered choice survives the day end");
+  game.players["1"].used.klutz = true;
+  assert.equal(dayHelpForms(game).includes("klutz"), false, "a spent Klutz offers no form");
+});
+
+test("the execution draft key moves with the day and the phase", () => {
+  const game = createGame(5);
+  game.phase = "day";
+  game.day.number = 1;
+  game.night.number = 1;
+  const first = executionDraftKey(game);
+  game.day.number = 2;
+  assert.notEqual(executionDraftKey(game), first, "a new day resets the execution drafts");
+  game.phase = "night";
+  game.night.number = 2;
+  assert.notEqual(executionDraftKey(game), first, "a phase change resets them too");
+  const copy = structuredClone(game);
+  assert.equal(executionDraftKey(copy), executionDraftKey(game), "unrelated state keeps them");
 });
 
 test("timerText formats the remaining time and clamps at zero", () => {
@@ -282,7 +345,7 @@ test("a rejected command renders the localized error code, not the engine messag
   assert.equal(rejectionText(null, localized), "");
 });
 
-test("an impaired actor card shows the chosen answer, then the template", () => {
+test("an impaired actor card shows the chosen answer and its wording", () => {
   const game = createGame(5);
   game.players["1"]!.roleId = "chef";
   const step = { key: "n1-chef", roleId: "chef", actorId: "1" } as NightStep;
@@ -293,7 +356,6 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
       step,
       { kind: "number", value: 1, needsChoice: true },
       { kind: "number", value: 2, needsChoice: false },
-      "",
       true,
       roles,
       t,
@@ -306,13 +368,13 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
       game,
       step,
       { kind: "number", value: 1, needsChoice: true },
-      undefined,
-      "1 · Yes",
+      { kind: "number", value: 2, needsChoice: false, answerText: "1 · Yes" },
       true,
       roles,
       t,
     ),
     "1 · Yes",
+    "the Storyteller's wording is what the player hears",
   );
   assert.equal(
     shownCardText(
@@ -320,7 +382,6 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
       step,
       { kind: "number", value: 1, needsChoice: true },
       undefined,
-      "",
       true,
       roles,
       t,
@@ -328,9 +389,30 @@ test("an impaired actor card shows the chosen answer, then the template", () => 
     "ui.notSet",
   );
   assert.equal(
-    shownCardText(game, step, { kind: "number", value: 1 }, undefined, "", false, roles, t),
+    shownCardText(game, step, { kind: "number", value: 1 }, undefined, false, roles, t),
     "numberResult:1",
   );
+});
+
+test("the Pit-Hag death control appears only for a not-in-play Demon draft (SNV-PITHAG-01)", () => {
+  const game = createGame(5);
+  game.players["1"].roleId = "clockmaker";
+  game.players["2"].roleId = "fanggu";
+  assert.equal(canMarkStepDeaths(game, "pithag", null, false), false);
+  assert.equal(canMarkStepDeaths(game, "pithag", "artist", false), false);
+  assert.equal(
+    canMarkStepDeaths(game, "pithag", "fanggu", false),
+    false,
+    "a Demon in play creates nothing",
+  );
+  assert.equal(canMarkStepDeaths(game, "pithag", "nodashii", false), true);
+  assert.equal(canMarkStepDeaths(game, "imp", null, true), true);
+});
+
+test("a player card names the shown role, not the real role", () => {
+  assert.equal(cardRoleId(player({ roleId: "drunk", shownRoleId: "washerwoman" })), "washerwoman");
+  assert.equal(cardRoleId(player({ roleId: "drunk", shownRoleId: "" })), "drunk");
+  assert.equal(cardRoleId(null), null);
 });
 
 test("the seat picker collects every target a step allows", () => {
@@ -394,6 +476,15 @@ test("every step blocker has its own localized sentence", () => {
   assert.equal(blockerText("redirect", 1, t), "ui.blockRedirect");
   assert.equal(blockerText("role", 1, t), "ui.blockRole");
   assert.equal(blockerText("drunk", 1, t), "ui.blockDrunk");
+});
+
+test("the dock action label names the first unanswered input", () => {
+  assert.equal(blockerActionText("targets", t), "ui.needTarget");
+  assert.equal(blockerActionText("secrets", t), "ui.needSecrets");
+  assert.equal(blockerActionText("role", t), "ui.needRole");
+  assert.equal(blockerActionText("drunk", t), "ui.needDrunk");
+  assert.equal(blockerActionText("given", t), "ui.needGiven");
+  assert.equal(blockerActionText("redirect", t), "ui.needRedirect");
 });
 
 test("rejectionOf reports the engine reason for a rejected or Storyteller-choice command", () => {
@@ -480,6 +571,16 @@ test("logConsequence reads the engine consequence and keeps an old-save fallback
 
 // Night 1 of a five-player game: the Chef sits next to the Spy, who sits next
 // to the Imp, so the Spy may register as good or evil.
+/** Fixture setup, not a host action: skip as the recorded ruleset did. */
+function fixtureSkip(game: GameState, key: string): void {
+  if (skipStep(game, key, "test").ok) return;
+  const result = skipStep(game, key, "test", {
+    ...systemPorts,
+    rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+}
+
 function chefBesideSpy() {
   const game = createGame(5);
   const assignment: Record<string, string> = {
@@ -502,7 +603,7 @@ function chefBesideSpy() {
   startNight(game);
   let step = currentStep(game);
   while (step && step.roleId !== "chef") {
-    skipStep(game, step.key, "test");
+    fixtureSkip(game, step.key);
     step = currentStep(game);
   }
   assert.equal(step?.roleId, "chef");
@@ -563,13 +664,13 @@ test("an Imp attack on a healthy Soldier previews a prevented death", () => {
   game.phase = "seat";
   startNight(game);
   while (currentStep(game)) {
-    skipStep(game, currentStep(game)!.key, "test");
+    fixtureSkip(game, currentStep(game)!.key);
   }
   endNight(game);
   endDay(game);
   let step = currentStep(game);
   while (step && step.roleId !== "imp") {
-    skipStep(game, step.key, "test");
+    fixtureSkip(game, step.key);
     step = currentStep(game);
   }
   assert.equal(step?.roleId, "imp");

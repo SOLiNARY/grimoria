@@ -2,11 +2,14 @@
 import { useEffect, useRef } from "react";
 import { useShellPorts } from "../../ports.ts";
 import { useGame } from "../../store/use-game.ts";
+import { APP_VERSION } from "../../version.ts";
 import { LanguageSwitch } from "../language-switch.tsx";
 import { initAppBarMenu } from "./app-bar-menu.ts";
 import {
   APP_BAR,
   APP_BAR_BRAND,
+  APP_BAR_GROUP,
+  APP_BAR_GROUP_LABEL,
   APP_BAR_HELP,
   APP_BAR_LIST,
   APP_BAR_MENU,
@@ -18,6 +21,7 @@ import {
   APP_BAR_TITLE,
   APP_BAR_TOGGLE,
   APP_BAR_TOOLS,
+  APP_BAR_VERSION,
   appBarNavLink,
   type ArcaneScreen,
 } from "./app-bar-parts.ts";
@@ -42,7 +46,8 @@ export function ArcaneAppBar({ current, nav = true }: { current: ArcaneScreen; n
       <span className={APP_BAR_NAME}>
         <b className={APP_BAR_TITLE}>Grimoria</b>
         <small className={APP_BAR_SUBTITLE}>
-          Arcane Instrument{state.script ? ` · ${state.script.name}` : ""}
+          {t("caseFile")}
+          {state.script ? ` · ${state.script.name}` : ""}
         </small>
       </span>
     </>
@@ -65,7 +70,7 @@ export function ArcaneAppBar({ current, nav = true }: { current: ArcaneScreen; n
   return (
     <header className={APP_BAR} ref={bar}>
       {nav ? (
-        <a className={APP_BAR_BRAND} href={ports.router.path("table")} aria-label="Grimoria">
+        <a className={APP_BAR_BRAND} href={ports.router.path("")} aria-label="Grimoria">
           {brand}
         </a>
       ) : (
@@ -96,26 +101,47 @@ export function ArcaneAppBar({ current, nav = true }: { current: ArcaneScreen; n
       {nav ? (
         <div id="app-bar-menu" className={APP_BAR_MENU} data-app-bar-menu="">
           <nav aria-label={t("table")} className={APP_BAR_LIST}>
-            {APP_BAR_NAV.map((item) => (
-              <a
-                key={item.id}
-                href={ports.router.path(item.route)}
-                aria-current={current === item.id ? "page" : undefined}
-                className={appBarNavLink(current === item.id)}
+            {APP_BAR_NAV.map((group) => (
+              <div
+                key={group.id}
+                className={APP_BAR_GROUP}
+                role="group"
+                aria-label={t(group.label)}
               >
-                {t(item.label)}
-              </a>
+                <span className={APP_BAR_GROUP_LABEL} aria-hidden="true">
+                  {t(group.label)}
+                </span>
+                {group.items.map((item) => (
+                  <a
+                    key={item.id}
+                    href={ports.router.path(item.route)}
+                    aria-current={current === item.id ? "page" : undefined}
+                    className={appBarNavLink(current === item.id)}
+                  >
+                    {t(item.label)}
+                  </a>
+                ))}
+              </div>
             ))}
           </nav>
-          <div className={APP_BAR_TOOLS}>
+          <div
+            className={`${APP_BAR_TOOLS} max-[1199px]:border-t max-[1199px]:border-edge max-[1199px]:pl-0 max-[1199px]:pt-2`}
+          >
             {phase ? (
               <span className={APP_BAR_PHASE}>
-                <i className="size-1.5 rounded-full bg-amber shadow-glow" aria-hidden="true" />
+                <i className="size-1.5 rounded-full bg-amber" aria-hidden="true" />
                 {phase}
               </span>
             ) : null}
             <a className={APP_BAR_HELP} href={ports.router.path("help")}>
               {t("help")}
+            </a>
+            <a
+              className={APP_BAR_VERSION}
+              href={ports.router.path("changelog")}
+              aria-label={t("changelog")}
+            >
+              v{APP_VERSION}
             </a>
             <LanguageSwitch />
           </div>
@@ -124,7 +150,7 @@ export function ArcaneAppBar({ current, nav = true }: { current: ArcaneScreen; n
         <div className={`${APP_BAR_TOOLS} ml-auto`}>
           {phase ? (
             <span className={APP_BAR_PHASE_TOOLS}>
-              <i className="size-1.5 rounded-full bg-amber shadow-glow" aria-hidden="true" />
+              <i className="size-1.5 rounded-full bg-amber" aria-hidden="true" />
               {phase}
             </span>
           ) : null}

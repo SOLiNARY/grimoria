@@ -1,4 +1,4 @@
-import type { DeadAt, GameState, InfoPair, NightStep, Player, RoleId } from "../model/types.ts";
+import type { GameState, InfoPair, NightStep, Player, RoleId } from "../model/types.ts";
 
 type Registrations = Record<string, string>;
 type InfoOptions = { targetIds?: string[]; registrations?: Registrations };
@@ -16,6 +16,10 @@ export type InfoResult = {
   /** Catalog key for `text`; the stored Russian sentence stays the fallback. */
   textKey?: string;
   textVars?: Record<string, string | number | undefined>;
+  /** The Storyteller's own wording of the answer the player hears. */
+  answerText?: string;
+  /** The players an introduction note names, each with the character shown. */
+  shown?: { playerId: string; roleId: RoleId | null }[];
   /** Runs of false information end with the shared Storyteller suffix. */
   falsifiedSuffix?: boolean;
   /** An impaired actor may receive false or true information; not mandatory. */
@@ -32,92 +36,29 @@ export type InfoResult = {
 
 // Trouble Brewing domain: information. No DOM or persistence.
 import { ALL_ROLES, roleTeam } from "../model/rules.ts";
-import { orderedPlayers, playerById, realTeamOf, executionDeathForDay } from "../model/state.ts";
+import { orderedPlayers, playerById } from "../model/state.ts";
 
-import { nightAt, aliveNeighbors } from "./context.ts";
+import { nightAt } from "./context.ts";
 import { isImpaired } from "./effects.ts";
+import { characterChoices, informationFacts } from "./information-facts.ts";
+export {
+  alignmentOf,
+  registersAsDemon,
+  registersAsTownsfolk,
+  registersAsMinion,
+  registersAsOutsider,
+  characterChoices,
+} from "./information-facts.ts";
 import { informationOf, nightStepFor } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 import type { RoleModule } from "../roles/types.ts";
-import type { InformationContext, InformationValue } from "../roles/ability.ts";
+import type { InformationValue } from "../roles/ability.ts";
 import { resolveInformationCapability } from "./ability.ts";
 import { bmrInfoForStep } from "./bmr.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
 import { systemPorts } from "../model/ports.ts";
 import { answersZeroForAnyRole } from "./command-versions.ts";
 import { svInfoForStep } from "./sv.ts";
-
-// Registration is an ability (Spy r3118, Recluse r3007): a drunk or poisoned
-// registrant has no ability, so the override never reaches an information path.
-function registrationApplies(state: GameState, player: Player | null): boolean {
-  return player ? !isImpaired(state, player.id) : false;
-}
-
-export function alignmentOf(
-  state: GameState,
-  player: Player | null,
-  registrations: Registrations = {},
-): "good" | "evil" | null {
-  if (!player) return null;
-  const override = registrationApplies(state, player) ? registrations[player.id] : undefined;
-  if (override === "good" || override === "evil") return override;
-  return realTeamOf(player) === "evil" ? "evil" : "good";
-}
-
-export function registersAsDemon(
-  state: GameState,
-  player: Player | null,
-  registrations: Registrations = {},
-): boolean {
-  if (!player) return false;
-  if (roleTeam(player.roleId || "") === "demon") return true;
-  if (player.roleId === "recluse") {
-    return registrationApplies(state, player) && registrations[player.id] === "demon";
-  }
-  return false;
-}
-
-export function registersAsTownsfolk(
-  state: GameState,
-  player: Player | null,
-  registrations: Registrations = {},
-): boolean {
-  if (!player) return false;
-  if (roleTeam(player.roleId || "") === "townsfolk") return true;
-  return (
-    player.roleId === "spy" &&
-    registrationApplies(state, player) &&
-    registrations[player.id] === "townsfolk"
-  );
-}
-
-export function registersAsMinion(
-  state: GameState,
-  player: Player | null,
-  registrations: Registrations = {},
-): boolean {
-  if (!player) return false;
-  if (roleTeam(player.roleId || "") === "minion") return true;
-  return (
-    player.roleId === "recluse" &&
-    registrationApplies(state, player) &&
-    registrations[player.id] === "minion"
-  );
-}
-
-export function registersAsOutsider(
-  state: GameState,
-  player: Player | null,
-  registrations: Registrations = {},
-): boolean {
-  if (!player) return false;
-  if (roleTeam(player.roleId || "") === "outsider") return true;
-  return (
-    player.roleId === "spy" &&
-    registrationApplies(state, player) &&
-    registrations[player.id] === "outsider"
-  );
-}
 
 /**
  * The number of evil pairs a Chef would be shown under these registrations.
@@ -168,85 +109,8 @@ export function fortuneTellerYes(
   return decision?.kind === "answer" && decision.value === true;
 }
 
-export function characterChoices(
-  state: GameState,
-  targetId: string,
-  actorImpaired: boolean = false,
-): RoleId[] {
-  if (actorImpaired) return ALL_ROLES.slice();
-  const player = playerById(state, targetId);
-  if (!player) return [];
-  // A drunk or poisoned Spy or Recluse has no registration to show.
-  if (isImpaired(state, targetId)) return [player.roleId as RoleId];
-  if (player.roleId === "recluse") {
-    return [player.roleId].concat(
-      ALL_ROLES.filter((id) => roleTeam(id) === "minion" || roleTeam(id) === "demon"),
-    );
-  }
-  if (player.roleId === "spy") {
-    return [player.roleId].concat(
-      ALL_ROLES.filter((id) => roleTeam(id) === "townsfolk" || roleTeam(id) === "outsider"),
-    );
-  }
-  return [player.roleId as RoleId];
-}
-
 // ---------------------------------------------------------------------------
 // Night queue
-
-function executedOn(state: GameState, dayNumber: number): InformationContext["executedToday"] {
-  const death = executionDeathForDay(state, dayNumber);
-  return death ? { playerId: death.playerId, roleId: death.roleId } : null;
-}
-
-/** The read-only facts an information capability resolves from. */
-function informationFacts(
-  state: GameState,
-  query: {
-    actorId: string;
-    infoKind: string;
-    targetIds: readonly string[];
-    registrations: Registrations;
-    impaired: boolean;
-    at: DeadAt;
-  },
-): InformationContext {
-  const { registrations } = query;
-  return {
-    actorId: query.actorId,
-    infoKind: query.infoKind,
-    targetIds: query.targetIds,
-    impaired: query.impaired,
-    at: query.at,
-    seatIds: state.order.slice(),
-    aliveNeighborIds: (playerId) => aliveNeighbors(state, playerId),
-    registeredTeamOf: (playerId) => alignmentOf(state, playerById(state, playerId), registrations),
-    // Recluse r3007 and Spy r3118: a sober and healthy Recluse might register
-    // as evil and a sober and healthy Spy as good, whatever the host has
-    // chosen for this step so far.
-    mayRegisterAs: (playerId, team) => {
-      const player = playerById(state, playerId);
-      if (alignmentOf(state, player) === team) return true;
-      return Boolean(
-        player &&
-        player.roleId === (team === "evil" ? "recluse" : "spy") &&
-        registrationApplies(state, player),
-      );
-    },
-    registersAsDemon: (playerId) =>
-      registersAsDemon(state, playerById(state, playerId), registrations),
-    // The setup secret first, then the top-level field, as before the move.
-    redHerringId:
-      (state.setup && state.setup.herringId ? state.setup.herringId : state.herringId) ?? null,
-    // Undertaker r3115: the death by execution of the day that just ended.
-    executedToday: executedOn(state, query.at.number - 1),
-    // The seat's own character and, for a sober and healthy Spy or Recluse,
-    // the characters it might register as, whatever the acting player's state.
-    mayRegisterAsCharacters: (playerId) => characterChoices(state, playerId),
-    actualRoleOf: (playerId) => playerById(state, playerId)?.roleId ?? null,
-    hasPlayer: (playerId) => playerById(state, playerId) != null,
-  };
-}
 
 /**
  * The record of an answer the Storyteller prepared in setup: one of two
@@ -277,6 +141,7 @@ function preparedInfo(
     // a game saved before that check has none: the host is offered a default.
     if (actor && actor.roleId === "drunk") {
       const options = [...possible];
+      if (zeroAnswered) options.push("zero");
       return {
         kind: "one-of-two",
         missing: false,
@@ -321,6 +186,23 @@ function preparedInfo(
   if (!pairInfo.roleId || !Array.isArray(pairInfo.pair) || pairInfo.pair.length !== 2) {
     return { kind: "one-of-two", missing: true, needsChoice: true };
   }
+  // A prepared pair may rely on a Spy or Recluse registering as the shown
+  // character. A registrant that is drunk or poisoned at this moment has no
+  // ability (States r1039), so a sober role can no longer truthfully give the
+  // prepared answer. Ask the host to correct setup instead of forcing it.
+  const pairHasPlayers = pairInfo.pair.every((id) => Boolean(playerById(state, id)));
+  const shownRoleStillPossible =
+    !impaired &&
+    (!pairHasPlayers ||
+      pairInfo.pair.some((id) => characterChoices(state, id).includes(pairInfo.roleId as RoleId)));
+  if (!impaired && !shownRoleStillPossible) {
+    return { kind: "one-of-two", missing: true, needsChoice: true };
+  }
+  const options = [...possible];
+  // The Librarian's zero is one of its own answer forms (r1721). An impaired
+  // Librarian may be shown it as false information even when an Outsider is
+  // in play (States r1039).
+  if (impaired && zeroAnswered) options.push("zero");
   return {
     kind: "one-of-two",
     roleId: pairInfo.roleId,
@@ -330,7 +212,7 @@ function preparedInfo(
     matchIndex: pairInfo.matchIndex || 0,
     impaired,
     needsChoice: impaired,
-    options: impaired ? [...possible] : [],
+    options: impaired ? options : [],
   };
 }
 
@@ -351,12 +233,13 @@ export function moduleInfoForStep(
   step: NightStep,
   options: InfoOptions = {},
   ports: CommandExecutionContext = systemPorts,
+  impairedOverride?: boolean,
 ): InfoResult | null {
   const information = informationOf(module);
   if (!module || !information) return null;
   const actor = step.actorId ? playerById(state, step.actorId) : null;
   const at = nightAt(state);
-  const impaired = actor ? isImpaired(state, actor.id, at) : false;
+  const impaired = impairedOverride ?? (actor ? isImpaired(state, actor.id, at) : false);
   const decision = resolveInformationCapability(
     module,
     informationFacts(state, {
@@ -426,7 +309,7 @@ export function infoForStep(
   ports: CommandExecutionContext = systemPorts,
 ): InfoResult {
   if (step.bmr) return bmrInfoForStep(state, step, options, ports);
-  if (step.sv) return svInfoForStep(state, step, options);
+  if (step.sv) return svInfoForStep(state, step, options, ports.rulesetVersion);
   const role = step.roleId;
 
   if (step.kind === "system") {

@@ -26,12 +26,16 @@ function context(
     impaired: false,
     at: { phase: "night", number: 2 },
     seatIds: ["1", "2", "3"],
+    abnormalCount: 0,
+    isAlive: unread("who is alive"),
     aliveNeighborIds: unread("the neighbours"),
     registeredTeamOf: unread("a registered team"),
     mayRegisterAs: unread("a team registration"),
     registersAsDemon: unread("a Demon registration"),
     redHerringId: null,
     executedToday: null,
+    votesToday: null,
+    twins: null,
     mayRegisterAsCharacters: (playerId) => mayBe[playerId] ?? [CHARACTERS[playerId]!],
     actualRoleOf: (playerId) => CHARACTERS[playerId] ?? null,
     hasPlayer: (playerId) => playerId in CHARACTERS,
@@ -55,7 +59,7 @@ test("the Ravenkeeper module declares one player and the character shape and kee
   }
   assert.deepEqual(
     role.capabilities.map((capability) => capability.kind),
-    ["information"],
+    ["night-step", "information"],
   );
 });
 

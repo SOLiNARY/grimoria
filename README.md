@@ -32,6 +32,8 @@ and language catalogs reliably.
 
 ## Routes
 
+- `/` — the welcome page: the store shelf with the first night as rental tapes,
+  the current game as one action, the three scripts as staff picks.
 - `/table` — Storyteller console: one host table with the seat ring, the centre
   hub and the fixed action dock. The hub carries the dawn report, the
   nomination, the votes and the `ceil(living / 2)` threshold; the dock records
@@ -50,7 +52,6 @@ and language catalogs reliably.
 - `/seat` — seat order, swap, shuffle.
 - `/secrets` — red herring, host-chosen one-of-two pairs, reminders.
 - `/player` — safe device handoff: number, cover, shown role, name.
-- `/public` — public screen without roles, bluffs, notes or effects.
 - `/help` — compact rules and role reference.
 - `/demo` — scripted 10-player teaching game.
 - `/sheet` — role sheet in the current language.
@@ -147,6 +148,27 @@ server under a project subpath, checks phone/tablet/desktop routes, completes
 locales, offline reloads, and the stale-to-new service-worker update flow,
 including a pre-update client's first upgrade. Screenshots are written to the
 system temp folder.
+
+Each case prints its name and duration. To run one case, set
+`PG_BROWSER_CHECK` to its name (for example `PG_BROWSER_CHECK=mayor-redirect`);
+the focused run builds only the project-base artifact. `PG_SKIP_BUILD=1` reuses
+the existing build instead of rebuilding.
+
+The full-game suite needs a `/pocket/` build, then runs from the repository
+root:
+
+```sh
+BASE_PATH=/pocket/ npx vite build --mode test
+node scripts/build-fallback.ts --root dist
+node scripts/build-offline.ts --root dist --out dist/sw.js
+node scripts/run-scenarios.ts
+```
+
+Scenarios run three at a time by default; set `PG_SCENARIO_WORKERS` to 1–8 to
+change that. A filename argument runs only the matching scenarios
+(`node scripts/run-scenarios.ts tb`). Failure screenshots go to a temporary
+run directory that the runner prints and keeps when a scenario fails. PR CI
+runs the checks and the suite as two parallel jobs.
 
 See [implementation notes](docs/improvement-implementation.md) for validation
 results and the scope of the research recommendations.

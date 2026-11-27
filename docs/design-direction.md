@@ -73,6 +73,15 @@ role text lives in the player list, the step sheet and the player card. The
 state of a seat is a coloured text badge, and acting, nominated and dead seats
 also carry an outline, a strike or a mark, so colour is never the only channel.
 
+Before the first night the stage carries the setup board instead of the ring: one
+panel up to 1100 px wide, centred in the stage when it fits and top-aligned when
+it does not. The board names the four steps — roles, names, seats, secrets —
+marks the current step with the table primary and every completed step with a
+check, lists every seat with its number, its claimed name or an unclaimed label,
+and counts the claimed names. It reads names and claims only: no role, team or
+note reaches it. The current step owns the one primary action; the remaining
+routes and the demo are quiet links.
+
 ## The two-second read
 
 At a glance the console must answer: which phase and day, who is alive, who is
@@ -86,7 +95,18 @@ execution result. The dock exposes exactly one primary action per phase.
 `TableRing` (seats, hub and dawn report), `TableDock` (phase, guidance, preview
 and action rows), the full-screen player card, `EventLog`, `RoleCard`,
 `ArcaneAppBar` and the markup bar for the two string-composed screens. Both bars
-read one nav list from `app-bar-parts.ts`. `ActionButton`, `PhasePanel`,
+read one nav list from `app-bar-parts.ts`.
+
+The bar lists its destinations in three groups: the evening in play (`Стол`,
+`Игрок`, `Публичный экран`), the setup pipeline (`Сборка`, `Места`, `Секреты`)
+and reference (`Лист ролей`). From 1440 px the groups sit in one row, divided by
+a hairline, and the current destination carries a 2 px accent rule on the bar's
+bottom edge. Below 1440 px the whole list moves into the burger panel, where each
+group keeps its brass caption; the bar never wraps the links onto a second row.
+The language control frames only the current language, and the phase chip in the
+bar carries no glow: the active actor owns the one glow.
+
+`ActionButton`, `PhasePanel`,
 `GrimoirePanel`, `GameTable` and `PlayerToken` were drafted and deleted: every
 screen composes the one `.btn`, `.field` and `.label` primitive from the
 `components` layer instead. Components take plain props and never read the

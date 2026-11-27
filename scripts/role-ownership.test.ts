@@ -118,7 +118,7 @@ test("the Tinker, the Po and the Shabaloth resolve on the night-step capability,
   assert.deepEqual(tinker.declares, ["capability:night-step"]);
   // The day command and the outcome of the step, where the host marks the
   // death, still name the role; the completion does not.
-  assert.deepEqual(engineLocations("tinker"), ["day.ts×2", "bmr.ts×1"]);
+  assert.deepEqual(engineLocations("tinker"), ["day.ts×2", "bmr.ts×4"]);
   assert.equal(ownerOf(tinker, engineLocations("tinker")), "capability + engine reference");
   const po = facts.find((candidate) => candidate.id === "po");
   assert.ok(po);
@@ -163,29 +163,54 @@ test("the Cerenovus resolves on the night-step capability, not in the step compl
   // The madness review in effects.ts and day.ts, and in sv.ts the list of
   // good characters on the step, the console note and the command check of
   // the character named.
-  assert.deepEqual(engineLocations("cerenovus"), ["effects.ts×1", "day.ts×1", "sv.ts×3"]);
+  assert.deepEqual(engineLocations("cerenovus"), ["day.ts×1", "sv.ts×3"]);
   assert.equal(ownerOf(cerenovus, engineLocations("cerenovus")), "capability + engine reference");
 });
 
-test("the Sects & Violets information roles declare their step on the night-step capability and keep their answers in the engine", () => {
+test("the Sects & Violets information roles declare their step on the night-step capability and keep their presentation in the engine", () => {
   const facts = roleModules();
-  // The answers in svInfoForStep, the Mathematician's ledger and the
-  // Dreamer's bar on choosing themself, and what each role's other rules
+  // The wording and the win in svInfoForStep, the Mathematician's ledger and
+  // the Dreamer's bar on choosing themself, and what each role's other rules
   // keep: the Evil Twin's pair and win, the day's yes-or-no questions.
   const expected = {
-    clockmaker: ["sv.ts×1"],
-    dreamer: ["night.ts×1", "sv.ts×1"],
-    eviltwin: ["model/state.ts×1", "death.ts×2", "setup.ts×3", "sv.ts×3", "corrections.ts×1"],
-    flowergirl: ["sv.ts×3", "host-choice.ts×1"],
-    mathematician: ["night.ts×2", "sv.ts×3"],
-    oracle: ["sv.ts×1"],
-    towncrier: ["sv.ts×2", "host-choice.ts×1"],
+    clockmaker: {
+      declares: ["capability:night-step", "capability:information"],
+      locations: ["sv.ts×2"],
+    },
+    dreamer: {
+      declares: ["capability:night-step", "capability:information"],
+      locations: ["night.ts×1", "sv.ts×2", "host-choice.ts×1"],
+    },
+    eviltwin: {
+      declares: ["capability:night-step", "capability:information"],
+      locations: ["model/state.ts×1", "death.ts×2", "setup.ts×3", "sv.ts×4", "corrections.ts×1"],
+    },
+    flowergirl: {
+      declares: ["capability:night-step", "capability:information"],
+      locations: ["sv.ts×3", "host-choice.ts×1"],
+    },
+    mathematician: {
+      declares: ["capability:night-step", "capability:information"],
+      // The extra night.ts reference is the attack-step gate that stores the
+      // Demon's chosen target only when the Lunatic jinx can run. The sixth
+      // sv.ts reference is the completed-step guard that keeps a later Lunatic
+      // completion from adding a mark after the Mathematician's clear.
+      locations: ["night.ts×3", "sv.ts×6"],
+    },
+    oracle: {
+      declares: ["capability:night-step", "capability:information"],
+      locations: ["sv.ts×2"],
+    },
+    towncrier: {
+      declares: ["capability:night-step", "capability:information"],
+      locations: ["sv.ts×1", "host-choice.ts×1"],
+    },
   };
-  for (const [id, locations] of Object.entries(expected)) {
+  for (const [id, expectedRole] of Object.entries(expected)) {
     const module = facts.find((candidate) => candidate.id === id);
     assert.ok(module, id);
-    assert.deepEqual(module.declares, ["capability:night-step"], id);
-    assert.deepEqual(engineLocations(id), locations, id);
+    assert.deepEqual(module.declares, expectedRole.declares, id);
+    assert.deepEqual(engineLocations(id), expectedRole.locations, id);
     assert.equal(ownerOf(module, engineLocations(id)), "capability + engine reference", id);
   }
 });
@@ -195,7 +220,7 @@ test("the Snake Charmer and the Pit-Hag declare their step and resolve their cha
   // sv.ts routes each change to its module by role and cause and applies it
   // through the shared swap or replacement; it builds the Pit-Hag's
   // character list and both console notes.
-  const expected = { snakecharmer: ["sv.ts×4"], pithag: ["sv.ts×5"] };
+  const expected = { snakecharmer: ["sv.ts×4"], pithag: ["sv.ts×9"] };
   for (const [id, locations] of Object.entries(expected)) {
     const module = facts.find((candidate) => candidate.id === id);
     assert.ok(module, id);
@@ -209,9 +234,10 @@ test("a migrated attack keeps the references of the shared succession, not of th
   const imp = roleModules().find((candidate) => candidate.id === "imp");
   assert.ok(imp);
   assert.deepEqual(imp.declares, ["capability:night-step", "capability:death-trigger"]);
-  // The succession fallback, the heir and the new Demon's wake still name the
-  // role; the completion of the attack step does not.
-  assert.deepEqual(engineLocations("imp"), ["death.ts×2", "night.ts×1", "becoming.ts×3"]);
+  // The succession fallback and the heir still name the role; the new Demon's
+  // character now comes from the dead Demon, so `becoming.ts` no longer names
+  // the Imp.
+  assert.deepEqual(engineLocations("imp"), ["death.ts×2", "night.ts×1", "becoming.ts×1"]);
   assert.equal(ownerOf(imp, engineLocations("imp")), "capability + engine reference");
 });
 
@@ -249,12 +275,12 @@ test("a migrated information role whose query stays keeps that one reference", (
   assert.equal(ownerOf(chef, engineLocations("chef")), "capability + engine reference");
 });
 
-test("a role that moved only its answer still reports the legacy step that wakes it", () => {
+test("a role that moved its answer and step owns both on capabilities", () => {
   const undertaker = roleModules().find((candidate) => candidate.id === "undertaker");
   assert.ok(undertaker);
-  // The character on record and the legal registrations come from the module.
-  // Who wakes is still the legacy step, whose hooks read the game.
-  assert.deepEqual(undertaker.declares, ["nightStep", "capability:information"]);
+  // The character on record, the legal registrations and the wake all come
+  // from the module; the step's hooks read the game.
+  assert.deepEqual(undertaker.declares, ["capability:night-step", "capability:information"]);
   assert.deepEqual(engineLocations("undertaker"), [], "undertaker is still named by a coordinator");
   assert.equal(ownerOf(undertaker, engineLocations("undertaker")), "capability");
 });
@@ -262,7 +288,7 @@ test("a role that moved only its answer still reports the legacy step that wakes
 test("a role woken by its own death keeps the references of that wake, not of the answer", () => {
   const ravenkeeper = roleModules().find((candidate) => candidate.id === "ravenkeeper");
   assert.ok(ravenkeeper);
-  assert.deepEqual(ravenkeeper.declares, ["nightStep", "capability:information"]);
+  assert.deepEqual(ravenkeeper.declares, ["capability:night-step", "capability:information"]);
   // The step inserted on the night of the death still names the role; the
   // information path and the completion of the step do not.
   assert.deepEqual(engineLocations("ravenkeeper"), ["night.ts×4"]);
@@ -299,8 +325,9 @@ test("the Spy declares its step and its answer and keeps the references of its r
   ]);
   // Who the Spy may register as is read where a registration is applied, in
   // the Virgin's nomination and in the check of a prepared answer. The night
-  // completion names no role for its answer, and neither does `infoForStep`.
-  assert.deepEqual(engineLocations("spy"), ["day.ts×1", "setup.ts×2", "information.ts×4"]);
+  // completion names no role for its answer, and neither does `infoForStep`,
+  // nor the Dreamer's pair since #211 reads the facts instead of the role.
+  assert.deepEqual(engineLocations("spy"), ["day.ts×2", "setup.ts×2", "information-facts.ts×4"]);
   assert.equal(ownerOf(spy, engineLocations("spy")), "capability + engine reference");
 });
 

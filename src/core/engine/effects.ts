@@ -20,9 +20,9 @@ export function effectActive(
   if (effect.start && cycleOf(at) < cycleOf(effect.start)) return false;
   if (effect.expires && cycleOf(at) >= cycleOf(effect.expires)) return false;
   if (effect.kind === "role-change") return true;
-  // The Cerenovus already chose at night: the player stays mad during that day
-  // and the following night even if the source is executed or dies first.
-  if (effect.kind === "madness" && effect.madness === "cerenovus") return true;
+  // The Cerenovus's madness is a persistent ability effect: it stops while the
+  // source is drunk, poisoned or dead, and resumes when the source is healthy
+  // again (States r1039). A Vigormortis-retained Minion keeps it (r3015).
 
   const resolved = graph || effectGraph(state, at);
   if (!resolved.ok) return false;
@@ -31,8 +31,15 @@ export function effectActive(
 
   const source = effect.sourceId == null ? null : playerById(state, effect.sourceId);
   if (!source) return false;
-  // Vigormortis r3015 explicitly preserves a killed Witch's existing curse.
-  if (!source.alive && !(effect.kind === "witch" && minionRetainsAbility(state, source.id)))
+  // Vigormortis r3015 explicitly preserves a killed Witch's curse and a killed
+  // Cerenovus's madness.
+  if (
+    !source.alive &&
+    !(
+      (effect.kind === "witch" || effect.kind === "madness") &&
+      minionRetainsAbility(state, source.id)
+    )
+  )
     return false;
   return !resolved.impaired.has(String(source.id));
 }
@@ -188,12 +195,13 @@ export function bmrCannotDie(
   state: GameState,
   playerId: string,
   at: DeadAt = currentAt(state),
-  context: { cause?: string; bypassProtection?: boolean } = {},
+  context: { cause?: string; bypassProtection?: boolean; demonAttack?: boolean } = {},
 ): string | null {
   const player = playerById(state, playerId);
   if (!player) return null;
   const cause = context.cause || "";
   const bypass = context.bypassProtection === true;
+  const demonAttack = context.demonAttack === true;
   const sober = !isImpaired(state, playerId, at);
   // Devil's Advocate r2594 Example 2: a protected Zombuul executed today does
   // not die and does not flip its life token. The execution protection resolves
@@ -208,27 +216,35 @@ export function bmrCannotDie(
     );
     if (advocate) return "devilsadvocate";
   }
+  // Innkeeper r3160: "they can't die tonight". Its safety is a prevention
+  // before the Zombuul's first-death replacement; the Assassin bypasses it.
+  if (!bypass) {
+    const innkeeper = state.effects.find(
+      (effect) =>
+        effect.kind === SAFE_EFFECT.kind &&
+        effect.targetId === playerId &&
+        effectActive(state, effect, at) &&
+        effect.bmr === SAFE_EFFECT.bmr &&
+        (cause === "demon" || cause === "ability"),
+    );
+    if (innkeeper) return "innkeeper";
+  }
   // The Zombuul's first death is replaced, not prevented, so even an Assassin
   // cannot take it while the ability works. Every other protection is bypassed
   // by the Assassin.
   if (player.roleId === "zombuul" && sober && !(player.used && player.used.zombuul))
     return "zombuul";
   if (bypass) return null;
-  if (player.roleId === "soldier" && sober && (cause === "demon" || cause === "ability"))
+  if (
+    player.roleId === "soldier" &&
+    sober &&
+    (cause === "demon" || (cause === "ability" && demonAttack))
+  )
     return "soldier";
   // Sailor r1768: "You can't die." The sober Sailor survives any cause,
   // including an execution; only a bypassing ability (the Assassin) kills.
   if (player.roleId === "sailor" && sober) return "sailor";
   if (teaLadyProtects(state, playerId, at)) return "tea-lady";
-  const innkeeper = state.effects.find(
-    (effect) =>
-      effect.kind === SAFE_EFFECT.kind &&
-      effect.targetId === playerId &&
-      effectActive(state, effect, at) &&
-      effect.bmr === SAFE_EFFECT.bmr &&
-      (cause === "demon" || cause === "ability"),
-  );
-  if (innkeeper) return "innkeeper";
   // Fool r2636: the ability is spent only when it was the reason the death was
   // prevented, so the Tea Lady and Innkeeper protections resolve first.
   if (player.roleId === "fool" && sober && !(player.used && player.used.fool)) return "fool";

@@ -45,6 +45,7 @@ export {
   completeStep,
   endNight,
   skipStep,
+  canSkipStep,
   currentStep,
   stepProgress,
   targetBounds,
@@ -87,6 +88,7 @@ export {
   savantTruthChoices,
   moonchildChoice,
   tinkerDeath,
+  survivesExecutionAllowed,
 } from "./day.ts";
 export { setupErrors, secretsErrors, autoSecrets, dealGame, claimSeat } from "./setup.ts";
 export { manualCorrection, bagSummary } from "./corrections.ts";

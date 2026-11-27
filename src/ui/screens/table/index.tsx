@@ -15,7 +15,13 @@ import { useTableDrafts } from "./drafts.ts";
 import { TableDock } from "./dock.tsx";
 import { ArcaneAppBar } from "../../components/arcane/index.ts";
 import { TableRing } from "./ring.tsx";
-import { nextSelection, overlayOutlivesWin, rejectionOf, rejectionText } from "./helpers.ts";
+import {
+  executionDraftKey,
+  nextSelection,
+  overlayOutlivesWin,
+  rejectionOf,
+  rejectionText,
+} from "./helpers.ts";
 import type { Rejection } from "./helpers.ts";
 import { readStepDraft } from "./step-draft.ts";
 import type { TableActions, TableView } from "./view.ts";
@@ -46,10 +52,14 @@ export function TableScreen() {
     return () => clearInterval(id);
   }, []);
 
-  // An import or a fresh game must not reuse the previous execution target.
+  // An import, a fresh game, a new day or a phase change must not reuse the
+  // previous execution target or its survival flag. The key moves with the
+  // day and the phase, so a target chosen yesterday can never execute today.
+  const dayKey = executionDraftKey(state);
   useEffect(() => {
     drafts.setExecuteTarget("");
-  }, [state.createdAt, drafts.setExecuteTarget]);
+    drafts.setExecuteSurvives(false);
+  }, [state.createdAt, dayKey, drafts.setExecuteTarget, drafts.setExecuteSurvives]);
 
   const closeOverlay = drafts.closeOverlay;
   useEffect(() => {
@@ -141,6 +151,9 @@ export function TableScreen() {
     undo: () => {
       if (ports.history.undo()) closeOverlay();
     },
+    redo: () => {
+      if (ports.history.redo()) closeOverlay();
+    },
     closeOverlay,
     closeRole: () => {
       drafts.setOverlay(drafts.roleCardBack);
@@ -189,6 +202,10 @@ export function TableScreen() {
       const before = list[0];
       const next = nextSelection(list, playerId, targetBounds(step).max);
       drafts.putTargets(key, next);
+      // A new set of targets answers a new question: every answer tuned to the
+      // old choice, including its wording, goes with it.
+      drafts.dropGiven(key);
+      drafts.dropRegistrations(key);
       // A new victim drops the stored redirect. The Mayor's fate is the
       // Storyteller's choice, so a seat tap never answers it (Mayor r2995).
       if (before !== next[0]) drafts.dropRedirect(key);
@@ -281,7 +298,7 @@ export function TableScreen() {
         <div className={`host ${HOST} flex min-h-0 flex-1 flex-col`} data-console="table">
           {rejectionWarning}
           <main
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2 pt-2"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-12 pt-8"
             data-table-stage
             aria-label={t("table")}
           >
@@ -291,8 +308,12 @@ export function TableScreen() {
                 dismissedDawn={dismissedDawn}
                 onDismissDawn={(key) => setDismissedDawn((previous) => new Set(previous).add(key))}
               />
-            ) : (
+            ) : state.phase === "over" ? (
               <div className="mx-auto mt-2 grid w-full max-w-[900px] gap-2">
+                <MainCard view={view} />
+              </div>
+            ) : (
+              <div className="mx-auto flex min-h-full w-full max-w-[1100px] flex-col gap-3 py-3 min-[620px]:justify-center">
                 <MainCard view={view} />
               </div>
             )}

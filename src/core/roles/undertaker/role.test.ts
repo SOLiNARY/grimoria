@@ -26,12 +26,16 @@ function context(
     impaired: false,
     at: { phase: "night", number: 2 },
     seatIds: ["1", "2", "3", "4", "5"],
+    abnormalCount: 0,
+    isAlive: unread("who is alive"),
     aliveNeighborIds: unread("the neighbours"),
     registeredTeamOf: unread("a registered team"),
     mayRegisterAs: unread("a team registration"),
     registersAsDemon: unread("a Demon registration"),
     redHerringId: null,
     executedToday,
+    votesToday: null,
+    twins: null,
     mayRegisterAsCharacters: (playerId) => mayBe[playerId] ?? [],
     actualRoleOf: unread("a seat's character"),
     hasPlayer: () => true,
@@ -53,7 +57,7 @@ test("the Undertaker module declares the character shape and keeps its wake (TB-
   assert.equal(nightResolverFor(role, 2), undefined, "the step applies nothing");
   assert.deepEqual(
     role.capabilities.map((capability) => capability.kind),
-    ["information"],
+    ["night-step", "information"],
   );
 });
 

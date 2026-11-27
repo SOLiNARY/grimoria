@@ -3,21 +3,30 @@
 import {
   artistProjection,
   madnessReviewProjection,
+  nominatorChoices,
   poisonChoicesProjection,
   resurrectChoices,
   savantProjection,
   secretsProjection,
   seatProjection,
   shownRoleChoices,
+  survivalProjection,
   tableProjection,
 } from "../../../application/read-models/table.ts";
 import { useEffect, useState } from "react";
-import { livingPlayers, orderedPlayers, playerById } from "../../../core/model/state.ts";
+import {
+  hasAbility,
+  hasTrueAbility,
+  livingPlayers,
+  orderedPlayers,
+  playerById,
+} from "../../../core/model/state.ts";
 import { ALL_ROLES, isManualScript } from "../../../core/model/rules.ts";
 import { roleSupportEntries } from "../../../core/model/support.ts";
 import type { ArtistAnswer, NightStep, SavantTruth } from "../../../core/model/types.ts";
 import {
   applyGiven,
+  canMarkStepDeaths,
   causeText,
   dayHelpForms,
   displayName,
@@ -34,15 +43,27 @@ import {
   winReasonKey,
 } from "./helpers.ts";
 import type { StepInfo } from "./helpers.ts";
+import { GameLog } from "./log.tsx";
 import { Warn } from "./parts.tsx";
 import { stepContext } from "./step-context.ts";
 import { writeStepDraft } from "./step-draft.ts";
 import type { StepDraft } from "./step-draft.ts";
 import type { TableView } from "./view.ts";
 import {
+  ACTION_PRIMARY,
+  ACTION_QUIET,
   ALERT,
-  CARD,
-  CARD_LINE,
+  BOARD,
+  BOARD_ACTIONS,
+  BOARD_PRIMARY,
+  BOARD_ROSTER,
+  BOARD_SEAT,
+  BOARD_SEAT_NO,
+  BOARD_STEP,
+  BOARD_STEP_CURRENT,
+  BOARD_STEP_DONE,
+  BOARD_STEP_PENDING,
+  BOARD_STEPS,
   CARD_TEXT,
   CARD_TITLE,
   CHECK,
@@ -55,7 +76,6 @@ import {
   NIGHT_CARD,
   DAY_CARD,
   OVER_CARD,
-  PRIMARY,
   SECTION,
   TARGET,
   TARGET_GRID,
@@ -78,8 +98,7 @@ export function MainCard({ view }: { view: TableView }) {
   // clean instead of carrying a survival choice from the previous one.
   if (state.phase === "day")
     return <DayCard key={`${state.createdAt}:${state.day.number}`} view={view} />;
-  if (state.phase === "setup" && !state.setup.roles.length) return <SetupPrompt view={view} />;
-  return <DealCard view={view} />;
+  return <SetupBoard view={view} />;
 }
 
 /**
@@ -372,33 +391,42 @@ function StepCard({
                   {t("ui.showGrimoire")}
                 </button>
                 {derived.actorImpaired ? (
-                  <p className={`${ALERT} text-amber-2`} data-warning="spyFalseGrimoire">
+                  <p className={`${ALERT} text-accent-text`} data-warning="spyFalseGrimoire">
                     {t("ui.spyFalseGrimoire")}
                   </p>
                 ) : null}
               </div>
             ) : derived.actorImpaired ? (
-              <div className="mt-1 grid gap-1.5" data-template>
-                <label className={FIELD_BOX}>
-                  <span className="label">{t("ui.template")}</span>
-                  <textarea
-                    className="field min-h-[64px] resize-y"
-                    data-info-template
-                    value={drafts.infoTemplate}
-                    onChange={(event) => drafts.setInfoTemplate(event.target.value)}
-                  />
-                </label>
-                <p className={MUTED}>{t("ui.templateHint")}</p>
-                <button
-                  className="btn"
-                  type="button"
-                  data-act="show-template"
-                  disabled={!drafts.infoTemplate.trim()}
-                  onClick={() => actions.openInfo(key)}
-                >
-                  {t("ui.showTemplate")}
-                </button>
-              </div>
+              info.kind === "note" ? null : (
+                <div className="mt-1 grid gap-1.5" data-template>
+                  <label className={FIELD_BOX}>
+                    <span className="label">{t("ui.template")}</span>
+                    <textarea
+                      className="field min-h-[64px] resize-y"
+                      data-info-template
+                      value={given?.answerText ?? ""}
+                      onChange={(event) => {
+                        const text = event.target.value;
+                        const base = drafts.givens.get(draftKey) || info;
+                        const next = { ...base, needsChoice: false };
+                        if (text.trim()) next.answerText = text;
+                        else delete next.answerText;
+                        drafts.putGiven(draftKey, next);
+                      }}
+                    />
+                  </label>
+                  <p className={MUTED}>{t("ui.templateHint")}</p>
+                  <button
+                    className="btn"
+                    type="button"
+                    data-act="show-template"
+                    disabled={!given}
+                    onClick={() => actions.openInfo(key)}
+                  >
+                    {t(given?.answerText?.trim() ? "ui.showTemplate" : "showCard")}
+                  </button>
+                </div>
+              )
             ) : (
               <button
                 className="btn"
@@ -601,14 +629,31 @@ function GivenSelect({
       info.options && info.options.length
         ? (info.options as Array<string | number | boolean>)
         : ALL_ROLES;
+  } else if (info.kind === "role-pair" || info.kind === "player-pair") {
+    kind = "pair";
+    options = info.options ? (info.options as Array<string | number | boolean>) : [];
   }
   if (!options.length) return null;
+  // A shown pair names its characters or seats so the host reads the same
+  // answer they gave at the table.
+  const pairText = (raw: string): string => {
+    const ids = raw.split("|");
+    if (info.kind === "player-pair") {
+      return ids
+        .map((id) => {
+          const player = playerById(state, id);
+          return player ? `${displayName(player, t)} (${player.seat})` : id;
+        })
+        .join(" / ");
+    }
+    return ids.map((id) => roleNameOf(id, ports.roles.byId)).join(" / ");
+  };
   // A healthy answer that depends on a registration (the Undertaker's
   // character, the Chef's count) is a registration decision, and a missing
   // data source is a plain host answer; only a false-information decision
   // gets the false-information label.
   const label = t(givenLabelKey(info));
-  return (
+  const roleSelect = (
     <label className={FIELD_BOX}>
       <span className="label">{label}</span>
       <select
@@ -622,28 +667,71 @@ function GivenSelect({
             drafts.dropGiven(draftKey);
             return;
           }
-          const next = applyGiven(info, raw, kind);
+          const next = applyGiven(drafts.givens.get(draftKey) || info, raw, kind);
           if (next) drafts.putGiven(draftKey, next);
         }}
       >
         <option value="">
-          {t("computed")}: {infoText(state, step, info, ports.roles.byId, t)}
+          {kind === "pair"
+            ? t("ui.choosePair")
+            : `${t("computed")}: ${infoText(state, step, info, ports.roles.byId, t)}`}
         </option>
         {options.map((value) => (
           <option key={String(value)} value={String(value)}>
-            {kind === "role"
-              ? String(value) === "zero"
-                ? t("none")
-                : roleNameOf(String(value), ports.roles.byId)
-              : kind === "bool"
-                ? value
-                  ? t("yes")
-                  : t("no")
-                : String(value)}
+            {kind === "pair"
+              ? pairText(String(value))
+              : kind === "role"
+                ? String(value) === "zero"
+                  ? t("none")
+                  : roleNameOf(String(value), ports.roles.byId)
+                : kind === "bool"
+                  ? value
+                    ? t("yes")
+                    : t("no")
+                  : String(value)}
           </option>
         ))}
       </select>
     </label>
+  );
+  if (info.kind !== "one-of-two") return roleSelect;
+  // A false one-of-two answer may name any two players, not only the prepared
+  // pair: the Storyteller decides what the player hears (Washerwoman r2630).
+  const base = drafts.givens.get(draftKey) || info;
+  const pair = Array.isArray(base.pair)
+    ? base.pair.map(String)
+    : Array.isArray(info.pair)
+      ? info.pair.map(String)
+      : ["", ""];
+  const choosePlayer = (index: 0 | 1, id: string) => {
+    const nextPair: [string, string] = [pair[0] ?? "", pair[1] ?? ""];
+    nextPair[index] = id;
+    drafts.putGiven(draftKey, { ...base, pair: nextPair, needsChoice: false });
+  };
+  return (
+    <div className="grid gap-2" data-one-of-two>
+      {roleSelect}
+      <div className="grid grid-cols-2 gap-2">
+        {[0, 1].map((index) => (
+          <label key={index} className={FIELD_BOX}>
+            <span className="label">{t(index === 0 ? "ui.player1" : "ui.player2")}</span>
+            <select
+              className="field"
+              data-player-pair={index}
+              value={pair[index] ?? ""}
+              onChange={(event) => choosePlayer(index as 0 | 1, event.target.value)}
+            >
+              <option value="">{t("ui.choosePlayer")}</option>
+              {orderedPlayers(state).map((player) => (
+                <option key={player.id} value={player.id}>
+                  {`${displayName(player, t)} (${player.seat})`}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -714,7 +802,12 @@ function BmrOutcome({
           </div>
         </div>
       ) : null}
-      {step.canKill && step.roleId !== "tinker" ? (
+      {canMarkStepDeaths(
+        state,
+        step.roleId,
+        drafts.bmrRoles.get(draftKey) || null,
+        Boolean(step.canKill),
+      ) && step.roleId !== "tinker" ? (
         <div className="grid gap-1 rounded-sm border border-edge p-2" data-bmr-decision="marking">
           <div className={TARGET_GRID}>
             {orderedPlayers(state)
@@ -836,20 +929,20 @@ export function DayCard({
   // the day card and the dock make one decision.
   const day = state.day;
   const executed = day.execution ? playerById(state, day.execution.playerId) : null;
-  const living = livingPlayers(state);
+  const living = nominatorChoices(state);
   const manual = isManualScript(state.script);
   const pacifistSupport = roleSupportEntries(state.setup.roles || []).find(
     (entry) => entry.roleId === "pacifist",
   );
   const virgin = !manual
     ? orderedPlayers(state).find(
-        (player) => player.roleId === "virgin" && player.alive && !player.used.virgin,
+        (player) => hasTrueAbility(player, "virgin") && player.alive && !player.used.virgin,
       )
     : null;
   const slayer =
     !manual && !day.execution && !day.ended
       ? orderedPlayers(state).find(
-          (player) => player.roleId === "slayer" && player.alive && !player.used.slayer,
+          (player) => hasAbility(player, "slayer") && player.alive && !player.used.slayer,
         )
       : null;
   const artist = !manual ? artistProjection(state) : null;
@@ -878,7 +971,10 @@ export function DayCard({
               className="field min-w-[180px]"
               data-exec-target
               value={drafts.executeTarget}
-              onChange={(event) => drafts.setExecuteTarget(event.target.value)}
+              onChange={(event) => {
+                drafts.setExecuteTarget(event.target.value);
+                drafts.setExecuteSurvives(false);
+              }}
             >
               <option value="">{t("ui.noExecution")}</option>
               {orderedPlayers(state).map((player) => (
@@ -911,11 +1007,7 @@ export function DayCard({
               {t("execute")}
             </button>
           </div>
-          {state.script &&
-          Array.isArray(state.script.roles) &&
-          state.script.roles.some((id) =>
-            ["pacifist", "sailor", "fool", "devilsadvocate", "zombuul"].includes(id),
-          ) ? (
+          {survivalProjection(state, drafts.executeTarget) ? (
             <label className={CHECK}>
               <input
                 type="checkbox"
@@ -923,7 +1015,7 @@ export function DayCard({
                 checked={drafts.executeSurvives}
                 onChange={(event) => drafts.setExecuteSurvives(event.target.checked)}
               />
-              <span>{pacifistSupport ? t("ui.pacifistSurvives") : t("survivesExecution")}</span>
+              <span>{t("ui.pacifistSurvives")}</span>
             </label>
           ) : null}
           {pacifistSupport ? (
@@ -993,6 +1085,7 @@ export function DayCard({
       {forms.includes("gossip") ? <GossipPanel view={view} /> : null}
       {forms.includes("juggler") ? <JugglerPanel view={view} /> : null}
       {forms.includes("moonchild") ? <MoonchildPanel view={view} /> : null}
+      {forms.includes("klutz") ? <KlutzPanel view={view} /> : null}
       {forms.includes("mastermind") ? mastermindPanel(view) : null}
     </section>
   );
@@ -1017,7 +1110,7 @@ export function DayActionsPanel({ view }: { view: TableView }) {
   const manual = isManualScript(state.script);
   const tinker =
     state.script && Array.isArray(state.script.roles) && state.script.roles.includes("tinker")
-      ? orderedPlayers(state).find((player) => player.roleId === "tinker" && player.alive)
+      ? orderedPlayers(state).find((player) => hasTrueAbility(player, "tinker") && player.alive)
       : null;
   if (!madnessReviews.length && !manual && !tinker && !canAbnormal) return null;
   return (
@@ -1254,7 +1347,9 @@ export function SlayerPanel({ view, slayerId }: { view: TableView; slayerId: str
             </option>
           ))}
         </select>
-        {selected && selected.roleId === "recluse" ? (
+        {selected &&
+        selected.roleId === "recluse" &&
+        hasAbility(playerById(state, slayerId), "slayer") ? (
           <label className={CHECK}>
             <input
               type="checkbox"
@@ -1459,7 +1554,7 @@ function JugglerPanel({ view }: { view: TableView }) {
   const t = ports.strings.t;
   const juggler =
     state.script && Array.isArray(state.script.roles) && state.script.roles.includes("juggler")
-      ? orderedPlayers(state).find((player) => player.roleId === "juggler" && player.alive)
+      ? orderedPlayers(state).find((player) => hasAbility(player, "juggler") && player.alive)
       : null;
   const storedDay =
     state.juggler && typeof state.juggler.day === "number" ? state.juggler.day : null;
@@ -1561,6 +1656,55 @@ function JugglerPanel({ view }: { view: TableView }) {
   );
 }
 
+function KlutzPanel({ view }: { view: TableView }) {
+  const { state, drafts, ports, actions } = view;
+  const t = ports.strings.t;
+  const klutz =
+    state.phase === "day"
+      ? orderedPlayers(state).find(
+          (player) => hasAbility(player, "klutz") && !player.alive && !player.used.klutz,
+        )
+      : null;
+  if (!klutz) return null;
+  return (
+    <div className="my-2.5 grid gap-1.5 rounded-sm border border-edge p-2.5">
+      <span className="label">{t("klutzPanel")}</span>
+      <p className={MUTED}>
+        {displayName(klutz, t)}: {t("klutzHint")}
+      </p>
+      <div className={INLINE}>
+        <select
+          className="field"
+          data-klutz-target
+          value={drafts.klutzTarget}
+          onChange={(event) => drafts.setKlutzTarget(event.target.value)}
+        >
+          <option value="">{t("chooseTarget")}</option>
+          {livingPlayers(state).map((player) => (
+            <option key={player.id} value={player.id}>
+              {player.seat} · {displayName(player, t)}
+            </option>
+          ))}
+        </select>
+        <button
+          className="btn"
+          type="button"
+          data-act="klutz-choice"
+          disabled={!drafts.klutzTarget}
+          onClick={() =>
+            actions.run({
+              type: "recordKlutzChoice",
+              payload: { targetId: drafts.klutzTarget },
+            })
+          }
+        >
+          {t("recordChoice")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MoonchildPanel({ view }: { view: TableView }) {
   const { state, drafts, ports, actions } = view;
   const t = ports.strings.t;
@@ -1568,7 +1712,7 @@ function MoonchildPanel({ view }: { view: TableView }) {
     state.phase === "day"
       ? orderedPlayers(state).find(
           (player) =>
-            player.roleId === "moonchild" &&
+            hasTrueAbility(player, "moonchild") &&
             !player.alive &&
             !(player.used && player.used.moonchildTarget),
         )
@@ -1620,85 +1764,111 @@ function mastermindPanel(view: TableView) {
   );
 }
 
-export function SetupPrompt({ view }: { view: TableView }) {
-  const { ports } = view;
-  const t = ports.strings.t;
-  return (
-    <section className={`host-card ${CARD} ${CARD_LINE} px-[18px] py-[34px] text-center`}>
-      <p className="label">{t("setup")}</p>
-      <h1 className={CARD_TITLE}>{t("noRoles")}</h1>
-      <p className={CARD_TEXT}>{t("setupIntro")}</p>
-      <div className={INLINE}>
-        <a className="btn btn--accent" href={ports.router.path("bag")}>
-          {t("ui.begin")}
-        </a>
-        <a className="btn" href={ports.router.path("demo")}>
-          {t("demo")}
-        </a>
-      </div>
-    </section>
-  );
-}
+const SETUP_STEPS = ["roles", "names", "seats", "secrets"] as const;
+type SetupStep = (typeof SETUP_STEPS)[number];
 
-export function DealCard({ view }: { view: TableView }) {
+// The pre-night surface: the roster, the setup rail and the one action the
+// current step owes. It reads names and claims only; no role reaches it.
+export function SetupBoard({ view }: { view: TableView }) {
   const { state, ports, actions } = view;
   const t = ports.strings.t;
   const players = orderedPlayers(state);
   const claimed = players.filter((player) => player.claimed).length;
-  const everyoneNamed = claimed === players.length;
+  const everyoneNamed = players.length > 0 && claimed === players.length;
   const seated = state.phase === "seat";
-  const errors = secretsProjection(state).errors;
-  const step = !everyoneNamed ? "names" : !seated ? "seats" : "secrets";
-  const route = step === "names" ? "player" : step === "seats" ? "seat" : "secrets";
-  const demoRoute = () => ports.router.go("demo");
+  const step: SetupStep =
+    state.phase === "setup" && !state.setup.roles.length
+      ? "roles"
+      : !everyoneNamed
+        ? "names"
+        : !seated
+          ? "seats"
+          : "secrets";
+  const current = SETUP_STEPS.indexOf(step);
+  const errors = step === "secrets" ? secretsProjection(state).errors : [];
+  const labels: Record<SetupStep, string> = {
+    roles: t("ui.setupRoles"),
+    names: t("ui.setupNames"),
+    seats: t("seats"),
+    secrets: t("secrets"),
+  };
+  const titles: Record<SetupStep, string> = {
+    roles: t("noRoles"),
+    names: t("ui.names"),
+    seats: t("ui.arrange"),
+    secrets: t("ui.checkSecrets"),
+  };
+  const route = step === "names" ? "player" : step === "seats" ? "seat" : null;
+  const primaryClass = `${ACTION_PRIMARY} ${BOARD_PRIMARY}`;
   return (
-    <section className={`host-card ${CARD} ${CARD_LINE}`}>
+    <section className={`host-card ${BOARD}`} data-setup-board data-setup-step={step}>
+      <p className="label">{t("setup")}</p>
+      <h1 className={CARD_TITLE}>{titles[step]}</h1>
+      {step === "roles" ? <p className={CARD_TEXT}>{t("setupIntro")}</p> : null}
+      <ol className={BOARD_STEPS} aria-label={t("setup")}>
+        {SETUP_STEPS.map((entry, index) => {
+          const mark = index < current ? "done" : index === current ? "current" : "pending";
+          const tone =
+            mark === "current"
+              ? BOARD_STEP_CURRENT
+              : mark === "done"
+                ? BOARD_STEP_DONE
+                : BOARD_STEP_PENDING;
+          return (
+            <li
+              key={entry}
+              className={`${BOARD_STEP} ${tone}`}
+              data-board-step={entry}
+              data-state={mark}
+              aria-current={mark === "current" ? "step" : undefined}
+            >
+              <span aria-hidden="true" className="tabular-nums">
+                {mark === "done" ? "✓" : index + 1}
+              </span>
+              <span className="truncate">{labels[entry]}</span>
+            </li>
+          );
+        })}
+      </ol>
       {manualWarning(view)}
       {bmrWarning(view)}
-      <p className="label">{t("playerHandoff")}</p>
-      <h1 className={CARD_TITLE}>
-        {!everyoneNamed ? t("ui.names") : !seated ? t("ui.arrange") : t("ui.checkSecrets")}
-      </h1>
-      <p className={CARD_TEXT}>{t("discussWarning")}</p>
-      <div className="my-2 flex items-center gap-2.5">
-        <div className="h-[7px] flex-1 overflow-hidden rounded-full border border-edge bg-crypt">
-          <span
-            className="block h-full bg-amber"
-            style={{ width: `${players.length ? (claimed / players.length) * 100 : 0}%` }}
-          />
-        </div>
-        <b>
-          {claimed} / {players.length}
-        </b>
+      <div className="mt-3 grid gap-1.5">
+        <p className="m-0 text-[11px] tabular-nums text-muted" data-board-count>
+          {t("ui.namesCount", { claimed, total: players.length })}
+        </p>
+        <ul className={BOARD_ROSTER}>
+          {players.map((player) => {
+            const named = player.claimed && Boolean(player.name);
+            return (
+              <li
+                key={player.id}
+                className={BOARD_SEAT}
+                data-board-seat={player.seat}
+                data-board-claim={player.claimed ? "claimed" : "unclaimed"}
+              >
+                <span className={BOARD_SEAT_NO}>{player.seat}</span>
+                <span
+                  className={`min-w-0 flex-1 truncate text-[13px] ${
+                    named ? "font-semibold text-text" : "text-muted"
+                  }`}
+                >
+                  {named ? player.name : t("ui.unclaimed")}
+                </span>
+                <span className="sr-only">
+                  {player.claimed ? t("ui.claimed") : t("ui.unclaimed")}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={player.claimed ? "text-accent-text" : "text-muted"}
+                >
+                  {player.claimed ? "✓" : "·"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       </div>
-      <div className={INLINE}>
-        <a className="btn btn--accent" href={ports.router.path(route)}>
-          {step === "names" ? t("ui.handoff") : step === "seats" ? t("ui.seats") : t("ui.secrets")}
-        </a>
-        {(
-          [
-            ["player", t("ui.handoff")],
-            ["seat", t("seats")],
-            ["secrets", t("secrets")],
-          ] as const
-        )
-          .filter(([target]) => target !== route)
-          .map(([target, label]) => (
-            <a className="btn" href={ports.router.path(target)} key={target}>
-              {label}
-            </a>
-          ))}
-        <button
-          className="btn btn--quiet"
-          type="button"
-          data-act="demo-15"
-          title={t("ui.demoHint")}
-          onClick={demoRoute}
-        >
-          {t("demo")}
-        </button>
-      </div>
-      {seated && errors.length ? (
+      {step === "secrets" && errors.length ? (
         <Warn title={t("setupErrors")} bad>
           <ul className="mt-1 list-disc pl-4">
             {errors.map((error) => {
@@ -1712,17 +1882,62 @@ export function DealCard({ view }: { view: TableView }) {
           </ul>
         </Warn>
       ) : null}
-      {seated ? (
-        <button
-          className={`btn mt-3 ${PRIMARY}`}
-          type="button"
-          data-act="start-night"
-          disabled={!everyoneNamed || errors.length > 0}
-          onClick={() => actions.run({ type: "startNight", payload: {} })}
-        >
-          {t("startFirstNight")}
-        </button>
-      ) : null}
+      <div className={BOARD_ACTIONS}>
+        {step === "roles" ? (
+          <a className={primaryClass} data-board-primary href={ports.router.path("bag")}>
+            {t("ui.begin")}
+          </a>
+        ) : null}
+        {route ? (
+          <a className={primaryClass} data-board-primary href={ports.router.path(route)}>
+            {route === "player" ? t("ui.handoff") : t("ui.seats")}
+          </a>
+        ) : null}
+        {step === "secrets" ? (
+          <button
+            className={primaryClass}
+            type="button"
+            data-board-primary
+            data-act="start-night"
+            disabled={errors.length > 0}
+            onClick={() => actions.run({ type: "startNight", payload: {} })}
+          >
+            {t("startFirstNight")}
+          </button>
+        ) : null}
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {step === "roles"
+            ? null
+            : (
+                [
+                  ["player", t("ui.handoff")],
+                  ["seat", t("seats")],
+                  ["secrets", t("secrets")],
+                ] as const
+              )
+                .filter(([target]) => target !== route)
+                .map(([target, label]) => (
+                  <a
+                    className={ACTION_QUIET}
+                    data-board-link
+                    href={ports.router.path(target)}
+                    key={target}
+                  >
+                    {label}
+                  </a>
+                ))}
+          <button
+            className={ACTION_QUIET}
+            type="button"
+            data-act="demo-15"
+            title={t("ui.demoHint")}
+            onClick={() => ports.router.go("demo")}
+          >
+            {t("demo")}
+          </button>
+        </div>
+      </div>
+      {step === "roles" ? null : <p className={`m-0 ${MUTED}`}>{t("discussWarning")}</p>}
     </section>
   );
 }
@@ -1761,7 +1976,10 @@ export function OverCard({ view }: { view: TableView }) {
       {!state.reviewOpen ? (
         <p className={MUTED}>{t("reviewHidden")}</p>
       ) : (
-        <ReviewTable view={view} />
+        <>
+          <ReviewTable view={view} />
+          <GameLog view={view} grouped className="mt-3" />
+        </>
       )}
     </section>
   );

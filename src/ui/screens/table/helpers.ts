@@ -1,7 +1,13 @@
 // Pure view helpers for the storyteller console. No DOM, no store access:
 // they take the state and the two catalog lookups the screen already has.
 import type { PreviewEffect, PreviewOutcome, PreviewResult } from "../../ports.ts";
-import { livingPlayers, orderedPlayers, playerById } from "../../../core/model/state.ts";
+import {
+  hasAbility,
+  hasTrueAbility,
+  livingPlayers,
+  orderedPlayers,
+  playerById,
+} from "../../../core/model/state.ts";
 import {
   ALL_ROLES as RULE_ROLES,
   isManualScript,
@@ -139,6 +145,20 @@ export function blockerText(blocker: StepBlocker, minTargets: number, t: Transla
   return t("ui.blockRedirect");
 }
 
+/**
+ * The dock action reads as the input it waits for, not as a generic "Action".
+ * The first unanswered decision owns the label because the dots follow the same
+ * order in the sentence above the button.
+ */
+export function blockerActionText(blocker: StepBlocker, t: Translate): string {
+  if (blocker === "targets") return t("ui.needTarget");
+  if (blocker === "secrets") return t("ui.needSecrets");
+  if (blocker === "role") return t("ui.needRole");
+  if (blocker === "drunk") return t("ui.needDrunk");
+  if (blocker === "given") return t("ui.needGiven");
+  return t("ui.needRedirect");
+}
+
 export interface Rejection {
   text: string;
   code: string | null;
@@ -183,8 +203,35 @@ export function rejectionText(rejection: Rejection | null, t: Translate): string
 }
 
 /**
+ * Whether the host may mark the step's deaths. The Pit-Hag gains that control
+ * only when the drafted character is a not-in-play Demon (Pit-Hag r2998); the
+ * completion sets `canKill` too late for the one-shot console payload, so the
+ * draft is the affordance and the engine still validates the outcome.
+ */
+export function canMarkStepDeaths(
+  state: GameState,
+  stepRole: string | null | undefined,
+  draftedRole: string | null | undefined,
+  canKill: boolean,
+): boolean {
+  if (canKill) return true;
+  if (stepRole !== "pithag" || !draftedRole || roleTeam(draftedRole) !== "demon") return false;
+  return !orderedPlayers(state).some(
+    (player) => hasAbility(player, draftedRole) || player.used?.philosopherAbility === draftedRole,
+  );
+}
+
+/**
+ * The role a player or step card names: the role the player is shown wins over
+ * the real role, so a Drunk never sees the Drunk card.
+ */
+export function cardRoleId(player: Player | null | undefined): string | null {
+  return player?.shownRoleId || player?.roleId || null;
+}
+
+/**
  * The text of the private information card. An impaired actor shows the answer
- * the host selected, then the typed template; a healthy actor shows the computed
+ * the host gave, including its wording; a healthy actor shows the computed
  * information.
  */
 export function shownCardText(
@@ -192,13 +239,14 @@ export function shownCardText(
   step: NightStep,
   info: StepInfo | null | undefined,
   given: StepInfo | undefined,
-  template: string,
   impaired: boolean,
   roles: RoleLookup,
   t: Translate,
 ): string {
   if (impaired) {
-    return given ? infoText(state, step, given, roles, t) : template || t("ui.notSet");
+    // The card shows the answer the host gave, never the engine's computation
+    // and never a poisoning label (States r1039).
+    return given ? infoText(state, step, given, roles, t) : t("ui.notSet");
   }
   return infoText(state, step, given || info, roles, t);
 }
@@ -283,6 +331,7 @@ type DayHelpForm =
   | "gossip"
   | "juggler"
   | "moonchild"
+  | "klutz"
   | "mastermind";
 
 /**
@@ -296,10 +345,10 @@ export function dayHelpForms(state: GameState): DayHelpForm[] {
   const open = !state.day.execution && !state.day.ended;
   const scriptRoles = Array.isArray(state.script?.roles) ? state.script.roles : [];
   if (open) {
-    if (players.some((p) => p.roleId === "virgin" && p.alive && !p.used.virgin)) {
+    if (players.some((p) => hasTrueAbility(p, "virgin") && p.alive && !p.used.virgin)) {
       forms.push("virgin");
     }
-    if (players.some((p) => p.roleId === "slayer" && p.alive && !p.used.slayer)) {
+    if (players.some((p) => hasAbility(p, "slayer") && p.alive && !p.used.slayer)) {
       forms.push("slayer");
     }
     const artist = artistProjection(state);
@@ -311,7 +360,7 @@ export function dayHelpForms(state: GameState): DayHelpForm[] {
       : null;
     if (gossip && !(state.gossip && state.gossip.day === state.day.number)) forms.push("gossip");
     const juggler = scriptRoles.includes("juggler")
-      ? players.find((player) => player.roleId === "juggler" && player.alive)
+      ? players.find((player) => hasAbility(player, "juggler") && player.alive)
       : null;
     const storedDay =
       state.juggler && typeof state.juggler.day === "number" ? state.juggler.day : null;
@@ -323,11 +372,28 @@ export function dayHelpForms(state: GameState): DayHelpForm[] {
     if (juggler && !state.winner && !juggler.used.juggler && guessingDay === state.day.number) {
       forms.push("juggler");
     }
-    const moonchild = players.find((player) => player.roleId === "moonchild" && !player.alive);
+    const moonchild = players.find(
+      (player) => hasTrueAbility(player, "moonchild") && !player.alive,
+    );
     if (moonchild && !moonchild.used.moonchildTarget) forms.push("moonchild");
   }
+  // The Klutz's choice follows the death, and an execution ends the day, so
+  // this form must not depend on the day still being open.
+  const klutz = players.find(
+    (player) => hasAbility(player, "klutz") && !player.alive && !player.used.klutz,
+  );
+  if (klutz) forms.push("klutz");
   if (state.mastermind?.active) forms.push("mastermind");
   return forms;
+}
+
+/**
+ * The identity of the current day for the execution drafts. A new day, a new
+ * night or a phase change moves it, so the table screen clears the execution
+ * target and the survival flag instead of carrying them into another day.
+ */
+export function executionDraftKey(state: GameState): string {
+  return state.phase + ":" + state.day.number + ":" + state.night.number;
 }
 
 /** How many role forms the day-help sheet holds; the dock shows it. */
@@ -545,6 +611,9 @@ export function infoText(
   t: Translate,
 ): string {
   if (!info) return t("none");
+  // The Storyteller's own words are exactly what the player hears; the
+  // structured answer stays in the record for the journal and replay.
+  if (info.answerText && info.answerText.trim()) return info.answerText;
   const roleName = (id: string | null | undefined) => roleNameOf(id, roles);
   // The engine hint carries a catalog key; the stored Russian sentence is the
   // fallback for results saved before that key existed. Role-typed variables
@@ -565,6 +634,17 @@ export function infoText(
     if (hint && (hint !== step.note || !step.noteKey)) return hint;
     if (step.noteKey) return t(step.noteKey, localizeVars(step.noteVars, roles));
     return hint || t("none");
+  }
+  if (info.kind === "role-pair") {
+    const pair = (info.pair || []).map((id) => roleName(String(id)));
+    return pair.length === 2 ? pair.join(" / ") : hint || t("ui.notSet");
+  }
+  if (info.kind === "player-pair") {
+    const pair = (info.pair || []).map((id) => {
+      const player = playerById(state, String(id));
+      return player ? `${displayName(player, t)} (${player.seat})` : String(id);
+    });
+    return pair.length === 2 ? pair.join(" / ") : hint || t("ui.notSet");
   }
   if (info.kind === "one-of-two") {
     if (info.zero) return t("ui.zero");
@@ -631,6 +711,7 @@ export function applyGiven(
   if (!info) return info;
   if (kind === "number") return { ...info, value: Number(raw), needsChoice: false };
   if (kind === "bool") return { ...info, value: raw === "true", needsChoice: false };
+  if (kind === "pair") return { ...info, pair: raw.split("|"), needsChoice: false };
   if (kind === "role" && raw === "zero") {
     return { ...info, zero: true, roleId: null, needsChoice: false };
   }
@@ -646,6 +727,8 @@ export function applyGiven(
 
 export function defaultCorrectionValue(kind: string, player: Player | null | undefined): string {
   if (kind === "role") return (player && player.roleId) || RULE_ROLES[0] || "";
+  if (kind === "shown")
+    return (player && (player.shownRoleId || player.roleId)) || RULE_ROLES[0] || "";
   if (kind === "alive") return player && player.alive ? "dead" : "alive";
   return "";
 }

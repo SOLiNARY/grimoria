@@ -262,6 +262,8 @@ export interface WinContext {
   readonly executionDeath: Death | null;
   readonly at: DeadAt;
   actualRoleOf(playerId: string): RoleId | null;
+  /** The player's real alignment; a registration never changes it. */
+  teamOf(playerId: string): Alignment | null;
   hasPlayer(playerId: string): boolean;
 }
 
@@ -313,6 +315,15 @@ export interface InformationContext {
   readonly at: DeadAt;
   /** Every seat in order around the circle, living or dead. */
   readonly seatIds: readonly string[];
+  /** Whether the player is alive now, dead players included in `seatIds`. */
+  isAlive(playerId: string): boolean;
+  /**
+   * How many distinct players carry an ABNORMAL reminder since the last
+   * Mathematician wake. The count only: a mark's reason is a secret.
+   */
+  readonly abnormalCount: number;
+  /** True when this player has a step tonight that woke them for their ability. */
+  wokeTonight?(playerId: string): boolean;
   aliveNeighborIds(playerId: string): readonly string[];
   registeredTeamOf(playerId: string): "good" | "evil" | null;
   /**
@@ -337,6 +348,20 @@ export interface InformationContext {
     readonly roleId: RoleId | null;
   } | null;
   /**
+   * The vote facts of the day that just ended, read by the next night's
+   * "today" questions. Null when there is no complete ended-day ledger.
+   */
+  readonly votesToday: {
+    readonly demonVoted: boolean;
+    readonly minionNominated: boolean;
+  } | null;
+  /**
+   * The two players the Storyteller paired for the Evil Twin, the good
+   * member first, as ids only. Null when the pair is unset or invalid.
+   * Characters come from `actualRoleOf`; names stay the engine's presentation.
+   */
+  readonly twins: { readonly goodId: string; readonly evilId: string } | null;
+  /**
    * The characters the player may register as to this ability, their own
    * first: more than one only while the Storyteller may still register them
    * as another character.
@@ -348,6 +373,12 @@ export interface InformationContext {
 
 /** One value an information answer can take. */
 export type InformationValue = boolean | number | string;
+
+/** One player an introduction note shows, with the character the other twin learns. */
+export interface ShownTwin {
+  readonly playerId: string;
+  readonly roleId: RoleId | null;
+}
 
 export type InformationDecision =
   /**
@@ -372,6 +403,25 @@ export type InformationDecision =
       readonly possible?: readonly InformationValue[];
       readonly legal?: readonly InformationValue[];
       readonly subjectId?: string;
+    }
+  /**
+   * The ability learns which two characters a player might be: one of each of
+   * two kinds. The role names the player and the two character pools, and the
+   * characters the player may register as; it does not choose the pair, mark
+   * it false or read whether its owner works. The engine builds the legal
+   * pairs from the player's character and the registration facts, and asks
+   * the host.
+   *
+   * `good` and `evil` are the pools a pair draws from, by kind. `possible` is
+   * every character the player may be shown as to this ability, their own
+   * first.
+   */
+  | {
+      readonly kind: "role-pair";
+      readonly subjectId: string;
+      readonly good: readonly RoleId[];
+      readonly evil: readonly RoleId[];
+      readonly possible: readonly RoleId[];
     }
   /**
    * The answer is the one the Storyteller prepared for this ability before the
@@ -401,9 +451,19 @@ export type InformationDecision =
   | { readonly kind: "grimoire" }
   /**
    * The ability has nothing to learn this time, and the text says why. The
-   * engine stores it as the answer of the step; nobody is asked.
+   * engine stores it as the answer of the step; nobody is asked. An
+   * introduction note names the players it introduces through `shown`.
    */
-  | { readonly kind: "note"; readonly text: string }
+  | {
+      readonly kind: "note";
+      readonly text: string;
+      /**
+       * The players this note introduces to each other, in the order the
+       * engine words them: the Evil Twin first, the Good Twin second, each
+       * with the character the other learns. Only an introduction carries it.
+       */
+      readonly shown?: readonly ShownTwin[];
+    }
   /**
    * No answer yet. A step that learns a character and has no player to read
    * stays a question the Storyteller may fill with any character.
@@ -457,6 +517,11 @@ export type RoleCapability =
       readonly endsOnUse?: readonly TimedEffectKind[];
       /** Resolves the completed step. Absent means the engine keeps its own path. */
       readonly resolve?: (context: AbilityContext) => AbilityDecision;
+    }
+  | {
+      readonly kind: "death-step";
+      /** The step built when this role dies outside the printed order. */
+      readonly step: NightStepSpec;
     }
   | {
       readonly kind: "death-trigger";

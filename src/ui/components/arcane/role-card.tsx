@@ -10,7 +10,7 @@ export interface CardRole {
 export interface RoleCardProps {
   role: CardRole;
   image: string;
-  mode?: "hidden" | "revealed" | "compact";
+  mode?: "revealed" | "compact";
   orientation?: "stack" | "row";
   reminders?: string[];
   footer?: ReactNode;
@@ -26,22 +26,6 @@ export function RoleCard({
   footer,
   className,
 }: RoleCardProps) {
-  if (mode === "hidden") {
-    return (
-      <article
-        className={cx(
-          "grid place-items-center gap-2 rounded-md border border-edge-2 bg-crypt-2 p-8 text-center",
-          className,
-        )}
-        data-role-card="hidden"
-      >
-        <span className="font-role text-[28px] text-brass" aria-hidden="true">
-          ✦
-        </span>
-        <p className="m-0 text-[11px] uppercase tracking-[.18em] text-muted">Роль скрыта</p>
-      </article>
-    );
-  }
   const compact = mode === "compact";
   if (compact && orientation === "row") {
     return (
@@ -103,7 +87,7 @@ export function RoleCard({
           {role.ability}
         </p>
         {reminders.length ? (
-          <div className="mt-1 rounded-sm border border-amber-dim bg-amber-dim/40 px-2 py-1.5 text-[10px] leading-relaxed text-amber-2">
+          <div className="mt-1 rounded-sm border border-amber-dim bg-amber-dim/40 px-2 py-1.5 text-[10px] leading-relaxed text-accent-text">
             {reminders.map((reminder) => (
               <p key={reminder} className="m-0">
                 {reminder}

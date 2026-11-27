@@ -12,6 +12,7 @@ import type { Page, PageDialog, Playwright } from "./playwright.ts";
 import type { AddressInfo } from "node:net";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createDistServer } from "./serve-dist.ts";
+import { timed } from "./harness.ts";
 
 const { chromium } = (await import(
   process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright"
@@ -35,6 +36,137 @@ if (artifacts) {
 const dist = artifacts ? join(artifacts, "dist") : join(root, "dist");
 const distRoot = artifacts ? join(artifacts, "dist-root") : join(root, "dist-root");
 const run = promisify(execFile);
+
+// The game-over review shows the whole narrative log, not only the side-panel
+// preview. The chronicle is rebuilt from the saved log and keeps the winner.
+async function gameEndChronicle() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "chef",
+      2: "empath",
+      3: "soldier",
+      4: "poisoner",
+      5: "imp",
+    } as Record<string, string>;
+    const game = model.createGame(5);
+    game.order.forEach((id) => {
+      game.players[id].name = "P" + id;
+    });
+    game.setup.count = 5;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const ports = {
+      clock: { now: () => new Date().toISOString() },
+      rng: { next: () => 0.5 },
+      idFactory: { suffix: (length: number) => "c".repeat(length) },
+    };
+    engine.addLog(
+      game,
+      { secret: true, kind: "game", title: "Хроника: проверка", detail: "Ночная запись." },
+      ports,
+    );
+    engine.addLog(
+      game,
+      {
+        secret: true,
+        kind: "night",
+        title: "Хроника: выбор",
+        detail: "Шаг выполнен.",
+        actorId: "1",
+        targetIds: ["2"],
+      },
+      ports,
+    );
+    engine.setWinner(game, "good", "demon-dead");
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.locator('[data-step="over"]').waitFor();
+  await page.locator('[data-act="review"]').click();
+  const chronicle = page.locator('[data-step="over"] [data-log]');
+  await chronicle.waitFor();
+  const text = (await chronicle.innerText()) ?? "";
+  assert.ok(text.includes("Хроника: проверка"), "the review keeps the narrative lines");
+  assert.ok(text.includes("P1 → P2"), "the chronicle names the actor and the target");
+  assert.ok(text.includes("Победа добра"), "the winner line is part of the chronicle");
+  const groups = page.locator('[data-step="over"] [data-log-group]');
+  assert.ok((await groups.count()) >= 2, "the chronicle is grouped by phase");
+  const labels = await groups.evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("data-log-group")),
+  );
+  assert.ok(labels.includes("Ночь 1"), "the first section is the night");
+  await page.screenshot({ path: join(screenshots, "over-chronicle-390.png") });
+}
+
+const focusedName = process.env.PG_BROWSER_CHECK;
+const focusedChecks: Record<string, () => Promise<void>> = {
+  "saved-custom-bag": savedCustomBagRestoresPool,
+  "mixed-script": mixedScriptDiagnostics,
+  "verified-jinx": verifiedJinxDiagnostics,
+  "mobile-bag-order": mobileBagOrder,
+  "no-beta-labels": officialScriptsAreNotBeta,
+  "role-corrections": currentScriptRoleCorrections,
+  "madness-execution": madnessExecutionFromTable,
+  "player-voting": playerBubbleVoting,
+  "player-card": playerCardHasNoCountdown,
+  "seat-lock": seatOrderIsFixedAfterStart,
+  "drunk-slayer": drunkSlayerFromTable,
+  "queue-panel": queuePanelReachable,
+  "notes-debounce": notesDebounce,
+  "secrets-checks": secretsChecks,
+  corrections: correctionSurface,
+  "pacifist-survival": pacifistSurvivalControl,
+  "day-reset": dayChangeClearsExecutionDrafts,
+  "lunatic-setup": lunaticSetupControls,
+  "verification-contracts": verificationContracts,
+  "setup-zero": setupZeroIsTheLibrariansAlone,
+  washerwoman: washerwomanFalseInformationCard,
+  "demon-wake": newDemonWakesOnce,
+  "pukka-goon": pukkaChoosesGoonWhileSelfPoisoned,
+  "goon-alignment": goonAlignmentReveal,
+  "mayor-redirect": mayorRedirectIsAsked,
+  "heir-question": heirQuestionLeadsTheNight,
+  "heir-sheet": heirQuestionLeadsAnOpenSheet,
+  "chef-label": chefRegistrationIsLabelled,
+  "pithag-deaths": pithagArbitraryDeathReachable,
+  "tinker-first-night": tinkerFirstNightDeathReachable,
+  "journal-pairs": journalInformationPairsInspectable,
+  "dreamer-pair": dreamerInformationPairThroughTable,
+  "evil-twin-introduction": evilTwinIntroductionThroughTable,
+  "tinker-night": tinkerNightDeathNeedsTheAbility,
+  "night-resurrection": nightResurrectionNeedsTheAbility,
+  "notes-4000": notesInputStaysCompact,
+  "klutz-day": klutzDayChoice,
+  "step-action": stepActionOpensReadyStep,
+  "mandatory-skip": mandatoryStepHasNoSkip,
+  "execute-stale": executionConfirmRejectsStaleSelection,
+  "storefront-welcome": storefrontWelcomeAt390,
+  "heir-reload": heirChoiceSurvivesReload,
+  "vortox-label": vortoxFalseInformationLabel,
+  "cerenovus-privacy": cerenovusMadnessStaysPrivate,
+  "adjudication-persistence": adjudicationPersistence,
+  "game-end-chronicle": gameEndChronicle,
+};
+if (focusedName && !focusedChecks[focusedName]) {
+  throw new Error("Unknown browser check: " + focusedName);
+}
 
 // The harness drives the built artifact, not the source tree. Build once with
 // the subpath base (and again at the root base for the fallback matrix), then
@@ -66,8 +198,13 @@ if (!process.env.PG_SKIP_BUILD) {
     ]);
   await build(BASE, dist);
   await post(BASE, dist);
-  await build("/", distRoot);
-  await post("/", distRoot);
+  if (!focusedName) {
+    await build("/", distRoot);
+    await post("/", distRoot);
+  }
+}
+if (focusedName) {
+  console.log(`Focused check: ${focusedName}; project-base artifact only.`);
 }
 
 // A mutable release lets the update-flow check deploy a second worker version.
@@ -108,16 +245,47 @@ await context.addInitScript(() => {
   // Test-mode entry: the page resolves this specifier at runtime, so the
   // harness never bundles it.
   window.PG_MODULES = () => import(String("/pocket/test-entry.js"));
+  // Fixtures advance the night without playing an ability. A permitted skip is
+  // the engine's; a mandatory living step is marked directly, because the host
+  // rule is not what the fixture exercises.
+  window.fixtureSkip = (engine, game, key, reason = "browser check") => {
+    const step = game.night.queue.find((entry) => entry.key === key);
+    if (!step || step.done || step.skipped) return false;
+    if (engine.skipStep(game, key, reason).ok) return true;
+    step.done = true;
+    step.skipped = true;
+    return true;
+  };
 });
 const page = await context.newPage();
 const errors: string[] = [];
+const failed: string[] = [];
 context.on("page", (tab) => tab.on("pageerror", (error) => errors.push(error.message)));
 page.on("pageerror", (error) => errors.push(error.message));
 page.on("console", (message) => {
   if (message.type() === "error") errors.push(message.text());
 });
+page.on("response", (response) => {
+  if (response.status() >= 400) failed.push(`${response.status()} ${response.url()}`);
+});
 const screenshots = join(tmpdir(), "pocket-grimoire-check");
 await mkdir(screenshots, { recursive: true });
+
+let phaseStarted = Date.now();
+function phase(name: string) {
+  const now = Date.now();
+  console.log(`PHASE ${name} (${now - phaseStarted} ms)`);
+  phaseStarted = now;
+}
+
+async function settled(target: Page = page) {
+  await target.evaluate(
+    () =>
+      new Promise<void>((done) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => done()));
+      }),
+  );
+}
 
 /** One icon of the web app manifest the identity check reads. */
 interface ManifestIcon {
@@ -141,7 +309,7 @@ async function route(path: string) {
     dispatchEvent(new PopStateEvent("popstate"));
   }, "/pocket" + path);
   await page.waitForFunction((path) => document.body.dataset.route === path.slice(1), path);
-  await page.waitForTimeout(60);
+  await settled();
 }
 async function sheetRoute(path: string) {
   await page.evaluate((href) => {
@@ -149,7 +317,7 @@ async function sheetRoute(path: string) {
     dispatchEvent(new PopStateEvent("popstate"));
   }, "/pocket" + path);
   await page.waitForFunction(() => document.body.dataset.route === "sheet");
-  await page.waitForTimeout(60);
+  await settled();
 }
 async function overflow() {
   const detail = await page.evaluate(() => ({
@@ -173,7 +341,7 @@ async function overflow() {
 async function sheetLegibility(widths: number[], expected = 77) {
   for (const width of widths) {
     await page.setViewportSize({ width, height: 900 });
-    await page.waitForTimeout(80);
+    await settled();
     assert.equal(
       await page.locator(".sheet-role").count(),
       expected,
@@ -213,20 +381,208 @@ async function sheetLegibility(widths: number[], expected = 77) {
   }
 }
 async function chooseLanguage(lang: string) {
-  const mobile = ((await page.viewportSize())?.width ?? 0) < 900;
+  // The bar keeps its list in the burger below 1440 px, so the control is
+  // inside the closed panel until the toggle opens it.
+  const mobile = ((await page.viewportSize())?.width ?? 0) < 1440;
   if (mobile) {
     await page.locator("[data-app-bar-toggle]").click();
     await page.locator("[data-app-bar-menu]").waitFor({ state: "visible" });
   }
   await page.locator(`.lang-switch [data-lang="${lang}"]`).click();
   if (mobile) await page.keyboard.press("Escape");
-  await page.waitForTimeout(100);
+  await settled();
 }
 // The host tools live in the table menu; open it only when it is closed.
 async function openTableMenu(target: Page = page) {
   if (await target.locator("[data-menu]").count()) return;
   await target.locator('[data-act="menu"]:visible').click();
   await target.waitForSelector("[data-menu]");
+}
+// Execution is a two-step control: arm from the dock, confirm in the sheet.
+async function executeNow(target: Page = page) {
+  await target.locator('[data-act="execute"]').click();
+  await target.waitForSelector('[data-act="execute-confirm"]');
+  await target.locator('[data-act="execute-confirm"]').click();
+}
+
+// The dock action opens the sheet only when the step holds every required
+// input, and that sheet can confirm.
+async function stepActionOpensReadyStep() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedMayorNight2();
+  await route("/table");
+  await page.locator('[data-target][data-id="1"]').click();
+  await settled();
+  const action = page.locator('[data-act="complete"]');
+  assert.equal(await action.isEnabled(), true, "a ready step enables the dock action");
+  await action.click();
+  const confirm = page.locator('[data-act="step-confirm"]');
+  await confirm.waitFor();
+  assert.equal(await confirm.isEnabled(), true, "a ready step opens a confirmable sheet");
+  await confirm.click();
+  await settled();
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "a confirmed step closes the sheet",
+  );
+  assert.equal(
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      return engine.currentStep(store.state)?.roleId ?? null;
+    }),
+    "imp",
+    "the confirmed step advances the wake",
+  );
+}
+
+// A living actor's mandatory step offers no Skip control, the command is
+// refused, and the Po records "no one" through the ordinary confirmation.
+async function mandatoryStepHasNoSkip() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedImpAttackNight2();
+  await route("/table");
+  await page.locator('[data-target][data-id="1"]').click();
+  await settled();
+  assert.equal(
+    await page.locator('[data-table-dock] [data-act="skip"]').count(),
+    0,
+    "the dock offers no skip on the Imp's mandatory step",
+  );
+  await page.locator('[data-act="complete"]').click();
+  const confirm = page.locator('[data-act="step-confirm"]');
+  await confirm.waitFor();
+  assert.equal(
+    await page.locator('[data-act="step-skip"]').count(),
+    0,
+    "the step sheet offers no skip",
+  );
+  const refused = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    return store.dispatch({
+      id: "mandatory-skip-" + crypto.randomUUID(),
+      type: "skipStep",
+      payload: { key: engine.currentStep(store.state)!.key },
+    });
+  });
+  assert.equal(refused.status, "rejected", "the command is refused");
+  assert.equal(refused.errorCode, "error.80");
+  await page.keyboard.press("Escape");
+  await settled();
+
+  await seedPoNight2();
+  await route("/table");
+  assert.equal(
+    await page.locator('[data-act="no-one"]').count(),
+    1,
+    "the dock names the Po's no-one choice",
+  );
+  assert.equal(
+    await page.locator('[data-table-dock] [data-act="skip"]').count(),
+    0,
+    "the dock offers no skip on the Po's step",
+  );
+  await page.locator('[data-act="complete"]').click();
+  const poConfirm = page.locator('[data-act="step-confirm"]');
+  await poConfirm.waitFor();
+  assert.equal(await page.locator('[data-act="step-skip"]').count(), 0, "the Po offers no skip");
+  assert.equal(
+    await page.locator('[data-act="step-no-one"]').count(),
+    1,
+    "the sheet names the Po's no-one choice",
+  );
+  assert.equal(
+    await page.locator("[data-step-no-one-hint]").count(),
+    1,
+    "the sheet explains what the choice does",
+  );
+  await page.locator('[data-act="step-no-one"]').click();
+  await settled();
+  const recorded = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return store.state.players["6"].used.poNoOne === true;
+  });
+  assert.equal(recorded, true, "the no-one choice is recorded");
+  const next = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const game = structuredClone(store.state);
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    for (const type of ["endNight", "endDay", "startNight"]) {
+      const result = engine.applyCommand(game, { id: "po-next-" + type, type, payload: {} });
+      if (result.status !== "allowed") throw new Error(type + ": " + JSON.stringify(result));
+    }
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "po") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const step = engine.currentStep(game);
+    return {
+      role: step?.roleId ?? null,
+      min: step?.minTargets ?? null,
+      max: step?.maxTargets ?? null,
+    };
+  });
+  assert.deepEqual(next, { role: "po", min: 3, max: 3 }, "the next Po step takes three targets");
+}
+
+// Fixture setup, not a host action: advance the current night step even when the
+// console rightly offers no Skip control for a mandatory wake.
+async function advanceFixtureStep(target: Page = page) {
+  await target.evaluate(async () => {
+    const { store, engine } = await window.PG_MODULES();
+    const step = engine.currentStep(store.state);
+    if (!step) return;
+    const applied = store.dispatch({ type: "skipStep", payload: { key: step.key } });
+    if (applied.status === "allowed") return;
+    const next = structuredClone(store.state);
+    const entry = next.night.queue.find((candidate) => candidate.key === step.key);
+    if (!entry) return;
+    entry.done = true;
+    entry.skipped = true;
+    store.replaceState(next);
+  });
+  await settled(target);
+}
+
+// A confirmation opened for one player must not execute that player when the
+// day already recorded another execution behind the sheet.
+async function executionConfirmRejectsStaleSelection() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(7);
+  await route("/table");
+  await finishNight();
+  await page.locator('[data-act="dawn-dismiss"]').click();
+  await page.locator('[data-seat-open="2"]').click();
+  await page.waitForSelector("[data-player-sheet]");
+  await page.locator('[data-act="player-execute"]').click();
+  const execute = page.locator('[data-table-dock] [data-act="execute"]');
+  assert.equal(await execute.isEnabled(), true, "the selected player arms execution");
+  await execute.click();
+  await page.waitForSelector('[data-act="execute-confirm"]');
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const result = store.dispatch({
+      id: "browser-stale-" + crypto.randomUUID(),
+      type: "executeByDecision",
+      payload: { playerId: "3" },
+    });
+    if (result.status !== "allowed") throw new Error(JSON.stringify(result));
+  });
+  await page.locator('[data-act="execute-confirm"]').click();
+  await settled();
+  const outcome = await page.evaluate(async () => {
+    const { state } = (await window.PG_MODULES()).store;
+    return {
+      executed: state.day.execution?.playerId ?? null,
+      selectedAlive: state.players["2"].alive,
+    };
+  });
+  assert.deepEqual(
+    outcome,
+    { executed: "3", selectedAlive: true },
+    "the stale selection is rejected and the recorded execution stays",
+  );
 }
 async function seed(count: number, phase = "night") {
   const result = await page.evaluate(
@@ -240,6 +596,20 @@ async function seed(count: number, phase = "night") {
       > = {
         7: {
           roles: ["chef", "empath", "fortuneteller", "undertaker", "virgin", "poisoner", "imp"],
+          bluffs: ["washerwoman", "librarian", "monk"],
+          drunkShownId: null,
+        },
+        8: {
+          roles: [
+            "chef",
+            "empath",
+            "fortuneteller",
+            "undertaker",
+            "virgin",
+            "butler",
+            "poisoner",
+            "imp",
+          ],
           bluffs: ["washerwoman", "librarian", "monk"],
           drunkShownId: null,
         },
@@ -313,7 +683,44 @@ async function seed(count: number, phase = "night") {
     { count, phase },
   );
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
+}
+
+// The circle is fixed during play (SYS-LIFECYCLE-02): the seat screen must not
+// offer a reorder once the first night starts.
+async function seatOrderIsFixedAfterStart() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(7);
+  await route("/seat");
+  assert.equal(
+    await page.locator("[data-seat-locked]").count(),
+    1,
+    "night renders the locked seat screen",
+  );
+  assert.equal(
+    await page.locator('[data-act="use"]').count(),
+    0,
+    "the locked screen offers no commit control",
+  );
+  const result = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const before = store.state.order.slice();
+    const outcome = store.dispatch({
+      type: "setOrder",
+      payload: { order: before.slice().reverse() },
+    });
+    return { status: outcome.status, before, after: store.state.order.slice() };
+  });
+  assert.equal(result.status, "rejected", "the engine refuses a mid-game reorder");
+  assert.deepEqual(result.after, result.before, "the circle is unchanged");
+  await seed(7, "deal");
+  await route("/seat");
+  assert.equal(await page.locator("[data-seat-locked]").count(), 0, "setup renders the ring");
+  assert.equal(
+    await page.locator('[data-act="use"]').count(),
+    1,
+    "setup offers the commit control",
+  );
 }
 
 // Night 2 of a 5-player Mayor game, with the Poisoner's step waiting. Night 1
@@ -342,7 +749,7 @@ async function seedMayorNight2() {
       targetIds: ["2"],
     });
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     engine.endNight(game);
     engine.endDay(game);
     const errors = model.validateState(game);
@@ -352,8 +759,122 @@ async function seedMayorNight2() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
 }
+// Night 2 of a 5-player game with the Imp's mandatory attack waiting.
+async function seedImpAttackNight2() {
+  const result = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = { 1: "soldier", 2: "chef", 3: "empath", 4: "poisoner", 5: "imp" };
+    const game = model.createGame(5);
+    Object.entries(assignment).forEach(([id]) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 5;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const day = engine.endDay(game);
+    if (!day.ok) return day;
+    const second = engine.startNight(game);
+    if (!second.ok) return second;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "imp") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      return engine.currentStep(store.state)?.roleId ?? null;
+    }),
+    "imp",
+    "the Imp's attack waits",
+  );
+  await settled();
+}
+
+// Night 2 of an 8-player Bad Moon Rising game with the Po's step waiting.
+async function seedPoNight2() {
+  const result = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment = {
+      1: "chambermaid",
+      2: "courtier",
+      3: "sailor",
+      4: "gossip",
+      5: "devilsadvocate",
+      6: "po",
+      7: "tinker",
+      8: "exorcist",
+    };
+    const game = model.createGame(8);
+    game.script = {
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [...rules.BMR_ALL],
+    };
+    game.scriptId = "bmr";
+    Object.entries(assignment).forEach(([id]) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.setup.count = 8;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = ["fool", "moonchild", "grandmother"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const day = engine.endDay(game);
+    if (!day.ok) return day;
+    const second = engine.startNight(game);
+    if (!second.ok) return second;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "po") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      return engine.currentStep(store.state)?.roleId ?? null;
+    }),
+    "po",
+    "the Po's step waits",
+  );
+  await settled();
+}
+
 // Night 2 of a 5-player game where the healthy Soldier is the Imp's target:
 // the attack is blocked and the preview must show a prevented death.
 async function seedSoldierNight() {
@@ -377,12 +898,12 @@ async function seedSoldierNight() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)) {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     engine.endNight(game);
     engine.endDay(game);
     while (engine.currentStep(game)!.roleId !== "imp") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const errors = model.validateState(game);
     if (errors.length) return { ok: false, errors };
@@ -391,7 +912,7 @@ async function seedSoldierNight() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
 }
 
 // Night 2 of a 7-player Mayor game. P2 died to the Imp on night 1, the Monk
@@ -431,7 +952,7 @@ async function seedMayorRedirectTargets() {
     while (engine.currentStep(game)) {
       const step = engine.currentStep(game)!;
       if (step.roleId === "imp") engine.completeStep(game, step.key, { targetIds: ["2"] });
-      else engine.skipStep(game, step.key, "browser check");
+      else window.fixtureSkip(engine, game, step.key, "browser check");
     }
     engine.endNight(game);
     // P2 died away from a night wake: the Imp does not wake on night 1, so the
@@ -456,7 +977,7 @@ async function seedMayorRedirectTargets() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
 }
 
 // Night 1 of a 7-player Fortune Teller game, stopped on the Fortune Teller step
@@ -491,7 +1012,7 @@ async function seedFortuneTellerNight() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)!.roleId !== "fortuneteller") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const current = engine.currentStep(game);
     if (!current || current.roleId !== "fortuneteller")
@@ -503,7 +1024,7 @@ async function seedFortuneTellerNight() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
 }
 
 // Night 1 of an 8-player Bad Moon Rising game, stopped on the Lunatic step.
@@ -550,7 +1071,7 @@ async function seedLunaticNight(independentBluffs = true) {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)!.roleId !== "lunatic") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const current = engine.currentStep(game);
     if (!current || current.roleId !== "lunatic")
@@ -562,7 +1083,7 @@ async function seedLunaticNight(independentBluffs = true) {
     return { ok: true };
   }, independentBluffs);
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
 }
 
 // with seat 1 already dead, so the picker must not offer that seat.
@@ -606,7 +1127,7 @@ async function seedSnakeCharmerNight() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game)!.roleId !== "snakecharmer") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     const current = engine.currentStep(game);
     if (!current || current.roleId !== "snakecharmer")
@@ -618,7 +1139,7 @@ async function seedSnakeCharmerNight() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
 }
 
 // The Evil Twin holder is dead but keeps the ability through the living
@@ -695,7 +1216,7 @@ async function seedRetainedTwinNight() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
 }
 
 async function finishNight() {
@@ -739,6 +1260,105 @@ async function completeStep() {
   await complete.click();
   const confirm = page.locator('[data-act="step-confirm"]');
   if (await confirm.count()) await confirm.click();
+}
+
+async function notesInputStaysCompact() {
+  if (!(await page.locator("[data-notes]").count())) {
+    await route("/table");
+    await seed(7, "night");
+    await openTableMenu();
+  }
+  const intermediate = "n2000:" + "x".repeat(1994);
+  const final = "n4000:" + "x".repeat(3994);
+  await page.locator("[data-notes]").fill(intermediate);
+  await page.waitForFunction(
+    async (expected) => (await window.PG_MODULES()).store.state.notes === expected,
+    intermediate,
+  );
+  await page.locator("[data-notes]").fill(final);
+  await page.waitForFunction(
+    async (expected) => (await window.PG_MODULES()).store.state.notes === expected,
+    final,
+  );
+  const measured = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const applied = Object.values(store.state.applied);
+    return {
+      bytes: (localStorage.getItem("pg.game.v4") ?? "").length,
+      compact: applied.every((entry) => typeof entry.identity === "string"),
+      intermediate: JSON.stringify(store.state.applied).includes("n2000:"),
+    };
+  });
+  assert.ok(measured.bytes < 2_000_000, "4000 notes stay compact: " + measured.bytes);
+  assert.equal(measured.compact, true, "applied entries use compact identities");
+  assert.equal(measured.intermediate, false, "applied entries keep no intermediate text");
+  await page.locator("[data-notes]").fill("Browser verification");
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem("pg.game.v4");
+    return raw ? JSON.parse(raw).notes === "Browser verification" : false;
+  });
+  const persisted = await page.evaluate(() => {
+    const raw = localStorage.getItem("pg.game.v4");
+    return raw ? JSON.parse(raw).notes : null;
+  });
+  assert.equal(persisted, "Browser verification", "the 4000 character edit is saved");
+}
+
+// Issue #467: on a phone the scenario picker and the composition summary must
+// follow the player-count header, before the preset and manual pickers.
+async function mobileBagOrder() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/bag");
+  const tops = await page.evaluate(() => {
+    const top = (selector: string) =>
+      Math.round(document.querySelector(selector)?.getBoundingClientRect().top ?? -1);
+    return {
+      count: top("#bag-composition"),
+      script: top('[aria-labelledby="bag-script"]'),
+      composition: top('[aria-labelledby="bag-composition-left"]'),
+      tabs: top(".bag-tabs"),
+    };
+  });
+  assert.ok(
+    tops.script > tops.count,
+    `the scenario card follows the count: ${JSON.stringify(tops)}`,
+  );
+  assert.ok(
+    tops.composition > tops.script,
+    `the composition card follows the scenario card: ${JSON.stringify(tops)}`,
+  );
+  assert.ok(
+    tops.tabs > tops.composition,
+    `the pickers follow the composition: ${JSON.stringify(tops)}`,
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "mobile-bag-order-390.png") });
+}
+
+// The certification removed the beta label: all three official scenarios are
+// production-ready, so neither the bag editor nor the picker may show Beta.
+async function officialScriptsAreNotBeta() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/bag");
+  for (const id of ["tb", "bmr", "snv"]) {
+    assert.doesNotMatch(
+      (await page.locator(`[data-scenario="${id}"]`).innerText()) ?? "",
+      /beta|бета/i,
+      `${id} has no beta badge in the bag editor`,
+    );
+  }
+  await page.locator('[data-act="script"]').click();
+  await page.waitForSelector(".script-modal");
+  for (const id of ["tb", "bmr", "snv"]) {
+    const label = page.locator(`input[name="script-pick"][value="${id}"]`).locator("..");
+    assert.doesNotMatch(
+      await label.innerText(),
+      /beta|бета/i,
+      `${id} has no beta badge in the picker`,
+    );
+  }
+  await page.keyboard.press("Escape");
+  await settled();
 }
 
 async function savedCustomBagRestoresPool() {
@@ -826,6 +1446,213 @@ async function savedCustomBagRestoresPool() {
   await page.screenshot({ path: join(screenshots, "restored-custom-bag-1280.png") });
 }
 
+async function mixedScriptDiagnostics() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/bag");
+  const unsupported = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return store.dispatch({
+      type: "bagUpdate",
+      payload: {
+        patch: {
+          script: {
+            id: "custom-mixed-manual",
+            name: "Mixed manual fallback",
+            edition: "custom",
+            source: "file",
+            manualOnly: true,
+            roles: [
+              "fanggu",
+              "scarletwoman",
+              "monk",
+              "chef",
+              "empath",
+              "soldier",
+              "clockmaker",
+              "ravenkeeper",
+              "oracle",
+              "tealady",
+            ],
+          },
+          count: 7,
+          resetRoster: true,
+          phase: "setup",
+          roles: ["monk", "chef", "empath", "soldier", "clockmaker", "scarletwoman", "fanggu"],
+          bluffs: ["ravenkeeper", "oracle", "tealady"],
+        },
+      },
+    });
+  });
+  assert.equal(unsupported.status, "allowed", JSON.stringify(unsupported));
+  await page.locator('[data-tab="manual"]').click();
+  assert.equal(
+    await page.locator('[data-mixed-mode="manual"]').count(),
+    1,
+    "the explicit manual fallback is shown",
+  );
+
+  const certified = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return store.dispatch({
+      type: "bagUpdate",
+      payload: {
+        patch: {
+          script: {
+            id: "custom-mixed-proof",
+            name: "Mixed proof",
+            edition: "custom",
+            source: "file",
+            roles: [
+              "soldier",
+              "monk",
+              "sailor",
+              "courtier",
+              "clockmaker",
+              "poisoner",
+              "imp",
+              "ravenkeeper",
+              "oracle",
+              "tealady",
+            ],
+          },
+          count: 7,
+          resetRoster: true,
+          phase: "setup",
+          roles: ["soldier", "monk", "sailor", "courtier", "clockmaker", "poisoner", "imp"],
+          bluffs: ["ravenkeeper", "oracle", "tealady"],
+        },
+      },
+    });
+  });
+  assert.equal(certified.status, "allowed", JSON.stringify(certified));
+  await route("/bag");
+  await page.locator('[data-tab="manual"]').click();
+  assert.equal(
+    await page.locator('[data-mixed-mode="automatic"]').count(),
+    1,
+    "a certified pool is shown as automatic",
+  );
+  assert.equal(
+    await page.locator("[data-manual-only]").isChecked(),
+    false,
+    "the manual fallback is off for a certified pool",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "mixed-script-390.png") });
+
+  const started = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const result = store.dispatch({
+      type: "startGame",
+      payload: {
+        options: {
+          assignment: {
+            "1": "soldier",
+            "2": "monk",
+            "3": "sailor",
+            "4": "courtier",
+            "5": "clockmaker",
+            "6": "poisoner",
+            "7": "imp",
+          },
+        },
+      },
+    });
+    return {
+      status: result.status,
+      roles: store.state.night.queue.map((step) => step.roleId || step.system),
+    };
+  });
+  assert.equal(started.status, "allowed", JSON.stringify(started));
+  assert.deepEqual(started.roles, [
+    "minioninfo",
+    "demoninfo",
+    "sailor",
+    "poisoner",
+    "courtier",
+    "clockmaker",
+  ]);
+  await route("/table");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "mixed-script-table-390.png") });
+}
+
+async function verifiedJinxDiagnostics() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/table");
+  const configured = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return store.dispatch({
+      type: "bagUpdate",
+      payload: {
+        patch: {
+          script: {
+            id: "custom-verified-jinx",
+            name: "Verified jinx",
+            edition: "custom",
+            source: "file",
+            roles: [
+              "fanggu",
+              "scarletwoman",
+              "soldier",
+              "monk",
+              "chef",
+              "empath",
+              "clockmaker",
+              "klutz",
+              "oracle",
+              "tealady",
+              "ravenkeeper",
+            ],
+          },
+          count: 7,
+          resetRoster: true,
+          phase: "setup",
+          roles: ["fanggu", "scarletwoman", "soldier", "monk", "chef", "empath", "klutz"],
+          bluffs: ["clockmaker", "oracle", "tealady"],
+        },
+      },
+    });
+  });
+  assert.equal(configured.status, "allowed", JSON.stringify(configured));
+  await route("/bag");
+  await page.locator('[data-tab="manual"]').click();
+  assert.equal(
+    await page.locator('[data-mixed-mode="automatic"]').count(),
+    1,
+    "a verified jinxed pool is automatic",
+  );
+  assert.equal(
+    await page.locator('[data-interaction="jinx:fanggu+scarletwoman"]').count(),
+    0,
+    "the verified pair is not listed as a gap",
+  );
+  const started = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const result = store.dispatch({
+      type: "startGame",
+      payload: {
+        options: {
+          assignment: {
+            "1": "fanggu",
+            "2": "scarletwoman",
+            "3": "soldier",
+            "4": "monk",
+            "5": "chef",
+            "6": "empath",
+            "7": "klutz",
+          },
+        },
+      },
+    });
+    return { status: result.status, queue: store.state.night.queue.length };
+  });
+  assert.equal(started.status, "allowed", JSON.stringify(started));
+  assert.ok(started.queue > 0, "the composed night queue is reachable");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "verified-jinx-390.png") });
+}
+
 async function playerBubbleVoting() {
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
@@ -834,7 +1661,7 @@ async function playerBubbleVoting() {
       const { store, engine } = await window.PG_MODULES();
       const game = structuredClone(store.state);
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser vote controls");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser vote controls");
       }
       engine.endNight(game);
       game.players["3"].alive = false;
@@ -848,9 +1675,14 @@ async function playerBubbleVoting() {
       "a player bubble offers a vote count",
     );
     await page.locator("[data-vote-count]").fill("8");
-    assert.equal(await page.locator('[data-act="save-vote-count"]').isDisabled(), true);
+    await page.keyboard.press("Enter");
+    assert.equal(
+      await page.locator('[data-seat-open="2"] [data-seat-vote-count]').count(),
+      0,
+      "an out-of-range count is not recorded",
+    );
     await page.locator("[data-vote-count]").fill("4");
-    await page.locator('[data-act="save-vote-count"]').click();
+    await page.keyboard.press("Enter");
     await page.keyboard.press("Escape");
     assert.equal(
       await page
@@ -891,7 +1723,7 @@ async function playerBubbleVoting() {
       "living players have no dead-vote control",
     );
     await page.locator("[data-vote-count]").fill("0");
-    await page.locator('[data-act="save-vote-count"]').click();
+    await page.keyboard.press("Enter");
     await page.keyboard.press("Escape");
     await page.locator('[data-seat-open="3"]').click();
     await page.locator('[data-act="toggle-dead-vote"]').click();
@@ -919,7 +1751,12 @@ async function playerBubbleVoting() {
     game.phase = "seat";
     engine.startNight(game);
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "registered dead browser check");
+      window.fixtureSkip(
+        engine,
+        game,
+        engine.currentStep(game)!.key,
+        "registered dead browser check",
+      );
     engine.kill(game, "5", "demon");
     engine.endNight(game);
     store.replaceState(game);
@@ -945,6 +1782,34 @@ async function playerBubbleVoting() {
   assert.equal(
     await page.locator('[data-seat-open="5"] [data-seat-badge="no-ghost-vote"]').count(),
     1,
+  );
+}
+
+async function verificationContracts() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedLunaticNight(false);
+  const names = await page.evaluate(() =>
+    (window.PG?.roles ?? [])
+      .filter((role) => ["po", "lunatic", "imp"].includes(role.id))
+      .map((role) => role.name),
+  );
+  await route("/player");
+  await page.locator("[data-seat]:not([disabled])").first().click();
+  const card = page.locator(".player-card");
+  await card.waitFor();
+  const cardText = await card.innerText();
+  assert.ok(cardText.length > 0, "the handoff card is visible");
+  assert.equal(
+    cardText.includes(names[1] ?? ""),
+    false,
+    "the handoff card never names the real Lunatic role",
+  );
+  await page.keyboard.press("Escape");
+  await route("/table");
+  await page.waitForSelector("[data-hub-step]", { timeout: 5000 });
+  assert.ok(
+    (await page.locator("[data-hub-step]").innerText()).length > 0,
+    "the table keeps the current step",
   );
 }
 
@@ -1147,6 +2012,28 @@ async function lunaticSetupControls() {
     0,
     "an occupied good role is not offered to the real Demon",
   );
+  const openedBluffs = await page.evaluate(
+    async () => (await window.PG_MODULES()).store.state.setup.bluffs,
+  );
+  const offeredBluff = page.locator("[data-bluff-role]").first();
+  const pickedBluff = await offeredBluff.getAttribute("data-bluff-role");
+  await offeredBluff.click();
+  const replacedBluffs = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const { setup } = store.state;
+    return {
+      ids: setup.bluffs,
+      outsideBag: setup.bluffs.every((id: string) => !setup.roles.includes(id)),
+    };
+  });
+  assert.equal(replacedBluffs.ids.length, 3, "a full Demon list keeps three bluffs");
+  assert.equal(
+    replacedBluffs.ids[2],
+    pickedBluff,
+    "a full Demon list accepts the picked character",
+  );
+  assert.notDeepEqual(replacedBluffs.ids, openedBluffs, "the pick replaces the oldest bluff");
+  assert.equal(replacedBluffs.outsideBag, true, "the replacement stays outside the bag");
   await page.locator('[data-act="library"]').click();
   await page.locator("[data-library-name]").fill("Independent Lunatic setup");
   await page.locator('[data-act="save-bag"]').click();
@@ -1262,8 +2149,7 @@ async function setupZeroIsTheLibrariansAlone() {
       return engine.currentStep(store.state)?.roleId ?? null;
     });
   for (let guard = 0; guard < 12 && (await stepRole()) !== "washerwoman"; guard += 1) {
-    await page.locator('[data-act="skip"]:visible').first().click();
-    await page.waitForTimeout(60);
+    await advanceFixtureStep();
   }
   assert.equal(await stepRole(), "washerwoman", "the Washerwoman's step is open");
 
@@ -1276,14 +2162,17 @@ async function setupZeroIsTheLibrariansAlone() {
     );
   });
   assert.deepEqual(stored, ["allowed", "allowed"]);
-  await page.waitForTimeout(100);
+  await settled();
 
-  await page.locator('[data-act="complete"]').click();
-  await page.waitForSelector('[data-act="step-confirm"]');
   assert.equal(
-    await page.locator('[data-act="step-confirm"]').isEnabled(),
-    false,
-    "a Washerwoman step that holds a zero cannot be completed",
+    await page.locator('[data-act="open-secrets"]').count(),
+    1,
+    "a Washerwoman step that holds a zero offers the secret setup route",
+  );
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "a step blocked by missing setup opens no sheet",
   );
   // What the table reads for the step: no answer is prepared, in any language.
   assert.deepEqual(
@@ -1299,16 +2188,16 @@ async function setupZeroIsTheLibrariansAlone() {
     (await page.locator('[data-blocker-reason="secrets"]').count()) > 0,
     "the step names the missing setup as what blocks it",
   );
-  const offered = await page
-    .locator("select[data-given]:visible option")
-    .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
-  assert.ok(!offered.includes("zero"), "the zero is not offered for the Washerwoman");
   await overflow();
   await page.screenshot({ path: join(screenshots, "setup-zero-washerwoman-step-390.png") });
 
-  await page.locator('a[href$="secrets"]:visible').first().click();
+  await page.locator('[data-act="open-secrets"]').click();
   await page.waitForFunction(() => document.body.dataset.route === "secrets");
-  await page.waitForTimeout(60);
+  await settled();
+  // The checksheet opens one obligation at a time, so each editor is read
+  // through its index item.
+  await page.locator('[data-obligation="washerwoman"]').click();
+  await settled();
   assert.equal(
     await page.locator('[data-info-role="washerwoman"]').isVisible(),
     true,
@@ -1322,11 +2211,15 @@ async function setupZeroIsTheLibrariansAlone() {
     "the zero is not a choice of the Washerwoman's editor",
   );
   // The Librarian's stored zero is shown as the zero and stays editable.
+  await page.locator('[data-obligation="librarian"]').click();
+  await settled();
   assert.equal(await page.locator('[data-info-zero="librarian"]').isChecked(), true);
   assert.equal(await page.locator('[data-info-role="librarian"]').count(), 0);
   await overflow();
   await page.screenshot({ path: join(screenshots, "setup-zero-secrets-390.png"), fullPage: true });
 
+  await page.locator('[data-obligation="washerwoman"]').click();
+  await settled();
   await page.locator('[data-info-role="washerwoman"]').selectOption("chef");
   await page.locator('[data-player="pair-a-washerwoman"]').selectOption("4");
   await page.locator('[data-player="pair-b-washerwoman"]').selectOption("5");
@@ -1339,7 +2232,7 @@ async function setupZeroIsTheLibrariansAlone() {
     "the step completes once a character and two players are prepared",
   );
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(100);
+  await settled();
   assert.deepEqual(
     await page.evaluate(async () => {
       const { state } = (await window.PG_MODULES()).store;
@@ -1357,9 +2250,774 @@ async function setupZeroIsTheLibrariansAlone() {
   );
 }
 
+async function washerwomanFalseInformationCard() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const text = "P2 или P3 — Монах.";
+
+  const seed = async (poisoned: boolean) => {
+    const result = await page.evaluate(async (poisoned) => {
+      const { model, engine, store } = await window.PG_MODULES();
+      const assignment = {
+        1: "washerwoman",
+        2: "librarian",
+        3: "investigator",
+        4: "saint",
+        5: "chef",
+        6: "empath",
+        7: "poisoner",
+        8: "imp",
+      };
+      const game = model.createGame(8);
+      Object.entries(assignment).forEach(([id]) => {
+        game.players[id].name = "P" + id;
+        game.players[id].claimed = true;
+      });
+      game.setup.count = 8;
+      game.setup.roles = [...new Set(Object.values(assignment))];
+      game.setup.bluffs = ["monk", "virgin", "mayor"];
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      engine.autoSecrets(game);
+      game.setup.info.washerwoman = { roleId: "chef", pair: ["6", "5"], matchIndex: 1 };
+      game.phase = "seat";
+      const start = engine.startNight(game);
+      if (!start.ok) return start;
+      for (const system of ["minioninfo", "demoninfo"]) {
+        const step = game.night.queue.find((entry) => entry.system === system);
+        if (!step) return { ok: false, errors: [{ code: "step", message: system }] };
+        engine.completeStep(game, step.key, {});
+      }
+      const poisoner = game.night.queue.find((entry) => entry.roleId === "poisoner");
+      if (!poisoner) return { ok: false, errors: [{ code: "step", message: "poisoner" }] };
+      const poisonedTarget = poisoned ? "1" : "4";
+      engine.completeStep(game, poisoner.key, { targetIds: [poisonedTarget] });
+      const errors = model.validateState(game);
+      if (errors.length) return { ok: false, errors };
+      store.replaceState(game);
+      dispatchEvent(new PopStateEvent("popstate"));
+      return { ok: true };
+    }, poisoned);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    await settled();
+    await route("/table");
+  };
+
+  const recorded = () =>
+    page.evaluate(async () => {
+      const { store } = await window.PG_MODULES();
+      const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+      const given = step?.given as Record<string, unknown> | null | undefined;
+      return {
+        done: Boolean(step?.done),
+        roleId: given?.roleId ?? null,
+        pair: given?.pair ?? null,
+        answerText: given?.answerText ?? null,
+      };
+    });
+
+  await seed(true);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  assert.equal(
+    await page.locator('[data-act="show-info"]').count(),
+    0,
+    "a poisoned actor is never offered the computed card",
+  );
+  await page.locator('select[data-given-kind="role"]').selectOption("monk");
+  await page.locator('[data-player-pair="0"]').selectOption("2");
+  await page.locator('[data-player-pair="1"]').selectOption("3");
+  assert.equal(
+    await page.locator('[data-act="show-template"]').isDisabled(),
+    false,
+    "a chosen answer alone opens the card",
+  );
+  await page.locator('[data-act="show-template"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  const chosen = await page.locator("[data-player-card-text]").innerText();
+  assert.match(chosen, /Monk|Монах/, "the card shows the chosen Townsfolk");
+  assert.match(chosen, /P2/, "the card shows the chosen first player");
+  assert.match(chosen, /P3/, "the card shows the chosen second player");
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "monk", pair: ["2", "3"], answerText: null },
+    "the command records the chosen role and both players",
+  );
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("pg.stepDraft")),
+    "",
+    "the completed step leaves no draft behind",
+  );
+  await openTableMenu();
+  const firstJournal = await page.locator("[data-menu]").innerText();
+  assert.match(firstJournal, /Monk|Монах/, "the journal names the chosen Townsfolk");
+  assert.match(firstJournal, /P2/, "the journal names the first player");
+  assert.match(firstJournal, /P3/, "the journal names the second player");
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P3/,
+    "the recorded pair survives a reload",
+  );
+  await page.keyboard.press("Escape");
+
+  // The same answer with the Storyteller's own wording: one draft, one
+  // command, and the wording is what the journal and the card show.
+  await seed(true);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  await page.locator('select[data-given-kind="role"]').selectOption("monk");
+  await page.locator('[data-player-pair="0"]').selectOption("2");
+  await page.locator('[data-player-pair="1"]').selectOption("3");
+  await page.locator("[data-info-template]").fill(text);
+  await page.locator('[data-act="show-template"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  assert.equal(
+    await page.locator("[data-player-card-text]").innerText(),
+    text,
+    "the card shows the Storyteller's wording",
+  );
+  await page.keyboard.press("Escape");
+
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-given-kind="role"]');
+  assert.equal(
+    await page.locator("[data-info-template]").inputValue(),
+    text,
+    "the wording survives closing the sheet",
+  );
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "monk", pair: ["2", "3"], answerText: text },
+    "the command records the role, both players and the wording",
+  );
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P2 или P3 — Монах\./,
+    "the journal shows the recorded wording",
+  );
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await openTableMenu();
+  assert.match(
+    await page.locator("[data-menu]").innerText(),
+    /P2 или P3 — Монах\./,
+    "the recorded answer survives a reload",
+  );
+  await page.keyboard.press("Escape");
+
+  // A healthy Washerwoman keeps the prepared answer and never shows a
+  // false-information control.
+  await seed(false);
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="show-info"]');
+  assert.equal(
+    await page.locator("[data-info-template]").count(),
+    0,
+    "a healthy actor has no false-information control",
+  );
+  await page.locator('[data-act="show-info"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  const card = await page.locator("[data-player-card-text]").innerText();
+  assert.match(card, /Chef|Повар/, "the card names the prepared Townsfolk");
+  assert.match(card, /P6/, "the card names the prepared player");
+  await page.keyboard.press("Escape");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "washerwoman");
+    return Boolean(step?.done);
+  });
+  assert.deepEqual(
+    await recorded(),
+    { done: true, roleId: "chef", pair: ["6", "5"], answerText: null },
+    "the healthy answer is the prepared one",
+  );
+}
+
+async function drunkSlayerFromTable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const result = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "drunk",
+      2: "chef",
+      3: "empath",
+      4: "soldier",
+      5: "poisoner",
+      6: "imp",
+    };
+    const game = model.createGame(6);
+    game.setup.roles = Object.values(assignment);
+    game.setup.drunkShownId = "slayer";
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    for (const player of Object.values(game.players)) player.claimed = true;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const ended = engine.endNight(game);
+    if (!ended.ok) return ended;
+    return store.replaceState(game);
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await settled();
+  await route("/table");
+  await page.locator('[data-seat-open="1"]').click();
+  const sheet = page.locator("[data-player-sheet]");
+  await sheet.locator("[data-slayer-target]").selectOption("6");
+  await sheet.locator('[data-act="slayer"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.players["1"].used.slayer === true,
+  );
+  assert.equal(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["6"].alive),
+    true,
+  );
+  assert.equal(await sheet.locator('[data-act="slayer"]').count(), 0);
+}
+
 // Night 2 of a ten-player game with a Poisoner, a Scarlet Woman and the Imp.
 // Two Minions, so the host names the heir; only seat 3 (the Empath, or the
 // Fortune Teller, who takes targets) wakes after the Imp.
+async function klutzDayChoice() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "klutz",
+      2: "clockmaker",
+      3: "dreamer",
+      4: "artist",
+      5: "savant",
+      6: "witch",
+      7: "fanggu",
+    };
+    const game = model.createGame(7);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects and Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    for (const id of Object.keys(assignment)) {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    }
+    game.setup.count = 7;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [...rules.SNV_ALL]
+      .filter((id) => !game.setup.roles.includes(id))
+      .slice(0, 3);
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    const executed = engine.executeByDecision(game, "1");
+    if (!executed.ok) return executed;
+    if (game.players["1"].alive) return { ok: false, errorCode: "klutz-alive" };
+    if (game.players["1"].used.klutz) return { ok: false, errorCode: "klutz-preused" };
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-act="day-help"]').click();
+  const panel = page.locator("[data-klutz-target]");
+  await panel.waitFor();
+  assert.equal(
+    await page.evaluate(
+      async () => (await window.PG_MODULES()).store.state.players["1"].used.klutz,
+    ),
+    undefined,
+    "the executed Klutz has not chosen yet",
+  );
+  await panel.selectOption("6");
+  await page.locator('[data-act="klutz-choice"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.winner?.reason === "klutz",
+  );
+  const result = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return {
+      winner: store.state.winner,
+      used: store.state.players["1"].used.klutzTarget,
+      log: store.state.log
+        .map((entry) => entry.title)
+        .filter((title) => title.startsWith("Растяпа")),
+    };
+  });
+  assert.equal(result.winner?.team, "evil", "an evil target loses the game for the Klutz's team");
+  assert.equal(result.used, "6", "the choice is recorded");
+  assert.ok(result.log.length >= 1, "the journal names the Klutz choice");
+  await settled();
+  await page.reload();
+  await page.waitForSelector(".host");
+  await route("/table");
+  assert.equal(
+    await page.locator("[data-klutz-target]").count(),
+    0,
+    "a recorded choice does not offer the panel again",
+  );
+}
+
+async function pacifistSurvivalControl() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seed = async (variant: "healthy" | "dead" | "impaired" | "absent") => {
+    const result = await page.evaluate(async (variant) => {
+      const { model, engine, store, rules } = await window.PG_MODULES();
+      const assignment = {
+        1: "pacifist",
+        2: "chambermaid",
+        3: "sailor",
+        4: "fool",
+        5: "exorcist",
+        6: "goon",
+        7: "assassin",
+        8: "po",
+      } as Record<string, string>;
+      const game = model.createGame(8);
+      game.scriptId = "bmr";
+      game.script = {
+        ...game.script,
+        id: "bmr",
+        name: "Bad Moon Rising",
+        edition: "bmr",
+        roles: [...rules.BMR_ALL],
+      };
+      for (const id of Object.keys(assignment)) {
+        game.players[id].name = "P" + id;
+        game.players[id].claimed = true;
+      }
+      game.setup.count = 8;
+      game.setup.roles = [...new Set(Object.values(assignment))];
+      game.setup.bluffs = [...rules.BMR_ALL]
+        .filter((id) => !game.setup.roles.includes(id))
+        .slice(0, 3);
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      engine.autoSecrets(game);
+      game.phase = "seat";
+      const started = engine.startNight(game);
+      if (!started.ok) return started;
+      while (engine.currentStep(game)) {
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+      }
+      const night = engine.endNight(game);
+      if (!night.ok) return night;
+      if (variant === "dead") game.players["1"].alive = false;
+      if (variant === "impaired")
+        game.effects.push({
+          id: "pacifist-check-drunk",
+          kind: "drunk",
+          sourceId: "7",
+          targetId: "1",
+          start: { phase: "day", number: 1 },
+          expires: null,
+          active: true,
+        });
+      if (variant === "absent") game.players["1"].roleId = "minstrel";
+      return store.replaceState(game);
+    }, variant);
+    assert.equal(result.ok, true, variant + ": " + JSON.stringify(result));
+    await settled();
+    await route("/table");
+    await page.keyboard.press("Escape");
+    await settled();
+    await page.locator('[data-seat-open="2"]').click();
+    await page.locator('[data-act="player-execute"]').click();
+    return page.locator("[data-exec-survives]").count();
+  };
+
+  assert.equal(
+    await seed("healthy"),
+    1,
+    "a living healthy Pacifist offers survival for a good target",
+  );
+  await page.locator('[data-seat-open="7"]').click();
+  await page.locator('[data-act="player-execute"]').click();
+  assert.equal(
+    await page.locator("[data-exec-survives]").count(),
+    0,
+    "an evil target cannot survive",
+  );
+  assert.equal(await seed("dead"), 0, "a dead Pacifist offers no control");
+  assert.equal(await seed("impaired"), 0, "an impaired Pacifist offers no control");
+  assert.equal(await seed("absent"), 0, "a script without a living Pacifist offers no control");
+}
+
+async function dayChangeClearsExecutionDrafts() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment = {
+      1: "pacifist",
+      2: "chambermaid",
+      3: "sailor",
+      4: "fool",
+      5: "exorcist",
+      6: "goon",
+      7: "assassin",
+      8: "po",
+    } as Record<string, string>;
+    const game = model.createGame(8);
+    game.scriptId = "bmr";
+    game.script = {
+      ...game.script,
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [
+        ...rules.BMR.townsfolk,
+        ...rules.BMR.outsider,
+        ...rules.BMR.minion,
+        ...rules.BMR.demon,
+      ],
+    };
+    for (const id of Object.keys(assignment)) {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    }
+    game.setup.count = 8;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [
+      ...rules.BMR.townsfolk,
+      ...rules.BMR.outsider,
+      ...rules.BMR.minion,
+      ...rules.BMR.demon,
+    ]
+      .filter((id) => !game.setup.roles.includes(id))
+      .slice(0, 3);
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-seat-open="2"]').click();
+  await page.locator('[data-act="player-execute"]').click();
+  await page.locator("[data-exec-survives]").check();
+  assert.equal(await page.locator("[data-exec-survives]").isChecked(), true);
+
+  const changed = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const next = structuredClone(store.state);
+    next.day.number += 1;
+    return store.replaceState(next);
+  });
+  assert.equal(changed.ok, true);
+  await settled();
+  assert.equal(
+    await page.locator("[data-exec-survives]").count(),
+    0,
+    "the survival flag does not survive a new day",
+  );
+  assert.equal(
+    await page.locator('[data-act="execute"]').isDisabled(),
+    true,
+    "the previous execution target is cleared",
+  );
+}
+
+async function correctionSurface() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment = {
+      1: "chef",
+      2: "empath",
+      3: "soldier",
+      4: "poisoner",
+      5: "imp",
+      6: "butler",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.scriptId = "tb";
+    game.script = {
+      ...game.script,
+      id: "tb",
+      name: "Trouble Brewing",
+      edition: "tb",
+      roles: [...rules.TB.townsfolk, ...rules.TB.outsider, ...rules.TB.minion, ...rules.TB.demon],
+    };
+    for (const id of Object.keys(assignment)) {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    }
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    game.effects.push({
+      id: "eff-check-poison",
+      kind: "poison",
+      sourceId: "4",
+      targetId: "2",
+      start: { phase: "day", number: 1 },
+      expires: null,
+      active: true,
+    });
+    game.players["3"].shownRoleId = "chef";
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+
+  await page.locator('[data-seat-open="2"]').click();
+  await page.locator('[data-act="player-correct"]').click();
+  await page.locator('[data-correct="kind"]').selectOption("effect");
+  await page.locator('[data-correct="effect"]').selectOption("eff-check-poison");
+  await page.locator('[data-correct="reason"]').fill("The effect ended.");
+  await page.locator('[data-act="apply-correction"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    const effect = store.state.effects.find((item) => item.id === "eff-check-poison");
+    return effect ? effect.active === false : false;
+  });
+
+  await page.locator('[data-seat-open="3"]').click();
+  await page.locator('[data-act="player-correct"]').click();
+  await page.locator('[data-correct="kind"]').selectOption("shown");
+  await page.locator('[data-correct="shown"]').selectOption("soldier");
+  await page.locator('[data-correct="reason"]').fill("The shown card was wrong.");
+  await page.locator('[data-act="apply-correction"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.players["3"].shownRoleId === "soldier",
+  );
+  const journal = await page.evaluate(async () =>
+    (await window.PG_MODULES()).store.state.log.map((entry) => entry.title),
+  );
+  assert.ok(
+    journal.some((title) => title.includes("правк") || title.includes("Правк")),
+    "the journal records the correction reason: " + JSON.stringify(journal.slice(-4)),
+  );
+}
+
+async function secretsChecks() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "washerwoman",
+      2: "chef",
+      3: "soldier",
+      4: "saint",
+      5: "spy",
+      6: "imp",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.phase = "seat";
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/secrets");
+  const label = () =>
+    page
+      .locator('[data-obligation="washerwoman"]')
+      .innerText()
+      .then((value) => value || "");
+  assert.match(await label(), /○/, "an unanswered obligation is not done");
+
+  const setInfo = (roleId: string, pair: string[]) =>
+    page.evaluate(
+      async ({ roleId, pair }) => {
+        const { store } = await window.PG_MODULES();
+        return store.dispatch({
+          id: "secrets-" + crypto.randomUUID(),
+          type: "setSetupInfo",
+          payload: { roleId: "washerwoman", info: { roleId, pair } },
+        });
+      },
+      { roleId, pair },
+    );
+
+  assert.equal((await setInfo("empath", ["1", "2"])).status, "allowed");
+  assert.match(await label(), /○/, "a not-in-play role without the Spy is not done");
+  assert.equal((await setInfo("chef", ["1", "2"])).status, "allowed");
+  assert.match(await label(), /✓/, "the real Chef with a fitting pair is done");
+  assert.equal((await setInfo("empath", ["1", "5"])).status, "allowed");
+  assert.match(await label(), /✓/, "the Spy in the pair makes the not-in-play role legal");
+}
+
+async function notesDebounce() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "chef",
+      2: "empath",
+      3: "soldier",
+      4: "poisoner",
+      5: "imp",
+      6: "butler",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-act="menu"]').click();
+  await page.locator("[data-notes]").waitFor();
+  const before = await page.evaluate(
+    async () => (await window.PG_MODULES()).store.state.journal.entries.length,
+  );
+  const text = "Заметка ведущего ".repeat(6).slice(0, 100);
+  const field = page.locator("[data-notes]");
+  for (let index = 10; index <= text.length; index += 10) {
+    await field.fill(text.slice(0, index));
+  }
+  await field.fill(text);
+  await page.waitForTimeout(1200);
+  const after = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    return { entries: store.state.journal.entries.length, notes: store.state.notes };
+  });
+  assert.equal(after.notes, text, "the debounced commit stores the whole note");
+  assert.ok(
+    after.entries - before <= 1,
+    "100 typed characters journal at most one command, got " + (after.entries - before),
+  );
+  await page.reload();
+  await page.waitForSelector(".host");
+  await route("/table");
+  await page.locator('[data-act="menu"]').click();
+  assert.equal(await page.locator("[data-notes]").inputValue(), text, "the note survives a reload");
+}
+
+async function queuePanelReachable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "chef",
+      2: "empath",
+      3: "soldier",
+      4: "poisoner",
+      5: "imp",
+      6: "butler",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.setup.count = 6;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    return store.replaceState(game);
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-act="menu"]').click();
+  await page.locator('[data-panel="queue"]').waitFor();
+  assert.equal(await page.locator('[data-panel="queue"]').count(), 1, "the queue is reachable");
+  await page.locator('[data-act="show-order"]').click();
+  assert.equal(
+    await page.locator('[data-act="show-order"]').getAttribute("aria-expanded"),
+    "true",
+    "the night order opens",
+  );
+  assert.ok(
+    (await page.locator('[data-panel="queue"] ol li').count()) > 0,
+    "the order lists steps",
+  );
+}
+
 async function seedImpHeirNight2(third: "empath" | "fortuneteller" = "empath") {
   const result = await page.evaluate(async (third) => {
     const { model, engine, store } = await window.PG_MODULES();
@@ -1390,7 +3048,7 @@ async function seedImpHeirNight2(third: "empath" | "fortuneteller" = "empath") {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     const night = engine.endNight(game);
     if (!night.ok) return night;
     const day = engine.endDay(game);
@@ -1410,7 +3068,7 @@ async function seedImpHeirNight2(third: "empath" | "fortuneteller" = "empath") {
 async function newDemonWakesOnce() {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedImpHeirNight2();
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
   const current = () =>
     page.evaluate(async () => {
@@ -1427,7 +3085,7 @@ async function newDemonWakesOnce() {
   const confirmWith = async (targetId: string) => {
     await page.locator(`[data-target][data-id="${targetId}"]`).click();
     await completeStep();
-    await page.waitForTimeout(100);
+    await settled();
   };
 
   // The Poisoner poisons the Scarlet Woman, so she does not take the role, and
@@ -1442,7 +3100,7 @@ async function newDemonWakesOnce() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "demon-wake-heir-390.png") });
   await page.locator('[data-dock-heir] [data-heir][data-id="8"]').click();
-  await page.waitForTimeout(100);
+  await settled();
   assert.equal(await current(), "demonchange", "the new Imp is woken next, before the Empath");
   assert.equal(await wakes(), 1);
   await overflow();
@@ -1450,7 +3108,7 @@ async function newDemonWakesOnce() {
   const confirm = page.locator('[data-act="step-confirm"]');
   if (!(await confirm.count())) await page.locator('[data-act="complete"]').click();
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(100);
+  await settled();
   assert.equal(await current(), "empath:3");
   await finishNight();
   await page.waitForFunction(
@@ -1513,7 +3171,7 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
     if (!start.ok) return start;
     const toPukka = () => {
       while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "pukka")
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       return engine.currentStep(game)!;
     };
     // Night 1 the Pukka poisons the Chambermaid, night 2 itself.
@@ -1521,7 +3179,7 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
       const done = engine.completeStep(game, toPukka().key, { targetIds: [targetId] });
       if (!done.ok) return done;
       while (engine.currentStep(game))
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       const night = engine.endNight(game);
       if (!night.ok) return night;
       const day = engine.endDay(game);
@@ -1535,7 +3193,7 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
   const read = () =>
     page.evaluate(async () => {
@@ -1565,7 +3223,7 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
   );
 
   await page.locator('[data-target][data-id="2"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(
     await page.locator("[data-preview-reason]").count(),
     0,
@@ -1576,7 +3234,7 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "pukka-goon-step-390.png") });
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(await page.locator("[data-rejection]").count(), 0, "the step is not refused");
   assert.deepEqual(
     await read(),
@@ -1594,6 +3252,96 @@ async function pukkaChoosesGoonWhileSelfPoisoned() {
   await page.screenshot({ path: join(screenshots, "pukka-goon-done-390.png") });
 }
 
+// Issue #200, Goon r2977 §How to Run: when the Goon's alignment changes, wake
+// the Goon and give a thumbs-up or thumbs-down indicating the new alignment.
+// The player handoff shows it on the role card; the host journal keeps the
+// consequence. No real role, note or effect joins the handoff.
+async function goonAlignmentReveal() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const result = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "pukka",
+      2: "goon",
+      3: "chambermaid",
+      4: "pacifist",
+      5: "professor",
+      6: "gossip",
+      7: "sailor",
+      8: "mastermind",
+    };
+    const game = model.createGame(8);
+    game.scriptId = "bmr";
+    game.script = {
+      ...game.script,
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [...rules.BMR_ALL],
+    };
+    Object.keys(assignment).forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = id !== "2";
+    });
+    game.setup.count = 8;
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["exorcist", "innkeeper", "grandmother"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.phase = "seat";
+    engine.autoSecrets(game);
+    const start = engine.startNight(game);
+    if (!start.ok) return start;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "pukka")
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    const step = engine.currentStep(game);
+    if (!step) return { ok: false, error: "no Pukka step" };
+    const done = engine.completeStep(game, step.key, { targetIds: ["2"] });
+    if (!done.ok) return done;
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await settled();
+
+  const goon = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    return {
+      team: store.state.players["2"].team,
+      drunk: engine.isImpaired(store.state, "1"),
+      shownRoleId: store.state.players["2"].shownRoleId,
+    };
+  });
+  assert.deepEqual(
+    goon,
+    { team: "evil", drunk: true, shownRoleId: "goon" },
+    "the Pukka is drunk and the Goon turns evil",
+  );
+
+  await route("/table");
+  await openTableMenu();
+  const hostLog = await page.locator("[data-log]").innerText();
+  assert.match(hostLog, /Наёмник теперь злой/, "the host journal records the new alignment");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "goon-alignment-table-390.png") });
+
+  await route("/player");
+  await page.locator('[data-seat="1"]').click();
+  await page.waitForSelector('[data-role-card="revealed"]');
+  const card = await page.locator('[data-role-card="revealed"]').innerText();
+  assert.match(card, /evil|злой/i, "the Goon sees the evil alignment after turning");
+  assert.doesNotMatch(
+    card,
+    /outsider|изгои/i,
+    "the printed role team is replaced by the revealed alignment",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "goon-alignment-player-390.png") });
+}
+
 // Mayor r2995: "If you die at night, another player might die instead." The
 // Storyteller decides, so the table asks and never answers (AGENTS.md): a seat
 // tap on the Mayor leaves the redirect unanswered and the step blocked.
@@ -1609,13 +3357,13 @@ async function mayorRedirectIsAsked() {
     });
   assert.equal(await stepRole(), "poisoner");
   await page.locator('[data-target][data-id="2"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await completeStep();
-  await page.waitForTimeout(200);
+  await settled();
   assert.equal(await stepRole(), "imp");
 
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(
     await page.locator('[data-table-dock] [data-blocker-reason="redirect"]').count(),
     1,
@@ -1634,10 +3382,10 @@ async function mayorRedirectIsAsked() {
   await page.screenshot({ path: join(screenshots, "mayor-redirect-asked-390.png") });
 
   await select.selectOption("none");
-  await page.waitForTimeout(100);
+  await settled();
   assert.equal(await page.locator('[data-act="step-confirm"]').isDisabled(), false);
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   const after = await page.evaluate(async () => {
     const { store } = await window.PG_MODULES();
     return { mayorAlive: store.state.players["1"].alive, deaths: store.state.deaths.length };
@@ -1652,7 +3400,7 @@ async function mayorRedirectIsAsked() {
 async function heirQuestionLeadsTheNight() {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedImpHeirNight2("fortuneteller");
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
   const current = () =>
     page.evaluate(async () => {
@@ -1664,7 +3412,7 @@ async function heirQuestionLeadsTheNight() {
   for (const targetId of ["9", "10"]) {
     await page.locator(`[data-target][data-id="${targetId}"]`).click();
     await completeStep();
-    await page.waitForTimeout(100);
+    await settled();
   }
   assert.equal(
     await current(),
@@ -1709,7 +3457,7 @@ async function heirQuestionLeadsTheNight() {
   await page.waitForSelector('[data-correct="player"]', { state: "detached" });
 
   await page.locator('[data-dock-heir] [data-heir][data-id="8"]').click();
-  await page.waitForTimeout(100);
+  await settled();
   assert.equal(await current(), "demonchange", "the named heir is woken next");
   assert.equal(await page.locator("[data-dock-heir]").count(), 0);
   assert.equal(await page.locator('[data-table-dock] [data-act="complete"]').count(), 1);
@@ -1721,7 +3469,7 @@ async function heirQuestionLeadsTheNight() {
 
   // The wake done, the Fortune Teller's step opens with no target chosen.
   await completeStep();
-  await page.waitForTimeout(100);
+  await settled();
   assert.equal(await current(), "fortuneteller:3");
   assert.equal(
     await page.locator('[data-target][aria-pressed="true"]').count(),
@@ -1736,13 +3484,20 @@ async function heirQuestionLeadsTheNight() {
 async function heirQuestionLeadsAnOpenSheet() {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedImpHeirNight2("fortuneteller");
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
+  // The sheet can only open once the step has its targets (issue #311).
+  await page.locator('[data-target][data-id="1"]').click();
+  await page.locator('[data-target][data-id="2"]').click();
   await page.locator('[data-table-dock] [data-act="complete"]').click();
   await page.waitForSelector('[data-act="step-confirm"]');
 
   const other = await context.newPage();
   await other.goto(url);
+  await other.evaluate(() => {
+    history.pushState(null, "", "/pocket/table");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
   await other.waitForSelector(".host");
   const recorded = await other.evaluate(async () => {
     const { engine, store } = await window.PG_MODULES();
@@ -1824,7 +3579,7 @@ async function chefRegistrationIsLabelled() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "chef")
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     const errors = model.validateState(game);
     if (errors.length) return { ok: false, errors };
     store.replaceState(game);
@@ -1832,7 +3587,7 @@ async function chefRegistrationIsLabelled() {
     return { ok: true, step: engine.currentStep(game)?.roleId };
   });
   assert.deepEqual(result, { ok: true, step: "chef" });
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
   await page.locator('[data-act="complete"]').click();
   const select = page.locator("select[data-given]");
@@ -1849,6 +3604,829 @@ async function chefRegistrationIsLabelled() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "chef-registration-label-390.png") });
   await page.keyboard.press("Escape");
+}
+
+// Pit-Hag r2998: "If a Demon is made, deaths tonight are arbitrary." The death
+// control must appear after the host drafts a not-in-play Demon, and the
+// outcome must land a real death that the journal replays and undo returns.
+async function pithagArbitraryDeathReachable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const roles = [
+      "clockmaker",
+      "dreamer",
+      "artist",
+      "juggler",
+      "sweetheart",
+      "klutz",
+      "barber",
+      "pithag",
+      "fanggu",
+    ];
+    const game = model.createGame(roles.length);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    game.setup.count = roles.length;
+    game.setup.roles = [...roles];
+    game.setup.bluffs = ["sage", "oracle", "savant"];
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    const assignment = Object.fromEntries(game.order.map((id, index) => [id, roles[index]]));
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const endedNight = engine.endNight(game);
+    if (!endedNight.ok) return { ok: false, step: "night 1", endedNight };
+    const endedDay = engine.endDay(game);
+    if (!endedDay.ok) return { ok: false, step: "day 1", endedDay };
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 2 did not start" };
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "pithag") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    if (engine.currentStep(game)?.roleId !== "pithag") {
+      return {
+        ok: false,
+        error: "the Pit-Hag does not wake",
+        queue: game.night.queue.map((s) => s.roleId),
+      };
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+
+  await page.locator('[data-target][data-id="1"]').click();
+  await settled();
+  await page.locator('[data-act="complete"]').click();
+  await page.locator("[data-bmr-role]").waitFor();
+  // A character already in play is a legal no-op and must not expose deaths.
+  await page.locator("[data-bmr-role]").selectOption("clockmaker");
+  await settled();
+  assert.equal(
+    await page.locator('[data-bmr-decision="marking"]').count(),
+    0,
+    "an in-play character exposes no arbitrary death",
+  );
+  const refused = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((candidate) => candidate.roleId === "pithag")!;
+    const preview = engine.previewCommand(store.state, {
+      id: "browser-pithag-in-play",
+      type: "completeNightStep",
+      payload: { key: step.key, targetIds: ["1"], roleId: "clockmaker", deathIds: ["2"] },
+    });
+    return {
+      status: preview.status,
+      errorCode: "errorCode" in preview ? (preview.errorCode ?? null) : null,
+    };
+  });
+  assert.deepEqual(
+    refused,
+    { status: "rejected", errorCode: "error.51" },
+    "an arbitrary death without a created Demon is refused",
+  );
+
+  await page.locator("[data-bmr-role]").selectOption("nodashii");
+  await settled();
+  assert.equal(
+    await page.locator('[data-bmr-decision="marking"]').count(),
+    1,
+    "a drafted not-in-play Demon exposes the death control",
+  );
+  await page.locator('[data-bmr-death][data-id="2"]').click();
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+
+  const after = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const { state } = store;
+    return {
+      roleId: state.players["1"].roleId,
+      victimAlive: state.players["2"].alive,
+      deaths: state.deaths.map((death) => death.playerId),
+      current: engine.currentStep(state)?.roleId ?? null,
+      journal: state.journal.entries.length,
+    };
+  });
+  assert.deepEqual(
+    after,
+    {
+      roleId: "nodashii",
+      victimAlive: false,
+      deaths: ["2"],
+      current: "fanggu",
+      journal: 1,
+    },
+    "the created Demon and the arbitrary death are applied together",
+  );
+  const lifecycle = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const journal = structuredClone(store.state.journal);
+    const replayed = engine.replay(journal);
+    const same =
+      replayed.ok &&
+      JSON.stringify(engine.canonicalState(replayed.state)) ===
+        JSON.stringify(engine.canonicalState(store.state));
+    const undone = store.undo();
+    const afterUndo = {
+      roleId: store.state.players["1"].roleId,
+      victimAlive: store.state.players["2"].alive,
+    };
+    const redone = store.redo();
+    const afterRedo = {
+      roleId: store.state.players["1"].roleId,
+      victimAlive: store.state.players["2"].alive,
+    };
+    return { same, undone, afterUndo, redone, afterRedo };
+  });
+  assert.deepEqual(
+    lifecycle,
+    {
+      same: true,
+      undone: true,
+      afterUndo: { roleId: "clockmaker", victimAlive: true },
+      redone: true,
+      afterRedo: { roleId: "nodashii", victimAlive: false },
+    },
+    "the Pit-Hag outcome replays and undo and redo restore both seats",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "pithag-arbitrary-death-390.png") });
+}
+
+// Tinker r1782: "You might die at any time." The first night has a Tinker step,
+// the host marks the death there, and a protected Tinker cannot die from it.
+async function tinkerFirstNightDeathReachable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seed = (protectedByTeaLady: boolean) =>
+    page.evaluate(async (protectedByTeaLady) => {
+      const { model, engine, store, rules } = await window.PG_MODULES();
+      const roles = protectedByTeaLady
+        ? ["tinker", "tealady", "chambermaid", "courtier", "gossip", "fool", "assassin", "po"]
+        : ["tinker", "chambermaid", "courtier", "gossip", "fool", "sailor", "assassin", "po"];
+      const game = model.createGame(roles.length);
+      game.scriptId = "bmr";
+      game.script = {
+        ...game.script,
+        id: "bmr",
+        name: "Bad Moon Rising",
+        edition: "bmr",
+        roles: [...rules.BMR_ALL],
+      };
+      game.setup.count = roles.length;
+      game.setup.roles = [...roles];
+      game.setup.bluffs = ["innkeeper", "grandmother", "minstrel"];
+      game.order.forEach((id) => {
+        game.players[id].name = "Player " + id;
+        game.players[id].claimed = true;
+      });
+      const assignment = Object.fromEntries(game.order.map((id, index) => [id, roles[index]]));
+      const dealt = engine.dealGame(game, { assignment });
+      if (!dealt.ok) return dealt;
+      engine.autoSecrets(game);
+      game.phase = "seat";
+      if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+      while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "tinker") {
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+      }
+      if (engine.currentStep(game)?.roleId !== "tinker") {
+        return { ok: false, error: "the Tinker has no first-night step", night: game.night.number };
+      }
+      const errors = model.validateState(game);
+      if (errors.length) return { ok: false, errors };
+      store.replaceState(game);
+      dispatchEvent(new PopStateEvent("popstate"));
+      return { ok: true };
+    }, protectedByTeaLady);
+  const read = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const { state } = store;
+      const step = state.night.queue.find((candidate) => candidate.roleId === "tinker");
+      return {
+        night: state.night.number,
+        current: engine.currentStep(state)?.roleId ?? null,
+        alive: state.players["1"].alive,
+        done: step?.done ?? false,
+        deaths: state.deaths.map((death) => death.playerId),
+        prevented: state.log.some((entry) => entry.consequence === "prevented"),
+        winner: state.winner ? state.winner.reason : null,
+      };
+    });
+  const replay = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const replayed = engine.replay(structuredClone(store.state.journal));
+      return {
+        ok: replayed.ok,
+        same:
+          replayed.ok &&
+          JSON.stringify(engine.canonicalState(replayed.state)) ===
+            JSON.stringify(engine.canonicalState(store.state)),
+      };
+    });
+  const reloadTable = async () => {
+    await page.reload();
+    await page.waitForSelector(".host");
+    await page.waitForFunction(() => document.body.dataset.route === "table");
+    await settled();
+  };
+
+  const sober = await seed(false);
+  assert.equal(sober.ok, true, JSON.stringify(sober));
+  await settled();
+  await route("/table");
+  assert.deepEqual(
+    await read(),
+    {
+      night: 1,
+      current: "tinker",
+      alive: true,
+      done: false,
+      deaths: [],
+      prevented: false,
+      winner: null,
+    },
+    "night 1 opens on the Tinker's step",
+  );
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-tinker-decision="die"]').click();
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+  assert.deepEqual(
+    await read(),
+    {
+      night: 1,
+      current: null,
+      alive: false,
+      done: true,
+      deaths: ["1"],
+      prevented: false,
+      winner: null,
+    },
+    "the first-night Tinker dies and the step advances",
+  );
+  const applied = await read();
+  assert.deepEqual(await replay(), { ok: true, same: true }, "the Tinker journal replays");
+  assert.equal(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.undo()),
+    true,
+    "the Tinker death is undoable",
+  );
+  assert.deepEqual(
+    await read(),
+    {
+      night: 1,
+      current: "tinker",
+      alive: true,
+      done: false,
+      deaths: [],
+      prevented: false,
+      winner: null,
+    },
+    "undo restores the Tinker and reopens the step",
+  );
+  assert.equal(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.redo()),
+    true,
+    "the Tinker death is redoable",
+  );
+  assert.deepEqual(await read(), applied, "redo restores the Tinker death");
+  await reloadTable();
+  assert.deepEqual(await read(), applied, "the first-night Tinker death survives reload");
+  assert.deepEqual(await replay(), { ok: true, same: true }, "the saved Tinker journal replays");
+  await overflow();
+
+  const protectedSeed = await seed(true);
+  assert.equal(protectedSeed.ok, true, JSON.stringify(protectedSeed));
+  await settled();
+  await route("/table");
+  assert.equal((await read()).current, "tinker");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('[data-act="step-confirm"]');
+  await page.locator('[data-tinker-decision="die"]').click();
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+  assert.deepEqual(
+    await read(),
+    {
+      night: 1,
+      current: null,
+      alive: true,
+      done: true,
+      deaths: [],
+      prevented: true,
+      winner: null,
+    },
+    "the Tea Lady protects the Tinker from the first-night ability death",
+  );
+  await page.screenshot({ path: join(screenshots, "tinker-first-night-390.png") });
+}
+
+// Dreamer r2904 and Sage r3009 record host-shown pairs in the journal. The
+// full history stays inspectable after the preview limit, and reload keeps it.
+async function journalInformationPairsInspectable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const roles = [
+      "dreamer",
+      "clockmaker",
+      "sage",
+      "artist",
+      "sweetheart",
+      "klutz",
+      "witch",
+      "fanggu",
+    ];
+    const game = model.createGame(roles.length);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    game.setup.count = roles.length;
+    game.setup.roles = [...roles];
+    game.setup.bluffs = ["oracle", "savant", "mutant"];
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    const assignment = Object.fromEntries(game.order.map((id, index) => [id, roles[index]]));
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "dreamer") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const dreamerStep = engine.currentStep(game);
+    if (!dreamerStep) return { ok: false, error: "the Dreamer does not wake" };
+    const dreamerInfo = engine.infoForStep(game, dreamerStep, { targetIds: ["2"] });
+    if (
+      !dreamerInfo.needsChoice ||
+      !Array.isArray(dreamerInfo.options) ||
+      !dreamerInfo.options.length
+    )
+      return { ok: false, error: "the Dreamer has no pair to show" };
+    const dreamerPair = String(dreamerInfo.options[0]).split("|");
+    const dreamerBase = structuredClone(game);
+    delete (dreamerBase as Partial<typeof dreamerBase>).journal;
+    dreamerBase.applied = {};
+    game.journal = { base: dreamerBase, entries: [] };
+    game.applied = {};
+    const dreamerResult = engine.applyCommand(game, {
+      id: "journal-dreamer-pair",
+      type: "completeNightStep",
+      payload: {
+        key: dreamerStep.key,
+        targetIds: ["2"],
+        given: { kind: dreamerInfo.kind, pair: dreamerPair },
+      },
+    });
+    if (dreamerResult.status !== "allowed") return { ok: false, dreamerResult };
+    const dreamerReplay = engine.replay(game.journal);
+    const dreamerReplayedPair = dreamerReplay.ok
+      ? dreamerReplay.state.log.filter((entry) => entry.case === "information-pair").length
+      : -1;
+
+    // Sage r3009: the Demon killed the Sage, so the host records the pair the
+    // dead Sage is shown. The kill is a direct engine call in this fixture; the
+    // answer still goes through the command boundary and its own journal base.
+    game.night.number = 2;
+    const death = engine.kill(
+      game,
+      "3",
+      "ability",
+      { phase: "night", number: 2 },
+      { demon: true, ability: "fanggu" },
+    );
+    if (!death) return { ok: false, error: "the Sage did not die" };
+    engine.appendConditionalSteps(game);
+    const sageStep = game.night.queue.find(
+      (candidate) => candidate.roleId === "sage" && !candidate.done && !candidate.skipped,
+    );
+    if (!sageStep) return { ok: false, error: "the dead Sage has no step" };
+    const sageInfo = engine.infoForStep(game, sageStep);
+    if (!sageInfo.needsChoice || !Array.isArray(sageInfo.options) || !sageInfo.options.length)
+      return { ok: false, error: "the Sage has no pair to show" };
+    const sagePair = String(sageInfo.options[0]).split("|");
+    const sageBase = structuredClone(game);
+    delete (sageBase as Partial<typeof sageBase>).journal;
+    sageBase.applied = {};
+    game.journal = { base: sageBase, entries: [] };
+    game.applied = {};
+    const sageResult = engine.applyCommand(game, {
+      id: "journal-sage-pair",
+      type: "completeNightStep",
+      payload: { key: sageStep.key, given: { kind: sageInfo.kind, pair: sagePair } },
+    });
+    if (sageResult.status !== "allowed") return { ok: false, sageResult };
+    const sageReplay = engine.replay(game.journal);
+    const sageReplayedPair = sageReplay.ok
+      ? sageReplay.state.log.filter((entry) => entry.case === "information-pair").length
+      : -1;
+
+    // Push both answers beyond the eight-line preview with ordinary journal
+    // lines, using the same log writer the engine uses.
+    const ports = {
+      clock: { now: () => new Date().toISOString() },
+      rng: { next: () => 0.5 },
+      idFactory: { suffix: (length: number) => "f".repeat(length) },
+    };
+    for (let index = 0; index < 12; index += 1) {
+      engine.addLog(
+        game,
+        { secret: true, kind: "game", title: "Journal filler " + index, detail: "Filler." },
+        ports,
+      );
+    }
+    const pairIndexes = game.log
+      .map((entry, index) => (entry.case === "information-pair" ? index : -1))
+      .filter((index) => index >= 0);
+    const hidden =
+      pairIndexes.length >= 2 && pairIndexes.every((index) => game.log.length - index > 8);
+    const sageLabel = sagePair.map((id) => game.players[id].name).join(" / ");
+    const publicView = JSON.stringify(model.publicGameView(game));
+    const pairHiddenInPublic =
+      !publicView.includes(dreamerPair.join("|")) && !publicView.includes(sagePair.join("|"));
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return {
+      ok: true,
+      hidden,
+      sageLabel,
+      dreamerReplayedPair,
+      sageReplayedPair,
+      pairHiddenInPublic,
+    };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  const result = seeded as {
+    hidden: boolean;
+    pairHiddenInPublic: boolean;
+    dreamerReplayedPair: number;
+    sageReplayedPair: number;
+    sageLabel: string;
+  };
+  await settled();
+  await route("/table");
+  assert.equal(result.hidden, true, "both answers are older than the preview window");
+  assert.equal(result.pairHiddenInPublic, true, "the public projection omits both pairs");
+  assert.equal(result.dreamerReplayedPair, 1, "the Dreamer pair survives replay");
+  assert.equal(result.sageReplayedPair, 2, "the Sage pair survives replay");
+
+  await openTableMenu();
+  assert.equal(await page.locator("[data-log]").count(), 1, "the journal panel is present");
+  const pairEntries = page.locator('[data-entry-case="information-pair"]');
+  assert.equal(await pairEntries.count(), 0, "the preview hides both historical pairs");
+  const toggle = page.locator("[data-log-toggle]");
+  assert.equal(await toggle.count(), 1, "the journal offers the full history");
+  await toggle.click();
+  await settled();
+  assert.equal(await pairEntries.count(), 2, "both historical pairs are inspectable");
+  const pairTexts = await pairEntries.allTextContents();
+  assert.ok(
+    pairTexts.some((text: string) => text.includes(result.sageLabel)),
+    "the Sage pair names the two players it was shown",
+  );
+  await overflow();
+
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await settled();
+  await openTableMenu();
+  await page.locator("[data-log-toggle]").click();
+  await settled();
+  assert.equal(await pairEntries.count(), 2, "both pairs survive reload");
+  await page.screenshot({ path: join(screenshots, "journal-pairs-390.png") });
+  await page.keyboard.press("Escape");
+  await settled();
+}
+
+// Dreamer r2904: the pair is chosen on /table, recorded as a secret host choice
+// and survives reload and replay. The capability declares the pools; the host
+// still picks the two characters.
+async function dreamerInformationPairThroughTable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const roles = [
+      "dreamer",
+      "clockmaker",
+      "sage",
+      "artist",
+      "sweetheart",
+      "klutz",
+      "witch",
+      "fanggu",
+    ];
+    const game = model.createGame(roles.length);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    game.setup.count = roles.length;
+    game.setup.roles = [...roles];
+    game.setup.bluffs = ["oracle", "savant", "mutant"];
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    const assignment = Object.fromEntries(game.order.map((id, index) => [id, roles[index]]));
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "dreamer") {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    if (engine.currentStep(game)?.roleId !== "dreamer") {
+      return { ok: false, error: "the Dreamer does not wake" };
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true, target: "2" };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+
+  await page.locator('[data-target][data-id="2"]').click();
+  await settled();
+  await page.locator('[data-act="complete"]').click();
+  const select = page.locator('select[data-given][data-given-kind="pair"]');
+  await select.waitFor();
+  const pair = await select.locator("option").evaluateAll((options) => {
+    const values = options
+      .map((option) => (option as HTMLOptionElement).value)
+      .filter((value) => value.includes("|"));
+    return values[0] ?? "";
+  });
+  assert.match(pair, /^[a-z]+\|[a-z]+$/, "the Dreamer offers a legal good|evil pair");
+  await select.selectOption(pair);
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+  await page.waitForFunction(
+    async () => {
+      const { store } = await window.PG_MODULES();
+      const step = store.state.night.queue.find((entry) => entry.roleId === "dreamer");
+      return step?.given?.kind === "role-pair";
+    },
+    undefined,
+    { timeout: 5000 },
+  );
+
+  const applied = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "dreamer")!;
+    const given = step.given as { kind?: string; pair?: string[] } | null;
+    const choice = store.state.log.find((entry) => entry.case === "information-pair");
+    return {
+      given: step.given,
+      secret: choice?.secret === true,
+      inPublic: JSON.stringify(model.publicGameView(store.state)).includes(
+        String(given?.pair?.join("|")),
+      ),
+      replayed: (() => {
+        const result = engine.replay(structuredClone(store.state.journal));
+        return (
+          result.ok &&
+          JSON.stringify(engine.canonicalState(result.state)) ===
+            JSON.stringify(engine.canonicalState(store.state))
+        );
+      })(),
+    };
+  });
+  assert.deepEqual(
+    {
+      kind: (applied.given as { kind?: string } | null)?.kind,
+      pair: (applied.given as { pair?: string[] } | null)?.pair,
+      secret: applied.secret,
+      inPublic: applied.inPublic,
+    },
+    { kind: "role-pair", pair: pair.split("|"), secret: true, inPublic: false },
+    "the pair is stored, journaled in secret and kept out of the public view",
+  );
+  assert.equal(applied.replayed, true, "the Dreamer pair replays");
+
+  await openTableMenu();
+  const entries = page.locator('[data-entry-case="information-pair"]');
+  assert.equal(await entries.count(), 1, "the journal holds the Dreamer pair");
+  assert.equal(
+    (await entries.first().textContent())?.trim().length ? true : false,
+    true,
+    "the journal names the pair it recorded",
+  );
+  await page.keyboard.press("Escape");
+  await settled();
+
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await settled();
+  const reloaded = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "dreamer")!;
+    const result = engine.replay(structuredClone(store.state.journal));
+    return {
+      given: step.given,
+      replayed:
+        result.ok &&
+        JSON.stringify(engine.canonicalState(result.state)) ===
+          JSON.stringify(engine.canonicalState(store.state)),
+    };
+  });
+  assert.deepEqual(
+    {
+      kind: (reloaded.given as { kind?: string } | null)?.kind,
+      pair: (reloaded.given as { pair?: string[] } | null)?.pair,
+      replayed: reloaded.replayed,
+    },
+    { kind: "role-pair", pair: pair.split("|"), replayed: true },
+    "the Dreamer pair survives reload and replays",
+  );
+  await page.screenshot({ path: join(screenshots, "dreamer-pair-390.png") });
+}
+
+// Evil Twin r3101: the Storyteller points at each Twin and shows the other's
+// token. The record keeps the two players and the characters, stays out of the
+// public view and survives reload and replay.
+async function evilTwinIntroductionThroughTable() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const roles = [
+      "clockmaker",
+      "dreamer",
+      "sage",
+      "artist",
+      "sweetheart",
+      "klutz",
+      "eviltwin",
+      "fanggu",
+    ];
+    const game = model.createGame(roles.length);
+    game.scriptId = "snv";
+    game.script = {
+      ...game.script,
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      roles: [...rules.SNV_ALL],
+    };
+    game.setup.count = roles.length;
+    game.setup.roles = [...roles];
+    game.setup.bluffs = ["oracle", "savant", "mutant"];
+    game.setup.evilTwinGoodId = "clockmaker";
+    game.order.forEach((id) => {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    });
+    const dealt = engine.dealGame(game, {
+      assignment: {
+        "1": "clockmaker",
+        "2": "dreamer",
+        "3": "sage",
+        "4": "artist",
+        "5": "sweetheart",
+        "6": "klutz",
+        "7": "fanggu",
+        "8": "eviltwin",
+      },
+    });
+    if (!dealt.ok) return dealt;
+    game.phase = "seat";
+    if (!engine.startNight(game).ok) return { ok: false, error: "night 1 did not start" };
+    for (const system of ["minioninfo", "demoninfo"]) {
+      const step = game.night.queue.find((entry) => entry.system === system);
+      if (!step) return { ok: false, error: system };
+      engine.completeStep(game, step.key, {});
+    }
+    if (engine.currentStep(game)?.roleId !== "eviltwin") {
+      return { ok: false, error: "the Evil Twin does not wake" };
+    }
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await settled();
+  await route("/table");
+
+  await page.locator('[data-act="complete"]').click();
+  await page.locator('[data-act="show-info"]').waitFor();
+  await page.locator('[data-act="show-info"]').click();
+  await page.waitForSelector("[data-player-card-text]");
+  const card = await page.locator("[data-player-card-text]").innerText();
+  assert.match(card, /P8/, "the card names the Evil Twin");
+  assert.match(card, /P1/, "the card names the Good Twin");
+  assert.match(card, /Часовщик|Clockmaker/, "the card shows the Good Twin's character");
+  await page.locator('[data-act="hide-card"]').click();
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+  await page.waitForFunction(
+    async () => {
+      const { store } = await window.PG_MODULES();
+      const step = store.state.night.queue.find((entry) => entry.roleId === "eviltwin");
+      return Array.isArray((step?.given as { shown?: unknown[] } | null)?.shown);
+    },
+    undefined,
+    { timeout: 5000 },
+  );
+
+  const applied = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "eviltwin")!;
+    const given = step.given as { shown?: { playerId: string; roleId: string | null }[] } | null;
+    const publicView = JSON.stringify(model.publicGameView(store.state));
+    const result = engine.replay(structuredClone(store.state.journal));
+    return {
+      shown: given?.shown ?? null,
+      leaked: ["shown", "eviltwin", "clockmaker"].filter((secret) => publicView.includes(secret)),
+      replayed:
+        result.ok &&
+        JSON.stringify(engine.canonicalState(result.state)) ===
+          JSON.stringify(engine.canonicalState(store.state)),
+    };
+  });
+  assert.deepEqual(
+    applied.shown,
+    [
+      { playerId: "8", roleId: "eviltwin" },
+      { playerId: "1", roleId: "clockmaker" },
+    ],
+    "the step records the Evil Twin first and the Good Twin's character second",
+  );
+  assert.deepEqual(applied.leaked, [], "the introduction stays out of the public view");
+  assert.equal(applied.replayed, true, "the Evil Twin introduction replays");
+
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await settled();
+  const reloaded = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "eviltwin")!;
+    const result = engine.replay(structuredClone(store.state.journal));
+    return {
+      shown: (step.given as { shown?: unknown[] } | null)?.shown ?? null,
+      replayed:
+        result.ok &&
+        JSON.stringify(engine.canonicalState(result.state)) ===
+          JSON.stringify(engine.canonicalState(store.state)),
+    };
+  });
+  assert.deepEqual(
+    reloaded,
+    {
+      shown: [
+        { playerId: "8", roleId: "eviltwin" },
+        { playerId: "1", roleId: "clockmaker" },
+      ],
+      replayed: true,
+    },
+    "the introduction survives reload and replays",
+  );
+  await page.screenshot({ path: join(screenshots, "evil-twin-introduction-390.png") });
 }
 
 async function currentScriptRoleCorrections() {
@@ -1996,11 +4574,15 @@ async function madnessExecutionFromTable() {
     const started = engine.startNight(game);
     if (!started.ok) return started;
     for (const step of game.night.queue) {
-      const completed =
-        step.roleId === "cerenovus"
-          ? engine.completeStep(game, step.key, { targetIds: ["2"], roleId: "clockmaker" })
-          : engine.skipStep(game, step.key, "Unrelated wake in the browser fixture");
-      if (!completed.ok) return completed;
+      if (step.roleId === "cerenovus") {
+        const completed = engine.completeStep(game, step.key, {
+          targetIds: ["2"],
+          roleId: "clockmaker",
+        });
+        if (!completed.ok) return completed;
+      } else {
+        window.fixtureSkip(engine, game, step.key, "Unrelated wake in the browser fixture");
+      }
     }
     const ended = engine.endNight(game);
     if (!ended.ok) return ended;
@@ -2038,6 +4620,377 @@ async function madnessExecutionFromTable() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "madness-execution-390.png") });
   await page.keyboard.press("Escape");
+}
+
+// #216/#222: the four residual Storyteller choices — the Mayor's redirect, the
+// Pacifist's survival, a Cerenovus madness execution and a Slayer shot at a
+// Recluse that registers as the Demon — must survive a real page reload and
+// replay from their journals, and undo/redo must restore them. Every decision
+// goes through the production /table controls; only the fixture seeding writes
+// the store directly.
+type PersistenceState =
+  | { mayorAlive: boolean; redirectedVictimAlive: boolean; deaths: string[] }
+  | {
+      day: number;
+      executed: string | null;
+      dayEnded: boolean;
+      executedAlive: boolean;
+      deaths: string[];
+    }
+  | {
+      executed: string | null;
+      executedAlive: boolean;
+      winner: string | null;
+      deaths: string[];
+    }
+  | {
+      shotAlive: boolean;
+      slayerUsed: boolean;
+      winner: string | null;
+      registrations: number;
+    };
+
+async function adjudicationPersistence() {
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  const read = (choice: "mayor" | "pacifist" | "madness" | "slayer") =>
+    page.evaluate(async (choice): Promise<PersistenceState> => {
+      const { store } = await window.PG_MODULES();
+      const state = store.state;
+      if (choice === "mayor")
+        return {
+          mayorAlive: state.players["1"].alive,
+          redirectedVictimAlive: state.players["3"].alive,
+          deaths: state.deaths.map((death) => death.playerId),
+        };
+      if (choice === "pacifist")
+        return {
+          day: state.day.number,
+          executed: state.day.execution?.playerId ?? null,
+          dayEnded: state.day.ended,
+          executedAlive: state.players["2"].alive,
+          deaths: state.deaths.map((death) => death.playerId),
+        };
+      if (choice === "madness")
+        return {
+          executed: state.day.execution?.playerId ?? null,
+          executedAlive: state.players["2"].alive,
+          winner: state.winner?.team ?? null,
+          deaths: state.deaths.map((death) => death.playerId),
+        };
+      return {
+        shotAlive: state.players["4"].alive,
+        slayerUsed: state.players["1"].used.slayer === true,
+        winner: state.winner?.team ?? null,
+        registrations: state.log.filter(
+          (entry) => entry.case === "registration" && entry.playerId === "4",
+        ).length,
+      };
+    }, choice);
+
+  const replay = () =>
+    page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      const replayed = engine.replay(structuredClone(store.state.journal));
+      return {
+        ok: replayed.ok,
+        same:
+          replayed.ok &&
+          JSON.stringify(engine.canonicalState(replayed.state)) ===
+            JSON.stringify(engine.canonicalState(store.state)),
+      };
+    });
+
+  const reloadTable = async () => {
+    await page.reload();
+    await page.waitForSelector(".host");
+    await page.waitForFunction(() => document.body.dataset.route === "table");
+    await settled();
+  };
+
+  const assertLifecycle = async (
+    choice: "mayor" | "pacifist" | "madness" | "slayer",
+    applied: PersistenceState,
+    undone: PersistenceState,
+    label: string,
+  ) => {
+    assert.deepEqual(await replay(), { ok: true, same: true }, label + ": the journal replays");
+    assert.equal(
+      await page.evaluate(async () => (await window.PG_MODULES()).store.undo()),
+      true,
+      label + ": the decision is undoable",
+    );
+    assert.deepEqual(await read(choice), undone, label + ": undo restores the state before it");
+    assert.equal(
+      await page.evaluate(async () => (await window.PG_MODULES()).store.redo()),
+      true,
+      label + ": the decision is redoable",
+    );
+    assert.deepEqual(await read(choice), applied, label + ": redo restores the decision");
+    await reloadTable();
+    assert.deepEqual(await read(choice), applied, label + ": the decision survives a reload");
+    assert.deepEqual(
+      await replay(),
+      { ok: true, same: true },
+      label + ": the saved journal replays",
+    );
+  };
+
+  // Mayor r2995: the redirect is a Storyteller answer, not a seat tap.
+  await seedMayorNight2();
+  await route("/table");
+  await page.locator('[data-target][data-id="2"]').click();
+  await settled();
+  await completeStep();
+  await settled();
+  await page.locator('[data-target][data-id="1"]').click();
+  await settled();
+  await page.locator('[data-act="complete"]').click();
+  const redirect = page.locator("select[data-redirect]");
+  await redirect.waitFor();
+  await redirect.selectOption("3");
+  await settled();
+  await page.locator('[data-act="step-confirm"]').click();
+  await settled();
+  const mayor = await read("mayor");
+  assert.deepEqual(
+    mayor,
+    { mayorAlive: true, redirectedVictimAlive: false, deaths: ["3"] },
+    "the Mayor redirect kills Player 3 instead of the Mayor",
+  );
+  // Undo and redo are host controls, not only store methods.
+  const redo = page.locator('[data-act="redo"]');
+  assert.equal(await redo.isDisabled(), true, "no redo before an undo");
+  await page.locator('[data-act="undo"]').click();
+  await settled();
+  assert.equal(await redo.isEnabled(), true, "undo opens the redo control");
+  assert.deepEqual(
+    await read("mayor"),
+    { mayorAlive: true, redirectedVictimAlive: true, deaths: [] },
+    "the dock undo restores the state before the redirect",
+  );
+  await redo.click();
+  await settled();
+  assert.deepEqual(await read("mayor"), mayor, "the dock redo reapplies the redirect");
+  await assertLifecycle(
+    "mayor",
+    mayor,
+    { mayorAlive: true, redirectedVictimAlive: true, deaths: [] },
+    "Mayor redirect",
+  );
+
+  // Pacifist r2096: a living healthy Pacifist lets the executed survive.
+  const pacifistSeed = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment = {
+      1: "pacifist",
+      2: "chambermaid",
+      3: "sailor",
+      4: "fool",
+      5: "exorcist",
+      6: "goon",
+      7: "assassin",
+      8: "po",
+    } as Record<string, string>;
+    const game = model.createGame(8);
+    game.scriptId = "bmr";
+    game.script = {
+      ...game.script,
+      id: "bmr",
+      name: "Bad Moon Rising",
+      edition: "bmr",
+      roles: [...rules.BMR_ALL],
+    };
+    for (const id of Object.keys(assignment)) {
+      game.players[id].name = "P" + id;
+      game.players[id].claimed = true;
+    }
+    game.setup.count = 8;
+    game.setup.roles = [...new Set(Object.values(assignment))];
+    game.setup.bluffs = [...rules.BMR_ALL]
+      .filter((id) => !game.setup.roles.includes(id))
+      .slice(0, 3);
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const night = engine.endNight(game);
+    if (!night.ok) return night;
+    return store.replaceState(game);
+  });
+  assert.equal(pacifistSeed.ok, true, JSON.stringify(pacifistSeed));
+  await settled();
+  await route("/table");
+  await page.keyboard.press("Escape");
+  await settled();
+  await page.locator('[data-seat-open="2"]').click();
+  await page.locator('[data-act="player-execute"]').click();
+  const survives = page.locator("[data-table-dock] [data-exec-survives]");
+  await survives.waitFor();
+  await survives.check();
+  await page.locator('[data-table-dock] [data-act="execute"]').click();
+  await page.waitForSelector('[data-act="execute-confirm"]');
+  await page.locator('[data-act="execute-confirm"]').click();
+  await settled();
+  const pacifist = await read("pacifist");
+  assert.deepEqual(
+    pacifist,
+    { day: 1, executed: "2", dayEnded: true, executedAlive: true, deaths: [] },
+    "the Pacifist's survival prevents the execution's death and closes the day",
+  );
+  await assertLifecycle(
+    "pacifist",
+    pacifist,
+    { day: 1, executed: null, dayEnded: false, executedAlive: true, deaths: [] },
+    "Pacifist survival",
+  );
+
+  // Cerenovus r2907: a failed madness is the host's penalty decision.
+  const madnessSeed = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const game = model.createGame(7);
+    game.script = {
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      source: "official",
+      roles: rules.SNV_ALL.slice(),
+    };
+    game.scriptId = "snv";
+    game.setup.roles = [
+      "artist",
+      "savant",
+      "seamstress",
+      "dreamer",
+      "oracle",
+      "cerenovus",
+      "vortox",
+    ];
+    game.setup.bluffs = ["clockmaker", "mathematician", "sage"];
+    const dealt = engine.dealGame(game, {
+      assignment: Object.fromEntries(
+        game.setup.roles.map((role, index) => [String(index + 1), role]),
+      ),
+    });
+    if (!dealt.ok) return dealt;
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    for (const step of game.night.queue) {
+      if (step.roleId === "cerenovus") {
+        const completed = engine.completeStep(game, step.key, {
+          targetIds: ["2"],
+          roleId: "clockmaker",
+        });
+        if (!completed.ok) return completed;
+      } else {
+        window.fixtureSkip(engine, game, step.key, "Unrelated wake in the browser fixture");
+      }
+    }
+    const ended = engine.endNight(game);
+    if (!ended.ok) return ended;
+    return store.replaceState(game);
+  });
+  assert.equal(madnessSeed.ok, true, JSON.stringify(madnessSeed));
+  await route("/table");
+  await openTableMenu();
+  const review = page.locator('[data-madness-player="2"]');
+  await review
+    .locator('[data-madness-reason="2"]')
+    .fill("The player did not try to convince the group.");
+  await review.locator('[data-madness-action="execute"]').click();
+  await page.waitForFunction(
+    async () => !(await window.PG_MODULES()).store.state.players["2"].alive,
+  );
+  const madness = await read("madness");
+  assert.deepEqual(
+    madness,
+    { executed: "2", executedAlive: false, winner: null, deaths: ["2"] },
+    "the madness penalty executes its target without ending the game",
+  );
+  await assertLifecycle(
+    "madness",
+    madness,
+    { executed: null, executedAlive: true, winner: null, deaths: [] },
+    "Cerenovus madness execution",
+  );
+
+  // Recluse r3007: the Storyteller may register the Recluse as the Demon for
+  // the Slayer's public shot; the shot kills the Recluse and no game ends.
+  const slayerSeed = await page.evaluate(async () => {
+    const { model, engine, store } = await window.PG_MODULES();
+    const assignment = {
+      1: "slayer",
+      2: "chef",
+      3: "empath",
+      4: "recluse",
+      5: "poisoner",
+      6: "imp",
+    } as Record<string, string>;
+    const game = model.createGame(6);
+    game.setup.roles = Object.values(assignment);
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    for (const player of Object.values(game.players)) player.claimed = true;
+    engine.autoSecrets(game);
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    }
+    const ended = engine.endNight(game);
+    if (!ended.ok) return ended;
+    return store.replaceState(game);
+  });
+  assert.equal(slayerSeed.ok, true, JSON.stringify(slayerSeed));
+  await settled();
+  await route("/table");
+  await page.locator('[data-seat-open="1"]').click();
+  const sheet = page.locator("[data-player-sheet]");
+  await sheet.locator("[data-slayer-target]").selectOption("4");
+  const registration = sheet.locator("[data-recluse-slayer]");
+  await registration.waitFor();
+  assert.equal(
+    await registration.isChecked(),
+    false,
+    "the Recluse's registration starts unanswered",
+  );
+  await registration.check();
+  await sheet.locator('[data-act="slayer"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.players["1"].used.slayer === true,
+  );
+  const recorded = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const entry = store.state.journal.entries.findLast(
+      (candidate) => candidate.type === "useSlayer",
+    );
+    const options = entry?.payload?.options as { recluseRegistersDemon?: boolean } | undefined;
+    return options?.recluseRegistersDemon ?? null;
+  });
+  assert.equal(recorded, true, "the Slayer command records the legal Recluse registration");
+  const slayer = await read("slayer");
+  assert.deepEqual(
+    slayer,
+    { shotAlive: false, slayerUsed: true, winner: null, registrations: 1 },
+    "the Recluse registers as the Demon and dies without ending the game",
+  );
+  await assertLifecycle(
+    "slayer",
+    slayer,
+    { shotAlive: true, slayerUsed: false, winner: null, registrations: 0 },
+    "Slayer x Recluse",
+  );
 }
 
 // Tinker r1782: "At any time, you may decide that the Tinker dies." States
@@ -2082,7 +5035,7 @@ async function tinkerNightDeathNeedsTheAbility() {
       const start = engine.startNight(game);
       if (!start.ok) return start;
       while (engine.currentStep(game))
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       const night = engine.endNight(game);
       if (!night.ok) return night;
       const day = engine.endDay(game);
@@ -2093,7 +5046,7 @@ async function tinkerNightDeathNeedsTheAbility() {
         if (drunk && step.roleId === "courtier") {
           const done = engine.completeStep(game, step.key, { roleId: "tinker" });
           if (!done.ok) return done;
-        } else engine.skipStep(game, step.key, "browser check");
+        } else window.fixtureSkip(engine, game, step.key, "browser check");
       }
       const errors = model.validateState(game);
       if (errors.length) return { ok: false, errors };
@@ -2133,7 +5086,7 @@ async function tinkerNightDeathNeedsTheAbility() {
 
   const drunk = await seed(true);
   assert.equal(drunk.ok, true, JSON.stringify(drunk));
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
   assert.deepEqual(
     await read(),
@@ -2143,12 +5096,12 @@ async function tinkerNightDeathNeedsTheAbility() {
   await page.locator('[data-act="complete"]').click();
   await page.waitForSelector('[data-act="step-confirm"]');
   await dialog.locator('[data-tinker-decision="die"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.deepEqual(await previewOf(["1"]), { status: "rejected", errorCode: "error.59" });
   await overflow();
   await page.screenshot({ path: join(screenshots, "tinker-drunk-dies-390.png") });
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.screenshot({ path: join(screenshots, "tinker-drunk-refused-390.png") });
   assert.equal(await page.locator("[data-rejection]").count(), 1, "the death is refused");
   assert.equal(await dialog.count(), 1, "the step sheet stays open");
@@ -2158,10 +5111,10 @@ async function tinkerNightDeathNeedsTheAbility() {
     "the drunk Tinker lives and the step stays open",
   );
   await dialog.locator('[data-tinker-decision="live"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.deepEqual(await previewOf([]), { status: "allowed", errorCode: null });
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(await page.locator("[data-rejection]").count(), 0, "the refusal clears");
   assert.deepEqual(
     await read(),
@@ -2178,16 +5131,16 @@ async function tinkerNightDeathNeedsTheAbility() {
 
   const sober = await seed(false);
   assert.equal(sober.ok, true, JSON.stringify(sober));
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
   assert.equal((await read()).tinkerDrunk, false);
   await page.locator('[data-act="complete"]').click();
   await page.waitForSelector('[data-act="step-confirm"]');
   await dialog.locator('[data-tinker-decision="die"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.deepEqual(await previewOf(["1"]), { status: "allowed", errorCode: null });
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(await page.locator("[data-rejection]").count(), 0);
   assert.deepEqual(
     await read(),
@@ -2246,7 +5199,7 @@ async function nightResurrectionNeedsTheAbility() {
     const start = engine.startNight(game);
     if (!start.ok) return start;
     while (engine.currentStep(game))
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     const night = engine.endNight(game);
     if (!night.ok) return night;
     const day = engine.endDay(game);
@@ -2264,7 +5217,7 @@ async function nightResurrectionNeedsTheAbility() {
           payload: { key: step.key, targetIds: [victim], deathIds: [victim] },
         });
         if (done.status !== "allowed") return { ok: false, done };
-      } else engine.skipStep(game, step.key, "browser check");
+      } else window.fixtureSkip(engine, game, step.key, "browser check");
     }
     const errors = model.validateState(game);
     if (errors.length) return { ok: false, errors };
@@ -2273,7 +5226,7 @@ async function nightResurrectionNeedsTheAbility() {
     return { ok: true };
   });
   assert.equal(result.ok, true, JSON.stringify(result));
-  await page.waitForTimeout(100);
+  await settled();
   await route("/table");
   const read = () =>
     page.evaluate(async () => {
@@ -2307,17 +5260,17 @@ async function nightResurrectionNeedsTheAbility() {
     "night 2 reaches the Professor with the Gossip and the Chambermaid dead",
   );
   await page.locator('[data-target][data-id="4"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   await page.waitForSelector('[data-act="step-confirm"]');
   const professorPick = dialog.locator("select[data-bmr-resurrect]");
   assert.equal(await professorPick.count(), 1, "the Professor's step offers the resurrection");
   await professorPick.selectOption("4");
-  await page.waitForTimeout(100);
+  await settled();
   await overflow();
   await page.screenshot({ path: join(screenshots, "resurrection-professor-390.png") });
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(await page.locator("[data-rejection]").count(), 0, "the Professor is not refused");
   assert.deepEqual(
     await read(),
@@ -2336,18 +5289,427 @@ async function nightResurrectionNeedsTheAbility() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "resurrection-tinker-390.png") });
   await dialog.locator('[data-tinker-decision="live"]').click();
-  await page.waitForTimeout(100);
+  await settled();
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(await page.locator("[data-rejection]").count(), 0);
   const after = await read();
   assert.deepEqual(after.alive, ["1", "2", "4", "5", "6", "7", "8"], "the Chambermaid stays dead");
   assert.notEqual(after.current, "tinker", "the Tinker's step is done");
 }
 
-async function fullChecks() {
-  await page.goto(url);
+// A revealed role card carries no countdown and no cancel control: it stays
+// until the name is saved, and only Escape or a hidden page dismisses it.
+async function playerCardHasNoCountdown() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(7, "deal");
+  await page.clock.install();
+  await route("/player");
+  await page.locator('[data-seat="0"]').click();
+  await page.waitForSelector(".player-card");
+  await page.clock.fastForward(120000);
+  assert.equal(
+    await page.locator(".player-card").count(),
+    1,
+    "the revealed card stays open without a countdown",
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator(".player-card").count(), 0, "Escape closes the card");
+  await page.clock.resume();
+}
+
+// Storefront r384: `/` is the welcome page. At 390 px the language switch
+// works, the yellow action opens the setup route, a saved game continues into
+// the table, and the page never scrolls sideways.
+async function storefrontWelcomeAt390() {
+  // `route` keys off the path without its leading slash, so the root route
+  // (whose key is "home") gets its own navigation here.
+  const home = async () => {
+    await page.evaluate(() => {
+      history.pushState(null, "", "/pocket/");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await page.waitForFunction(() => document.body.dataset.route === "home");
+    await settled();
+  };
+  await page.setViewportSize({ width: 390, height: 844 });
+  await home();
+  await page.waitForSelector("main h1");
+  assert.equal(await page.evaluate(() => document.body.dataset.route), "home");
+  await chooseLanguage("en");
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en");
+  assert.equal(
+    ((await page.locator("main h1").textContent()) ?? "").trim(),
+    "One session. The whole town.",
+    "the storefront headline follows the language switch",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "storefront-welcome-en-390.png") });
+
+  // The primary action is the setup entry, not the table.
+  await page.locator('main [data-act="home-start"]').first().click();
+  await page.waitForFunction(() => document.body.dataset.route === "bag");
+  assert.match(await page.evaluate(() => location.pathname), /\/bag$/);
+  await overflow();
+
+  // A live saved game offers its continuation, which opens the table.
+  await seed(7);
+  await home();
+  await page.waitForSelector("main h1");
+  const resume = page.locator('main [data-act="home-secondary"]');
+  assert.equal(await resume.count(), 1, "a live game offers the continuation");
+  assert.match((await resume.textContent()) ?? "", /continue/i);
+  await resume.click();
+  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "storefront-continue-390.png") });
+}
+
+// Imp r3116: a night self-kill leaves the heir unanswered in the save. A
+// reload keeps the question, offers no end-night, keeps roles out of the
+// public views and still wakes the named heir once.
+async function heirChoiceSurvivesReload() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedImpHeirNight2("fortuneteller");
+  await settled();
+  await route("/table");
+  const confirmWith = async (targetId: string) => {
+    await page.locator(`[data-target][data-id="${targetId}"]`).click();
+    await completeStep();
+    await settled();
+  };
+  await confirmWith("9");
+  await confirmWith("10");
+  await page.waitForSelector("[data-dock-heir] [data-heir]");
+
+  await page.reload();
   await page.waitForSelector(".host");
+  await page.waitForSelector("[data-dock-heir] [data-heir]");
+  const pending = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const clone = structuredClone(store.state);
+    const ended = engine.endNight(clone);
+    return {
+      phase: store.state.phase,
+      night: store.state.night.number,
+      winner: store.state.winner,
+      pending: Boolean(engine.demonChangePending(store.state)),
+      heirs: [...document.querySelectorAll("[data-dock-heir] [data-heir]")].map((node) =>
+        node.getAttribute("data-id"),
+      ),
+      endNight: document.querySelectorAll('[data-table-dock] [data-act="end-night"]').length,
+      confirm: document.querySelectorAll('[data-act="step-confirm"]').length,
+      endNightRefused: !ended.ok,
+      endNightPhase: clone.phase,
+    };
+  });
+  assert.deepEqual(pending, {
+    phase: "night",
+    night: 2,
+    winner: null,
+    pending: true,
+    heirs: ["8", "9"],
+    endNight: 0,
+    confirm: 0,
+    endNightRefused: true,
+    endNightPhase: "night",
+  });
+
+  // The public seat view and the player handoff carry no role, note or effect.
+  const secrets = await page.evaluate(async () => {
+    const { model, store } = await window.PG_MODULES();
+    const view = model.publicGameView(store.state);
+    const ids = new Set(
+      store.state.order.map((id) => store.state.players[id].roleId).filter(Boolean),
+    );
+    return {
+      keys: Object.keys(view).sort(),
+      text: JSON.stringify(view),
+      roleNames: (window.PG?.roles ?? [])
+        .filter((role) => ids.has(role.id))
+        .map((role) => role.name),
+    };
+  });
+  assert.deepEqual(secrets.keys, ["day", "deaths", "living", "night", "phase", "total", "winner"]);
+  for (const field of ["roleId", "shownRoleId", "effects", "notes", "demonchange"]) {
+    assert.equal(secrets.text.includes(field), false, `the public view leaks ${field}`);
+  }
+  assert.ok(secrets.roleNames.length >= 3, "the fixture hides the evil team's roles");
+  for (const where of ["/seat", "/player"]) {
+    await route(where);
+    await settled();
+    const body = await page.evaluate(() => document.body.innerText);
+    for (const name of secrets.roleNames) {
+      assert.equal(body.includes(name), false, `${where} shows the role ${name}`);
+    }
+    assert.equal(await page.locator("[data-madness-review]").count(), 0);
+  }
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "heir-reload-public-390.png") });
+
+  // The named heir is woken once, and the wake is the visible story step.
+  await route("/table");
+  await page.waitForSelector("[data-dock-heir] [data-heir]");
+  await page.locator('[data-dock-heir] [data-heir][data-id="8"]').click();
+  await settled();
+  const wake = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    return {
+      system: engine.currentStep(store.state)?.system ?? null,
+      wakes: store.state.night.queue.filter((step) => step.system === "demonchange").length,
+      heir: store.state.players["8"].roleId,
+    };
+  });
+  assert.deepEqual(wake, { system: "demonchange", wakes: 1, heir: "imp" });
+  assert.match(
+    await page.locator("[data-dock-step]").innerText(),
+    /Смена Демона|Demon changed|Demon dəyişdi/,
+    "the dock names the new Demon's wake",
+  );
+  await page.locator('[data-act="complete"]').click();
+  const stepNote = page.locator("[data-step-note]").first();
+  await stepNote.waitFor({ state: "attached" });
+  assert.match(
+    ((await stepNote.textContent()) ?? "").trim(),
+    /Чёрт|Imp|İmp|Demon|Devil/,
+    "the wake tells the Storyteller to show the new Demon",
+  );
+  assert.equal(await page.locator('[data-act="step-confirm"]').count(), 1);
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "heir-reload-wake-390.png") });
+  await page.keyboard.press("Escape");
+}
+
+// Vortox r3017: a living Vortox makes a Townsfolk answer false. The host
+// prompt is labelled false information, the true answer is not offered, and
+// the recorded answer stays out of the public views.
+async function vortoxFalseInformationLabel() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seeded = await page.evaluate(async () => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "clockmaker",
+      2: "cerenovus",
+      3: "vortox",
+      4: "mutant",
+      5: "savant",
+      6: "dreamer",
+      7: "oracle",
+      8: "artist",
+    };
+    const game = model.createGame(Object.keys(assignment).length);
+    game.script = {
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      source: "official",
+      roles: rules.SNV_ALL.slice(),
+    };
+    game.scriptId = "snv";
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["sage", "mathematician", "seamstress"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game) && engine.currentStep(game)!.roleId !== "clockmaker")
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return { ok: true };
+  });
+  assert.equal(seeded.ok, true, JSON.stringify(seeded));
+  await route("/table");
+  await page.locator('[data-act="complete"]').click();
+  await page.waitForSelector('select[data-given-kind="number"]');
+  const label = (
+    (await page.locator('label:has(select[data-given-kind="number"]) > .label').textContent()) ?? ""
+  ).trim();
+  assert.match(label, /^(Ложная информация|False information|Yanlış məlumat)$/);
+  assert.doesNotMatch(label, /Регистрация|Registration|Qeydəalma/);
+  assert.equal(
+    await page.locator("[data-madness-review]").count(),
+    0,
+    "the false answer is not a madness review",
+  );
+
+  const options = await page
+    .locator('select[data-given-kind="number"] option')
+    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
+  const info = await page.evaluate(async () => {
+    const { engine, store } = await window.PG_MODULES();
+    const step = engine.currentStep(store.state)!;
+    const result = engine.infoForStep(store.state, step);
+    return { value: result.value, options: result.options, falsified: result.falsifiedSuffix };
+  });
+  assert.equal(info.falsified, true, "a living Vortox makes the answer mandatory false");
+  assert.equal(info.options!.includes(info.value), false, "the true answer is not offered");
+  const chosen = options.find((value) => value !== "" && value !== String(info.value));
+  assert.ok(chosen, "the host has a false answer to give");
+  await page.locator('select[data-given-kind="number"]').selectOption(chosen!);
+  await page.locator('[data-act="step-confirm"]').click();
+  await page.waitForFunction(async () => {
+    const { store } = await window.PG_MODULES();
+    return Boolean(store.state.night.queue.find((step) => step.roleId === "clockmaker")?.done);
+  });
+
+  const recorded = await page.evaluate(async () => {
+    const { model, store } = await window.PG_MODULES();
+    const step = store.state.night.queue.find((entry) => entry.roleId === "clockmaker");
+    const view = model.publicGameView(store.state);
+    return {
+      value: (step?.given as { value?: unknown } | null | undefined)?.value ?? null,
+      keys: Object.keys(view).sort(),
+      text: JSON.stringify(view),
+    };
+  });
+  assert.equal(recorded.value, Number(chosen));
+  assert.deepEqual(recorded.keys, ["day", "deaths", "living", "night", "phase", "total", "winner"]);
+  for (const field of ["given", "journal", "clockmaker", "vortox"]) {
+    assert.equal(recorded.text.includes(field), false, `the public view leaks ${field}`);
+  }
+
+  for (const where of ["/seat", "/player"]) {
+    await route(where);
+    await settled();
+    const body = await page.evaluate(() => document.body.innerText);
+    assert.doesNotMatch(body, /Ложная информация|False information|Yanlış məlumat/);
+    assert.doesNotMatch(body, /Часовщик|Clockmaker|Вортокс|Vortox/);
+    assert.equal(await page.locator("[data-given]").count(), 0);
+  }
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "vortox-false-label-390.png") });
+}
+
+// Cerenovus: the madness role, the source and every note/effect stay out of
+// the public seat view and the player handoff; the Storyteller keeps the
+// review at the table.
+async function cerenovusMadnessStaysPrivate() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const note = "CERENOVUS SECRET NOTE: seat 2 is mad about the Clockmaker.";
+  const seeded = await page.evaluate(async (note) => {
+    const { model, engine, store, rules } = await window.PG_MODULES();
+    const assignment: Record<string, string> = {
+      1: "clockmaker",
+      2: "savant",
+      3: "dreamer",
+      4: "oracle",
+      5: "artist",
+      6: "cerenovus",
+      7: "nodashii",
+      8: "mutant",
+    };
+    const game = model.createGame(Object.keys(assignment).length);
+    game.script = {
+      id: "snv",
+      name: "Sects & Violets",
+      edition: "snv",
+      source: "official",
+      roles: rules.SNV_ALL.slice(),
+    };
+    game.scriptId = "snv";
+    game.setup.roles = Object.values(assignment);
+    game.setup.bluffs = ["sage", "mathematician", "seamstress"];
+    const dealt = engine.dealGame(game, { assignment });
+    if (!dealt.ok) return dealt;
+    game.order.forEach((id) => {
+      game.players[id].name = "Player " + id;
+      game.players[id].claimed = true;
+    });
+    game.notes = note;
+    game.phase = "seat";
+    const started = engine.startNight(game);
+    if (!started.ok) return started;
+    while (engine.currentStep(game)) {
+      const step = engine.currentStep(game)!;
+      if (step.roleId === "cerenovus") {
+        const completed = engine.completeStep(game, step.key, {
+          targetIds: ["2"],
+          roleId: "clockmaker",
+        });
+        if (!completed.ok) return completed;
+      } else {
+        window.fixtureSkip(engine, game, step.key, "browser check");
+      }
+    }
+    const ended = engine.endNight(game);
+    if (!ended.ok) return ended;
+    const errors = model.validateState(game);
+    if (errors.length) return { ok: false, errors };
+    store.replaceState(game);
+    dispatchEvent(new PopStateEvent("popstate"));
+    return {
+      ok: true,
+      effect: game.effects.some((effect) => effect.madness === "cerenovus"),
+    };
+  }, note);
+  assert.deepEqual(seeded, { ok: true, effect: true }, JSON.stringify(seeded));
+
+  const secrets = await page.evaluate(async () => {
+    const { model, store } = await window.PG_MODULES();
+    const view = model.publicGameView(store.state);
+    const ids = new Set(
+      store.state.order.map((id) => store.state.players[id].roleId).filter(Boolean),
+    );
+    return {
+      keys: Object.keys(view).sort(),
+      text: JSON.stringify(view),
+      roleNames: (window.PG?.roles ?? [])
+        .filter((role) => ids.has(role.id))
+        .map((role) => role.name),
+    };
+  });
+  assert.deepEqual(secrets.keys, ["day", "deaths", "living", "night", "phase", "total", "winner"]);
+  for (const field of [
+    "roleId",
+    "shownRoleId",
+    "effects",
+    "notes",
+    "madness",
+    "cerenovus",
+    "clockmaker",
+  ]) {
+    assert.equal(secrets.text.includes(field), false, `the public view leaks ${field}`);
+  }
+  assert.ok(secrets.roleNames.length >= 7, "the fixture hides every role");
+  for (const where of ["/seat", "/player"]) {
+    await route(where);
+    await settled();
+    const body = await page.evaluate(() => document.body.innerText);
+    for (const name of secrets.roleNames) {
+      assert.equal(body.includes(name), false, `${where} shows the role ${name}`);
+    }
+    assert.equal(body.includes(note), false, `${where} shows the host note`);
+    assert.equal(body.includes("cerenovus"), false, `${where} shows the madness source`);
+    assert.equal(await page.locator("[data-madness-review]").count(), 0);
+  }
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "cerenovus-privacy-390.png") });
+
+  await route("/table");
+  await openTableMenu();
+  const review = page.locator('[data-madness-player="2"]');
+  await review.waitFor();
+  assert.equal(await review.getAttribute("data-madness-status"), "pending");
+  assert.match(await review.innerText(), /Player 2/);
+  assert.match(await review.innerText(), /Clockmaker|Часовщик/);
+  assert.match(await page.locator("[data-madness-review]").innerText(), /Madness review|ПРОВЕРКА/i);
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "cerenovus-review-390.png") });
+  await page.keyboard.press("Escape");
+}
+
+async function fullChecks() {
+  phaseStarted = Date.now();
+  await page.goto(url);
+  await route("/table");
   assert.equal(
     await page.locator("#update-banner").isVisible(),
     false,
@@ -2428,6 +5790,8 @@ async function fullChecks() {
     await identity.close();
   }
 
+  phase("load and identity");
+
   // Pages-like fallback matrix: a real 404 for a nested route, exactly one
   // redirect, the route restored; the same cases at the root base.
   const matrix = async (target: string, cases: { final?: string; path: string }[]) => {
@@ -2467,7 +5831,12 @@ async function fullChecks() {
     const tab = await cold.newPage();
     await tab.goto(new URL("/outside", url).href);
     await tab.waitForSelector("#screen > *", { timeout: 15000 });
-    assert.equal(tab.url(), url + "table");
+    assert.equal(tab.url(), url, "an outside path lands on the base welcome page");
+    assert.equal(
+      await tab.evaluate(() => document.body.dataset.route),
+      "home",
+      "the base renders the welcome page, not the table",
+    );
     await cold.close();
   }
 
@@ -2489,6 +5858,8 @@ async function fullChecks() {
   } finally {
     await new Promise((done) => rootServer.close(done));
   }
+  phase("fallback matrix");
+
   await chooseLanguage("en");
   await seed(7);
 
@@ -2496,13 +5867,15 @@ async function fullChecks() {
   const savedBeforeDemo = await page.evaluate(() => localStorage.getItem("pg.game.v4"));
   await route("/demo");
   await page.waitForSelector("#screen > *");
-  await page.waitForTimeout(120);
+  await settled();
   assert.equal(
     await page.evaluate(() => localStorage.getItem("pg.game.v4")),
     savedBeforeDemo,
     "the demo must not touch the saved game",
   );
   await route("/table");
+
+  phase("demo isolation");
 
   await overflow();
   assert.equal(await page.locator("[data-table-stage]").isVisible(), true);
@@ -2566,8 +5939,17 @@ async function fullChecks() {
     if (scrolls) {
       assert.ok(
         stage.scrollHeight > stage.clientHeight,
-        `${width}px: the table is taller than the stage and scrolls inside it`,
+        `${width}px: a short viewport scrolls the table inside the stage`,
       );
+    } else {
+      const underDock = await page
+        .locator("[data-seat-name]")
+        .evaluateAll(
+          (nodes, dockTop) =>
+            nodes.filter((node) => node.getBoundingClientRect().bottom > dockTop + 1).length,
+          dock.y,
+        );
+      assert.equal(underDock, 0, `${width}px: no seat name sits under the dock`);
     }
     await overflow();
     const seats = await page.locator("[data-seat-open]").evaluateAll((nodes) =>
@@ -2610,7 +5992,10 @@ async function fullChecks() {
     );
     assert.equal(felt.length, 1, `${width}px: the table renders one felt surface`);
     assert.match(felt[0]!.image, /radial-gradient/, `${width}px: the felt is one soft gradient`);
-    assert.notEqual(felt[0]!.shadow, "none", `${width}px: the felt carries its centre glow`);
+    const railShadow = await page
+      .locator("[data-table-rail]")
+      .evaluate((node) => getComputedStyle(node).boxShadow);
+    assert.notEqual(railShadow, "none", `${width}px: the rail carries the surface shadow`);
     assert.ok(
       (await cornerRadius('[data-act="roster"]')) <= 4,
       `${width}px: the dock icon control is squared, not a pill`,
@@ -2652,7 +6037,7 @@ async function fullChecks() {
     store.run((game) => {
       let step = engine.currentStep(game);
       while (step && !step.actorId) {
-        engine.skipStep(game, step.key, "browser check");
+        window.fixtureSkip(engine, game, step.key, "browser check");
         step = engine.currentStep(game);
       }
       return { ok: true };
@@ -2769,7 +6154,7 @@ async function fullChecks() {
       const poisoner = game.night.queue.find((step) => step.roleId === "poisoner");
       engine.completeStep(game, poisoner!.key, { targetIds: ["1"] });
       while (engine.currentStep(game)!.roleId !== "fortuneteller") {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       const current = engine.currentStep(game);
       if (!current || current.roleId !== "fortuneteller")
@@ -2784,7 +6169,7 @@ async function fullChecks() {
       return { ok: true };
     });
     assert.equal(result.ok, true, JSON.stringify(result));
-    await page.waitForTimeout(100);
+    await settled();
   };
 
   await seedPoisonedFortuneTeller();
@@ -2881,7 +6266,7 @@ async function fullChecks() {
     const { engine, store } = await window.PG_MODULES();
     store.run((game) => {
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       engine.endNight(game);
       return { ok: true };
@@ -2937,7 +6322,7 @@ async function fullChecks() {
     true,
     "the host records the execution without entering votes",
   );
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   await page.waitForSelector("[data-executed]");
   assert.match(
     await page.locator("[data-executed]").innerText(),
@@ -2963,7 +6348,7 @@ async function fullChecks() {
     const { engine, store } = await window.PG_MODULES();
     store.run((game) => {
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       engine.kill(game, "5", "demon");
       engine.endNight(game);
@@ -3001,7 +6386,7 @@ async function fullChecks() {
     const { engine, store } = await window.PG_MODULES();
     store.run((game) => {
       while (engine.currentStep(game)) {
-        engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+        window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
       }
       engine.endNight(game);
       game.day.nominations.push({
@@ -3043,8 +6428,215 @@ async function fullChecks() {
     assert.ok(heroSize > labelSize * 1.5, "the tally is the hub's largest numeral");
   }
 
+  // The setup board: the roster and the step rail replace the old single card.
+  await seed(8, "deal");
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    store.run((game) => {
+      for (const id of ["1", "2", "3"]) game.players[id].claimed = true;
+    });
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await route("/table");
+  {
+    const board = page.locator("[data-setup-board]");
+    assert.equal(await board.count(), 1, "the setup phase renders the setup board");
+    const seats = await page
+      .locator("[data-board-seat]")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-board-seat")));
+    assert.deepEqual(
+      seats,
+      ["1", "2", "3", "4", "5", "6", "7", "8"],
+      "the board lists every seat in the saved order",
+    );
+    assert.equal(
+      await page.locator('[data-board-claim="claimed"]').count(),
+      3,
+      "three claimed seats render as claimed",
+    );
+    assert.equal(
+      await page.locator('[data-board-claim="unclaimed"]').count(),
+      5,
+      "five seats still read as unclaimed",
+    );
+    assert.match(
+      await page.locator("[data-board-count]").innerText(),
+      /3\s*\/\s*8/,
+      "the board counts three claimed names out of eight",
+    );
+    assert.equal(await page.locator("[data-board-step]").count(), 4, "the rail names four steps");
+    assert.equal(
+      await page.locator('[data-board-step][aria-current="step"]').count(),
+      1,
+      "exactly one step is current",
+    );
+    assert.equal(
+      await page.locator('[data-board-step][data-state="done"]').count(),
+      1,
+      "the roles step is done",
+    );
+    assert.equal(
+      await page.locator('[data-board-step][data-state="pending"]').count(),
+      2,
+      "the seats and secrets steps are pending",
+    );
+    assert.equal(
+      await page.locator("[data-board-primary]").getAttribute("href"),
+      "/pocket/player",
+      "the names step passes the device to the player route",
+    );
+    assert.equal(await board.locator("img").count(), 0, "the board shows no role artwork");
+    assert.equal(await board.locator("[data-role]").count(), 0, "the board shows no role hook");
+    const boardText = await board.innerText();
+    for (const id of ["chef", "empath", "fortuneteller", "undertaker", "virgin", "poisoner", "imp"])
+      assert.doesNotMatch(boardText, new RegExp("\\b" + id + "\\b", "i"), `no ${id} role text`);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await overflow();
+    const heights = await page
+      .locator("[data-board-primary], [data-board-link]")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({ text: node.textContent?.trim(), height: node.clientHeight })),
+      );
+    assert.deepEqual(
+      heights.filter((entry) => entry.height < 44),
+      [],
+      "every board control is at least 44 px tall: " + JSON.stringify(heights),
+    );
+  }
+
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    store.run((game) => {
+      for (const id of game.order) game.players[id].claimed = true;
+    });
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await route("/table");
+  assert.equal(
+    await page.locator("[data-board-primary]").getAttribute("href"),
+    "/pocket/seat",
+    "claiming every name moves the primary to the seat route",
+  );
+  assert.equal(
+    await page.locator('[data-board-step][data-state="current"]').getAttribute("data-board-step"),
+    "seats",
+    "the seats step is current once every name is claimed",
+  );
+
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    store.run((game) => {
+      game.phase = "seat";
+    });
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await route("/table");
+  {
+    const start = page.locator('[data-board-primary][data-act="start-night"]');
+    assert.equal(await start.count(), 1, "the secrets step's primary starts the first night");
+    assert.equal(await start.isDisabled(), false, "a clean secrets list enables the first night");
+    assert.equal(
+      await page.locator('[data-board-link][href="/pocket/secrets"]').count(),
+      1,
+      "the secrets route stays reachable beside the primary",
+    );
+  }
+
   await seed(7);
   await route("/table");
+  phase("table surface");
+
+  // The dock action must never open a sheet that cannot confirm. A targeting
+  // step with no target names the missing input and stays disabled until the
+  // host picks a seat; the sheet appears only then.
+  {
+    await page.evaluate(async () => {
+      const { engine, store } = await window.PG_MODULES();
+      let step = engine.currentStep(store.state);
+      while (step && step.targetMode === "none") {
+        const applied = store.dispatch({ type: "skipStep", payload: { key: step.key } });
+        if (applied.status !== "allowed") {
+          const next = structuredClone(store.state);
+          const entry = next.night.queue.find((candidate) => candidate.key === step!.key);
+          if (entry) {
+            entry.done = true;
+            entry.skipped = true;
+            store.replaceState(next);
+          }
+        }
+        step = engine.currentStep(store.state);
+      }
+    });
+    await page.waitForSelector("[data-target]");
+    const action = page.locator('[data-act="complete"]');
+    assert.equal(await action.isDisabled(), true, "a blocked step disables the dock action");
+    assert.match(
+      await action.innerText(),
+      /выберите цель|choose a target/i,
+      "the action names the missing target",
+    );
+    assert.equal(
+      await page.locator('[data-act="step-confirm"]').count(),
+      0,
+      "a blocked step opens no sheet",
+    );
+    await page.locator("[data-target]").first().locator("[data-seat-name]").click();
+    assert.equal(
+      await page.locator("[data-target]").first().getAttribute("aria-pressed"),
+      "true",
+      "the seat name is part of the target control",
+    );
+    assert.equal(await action.isEnabled(), true, "a chosen target enables the dock action");
+    await page.reload();
+    await page.waitForSelector("[data-game-table]");
+  }
+
+  // The wake order lives in the menu instead of an orphaned panel.
+  {
+    await openTableMenu();
+    assert.equal(
+      await page.locator('[data-menu] [data-panel="queue"]').count(),
+      1,
+      "the menu shows the wake order",
+    );
+    assert.match(
+      await page.locator('[data-menu] [data-panel="queue"]').innerText(),
+      /далее|Next:/i,
+      "the queue names the next wakes",
+    );
+    await page.locator('[data-menu] [data-act="show-order"]').click();
+    assert.ok(
+      (await page.locator('[data-menu] [data-panel="queue"] li').count()) > 0,
+      "the full night order expands",
+    );
+    await page.keyboard.press("Escape");
+  }
+
+  // Seat numbers stay readable on the phone-first surface.
+  {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForSelector("[data-seat-number]");
+    const numbers = await page.locator("[data-seat-number]").evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        text: node.textContent?.trim() ?? "",
+        shown: getComputedStyle(node).display !== "none",
+        size: parseFloat(getComputedStyle(node).fontSize),
+      })),
+    );
+    assert.equal(numbers.length, 7, "every seat carries its number at 390 px");
+    assert.ok(
+      numbers.every((entry) => entry.shown && entry.text && entry.size >= 12),
+      `seat numbers are visible at 12 px: ${JSON.stringify(numbers)}`,
+    );
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
+
+  await seed(7);
+  await route("/table");
+
   // ---- end of the Velvet table window assertions --------------------------
 
   // Regression: switching scripts without a reload must replace the bag's
@@ -3252,6 +6844,8 @@ async function fullChecks() {
   await page.locator('[data-act="apply-script"]').click();
   await page.waitForSelector(".script-modal", { state: "detached" });
 
+  phase("script switching");
+
   // Issue #17: three suggested bags, preview/apply, manual editing, undo and
   // the mixed-edition block.
   await route("/bag");
@@ -3345,11 +6939,12 @@ async function fullChecks() {
     await page.locator(`.bag-role[data-role="${id}"]`).click();
   }
   assert.equal(
-    await page.locator(".setup-banner.is-warning").count(),
+    await page.locator('[data-mixed-mode="automatic"]').count(),
     1,
-    "a mixed-edition pool enters manual-only mode",
+    "a certified mixed pool enters automatic mode",
   );
-  assert.equal(await page.locator("[data-manual-only]").isChecked(), true);
+  assert.equal(await page.locator(".setup-banner.is-warning").count(), 0);
+  assert.equal(await page.locator("[data-manual-only]").isChecked(), false);
 
   // Undo restores the pool, not only the bag selection.
   await page.locator('.bag-role[data-role="mayor"]').click();
@@ -3407,8 +7002,8 @@ async function fullChecks() {
   );
   assert.equal(
     await page.locator("[data-manual-only]").isChecked(),
-    true,
-    "manual-only mode survives reload",
+    false,
+    "automatic mixed mode survives reload",
   );
   await page.locator('[data-act="deal"]').click();
   await page.waitForFunction(() => document.body.dataset.route === "player");
@@ -3417,7 +7012,9 @@ async function fullChecks() {
     true,
     "the saved mixed bag starts the deal",
   );
-  await page.waitForTimeout(200);
+  await settled();
+
+  phase("bag");
 
   // Mixed-edition manual gameplay: deal, empty automatic night, day and a
   // host-declared winner.
@@ -3476,6 +7073,7 @@ async function fullChecks() {
     const { store } = await window.PG_MODULES();
     return store.state.notes === "Browser verification";
   });
+  await notesInputStaysCompact();
   await page.locator('[data-act="close"]:visible').first().click();
   await page.locator('[data-act="menu"]').click();
   assert.equal(
@@ -3551,7 +7149,7 @@ async function fullChecks() {
     dialog.dismiss();
   });
   await page.locator('.bag-role[data-role="mayor"]').click();
-  await page.waitForTimeout(100);
+  await settled();
   const savedAfter = await page.evaluate(async () => {
     const { KEY } = (await window.PG_MODULES()).store;
     return localStorage.getItem(KEY);
@@ -3561,6 +7159,8 @@ async function fullChecks() {
 
   await seed(7);
   await route("/table");
+
+  phase("manual play");
 
   // Regression (issue #1): the Poisoner's step must never ask for a Mayor
   // redirection. Selecting the Mayor as a poison target shows no redirect
@@ -3575,27 +7175,37 @@ async function fullChecks() {
       return step && (step.roleId || step.system);
     });
   assert.equal(await stepRole(), "poisoner", "Mayor scenario should start on the Poisoner");
-  // Issue #45: an unanswered mandatory target blocks the step and explains why;
-  // the preview shows the chosen target before the step is confirmed.
-  await page.locator('[data-act="complete"]').click();
+  // Issue #45: an unanswered mandatory target blocks the step and explains why.
+  // Issue #311: the action cannot open a sheet that cannot confirm, so the
+  // dock itself states the blockage and keeps one quiet line instead of a
+  // duplicate rejection preview.
   assert.equal(
-    await page.locator('[data-act="step-confirm"]').isDisabled(),
+    await page.locator('[data-act="complete"]').isDisabled(),
     true,
     "the Poisoner step is blocked until a target is chosen",
   );
-  await page.keyboard.press("Escape");
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "a blocked step opens no sheet",
+  );
   assert.equal(
     await page.locator('[data-blocker-reason="targets"]').count(),
     1,
-    "the blocking card names the missing target",
+    "the dock names the missing target",
   );
-  assert.equal(await page.locator("[data-preview]").count(), 1, "the preview is visible");
-  assert.ok(
-    (await page.locator("[data-preview-reason]").innerText()).trim().length > 0,
-    "the preview explains the rejected empty command",
+  assert.equal(
+    await page.locator("[data-preview]").count(),
+    0,
+    "an incomplete target selection shows no duplicate preview",
+  );
+  assert.equal(
+    await page.locator("[data-dock-quiet]").count(),
+    0,
+    "the blocker line replaces the quiet line",
   );
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(
     await page.locator('[data-blocker-reason="targets"]').count(),
     0,
@@ -3618,7 +7228,7 @@ async function fullChecks() {
   );
   // Correcting a wrong draft clears it locally; the trigger is not applied.
   await page.locator('[data-act="reset-step"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(
     await page.locator('[data-blocker-reason="targets"]').count(),
     1,
@@ -3632,17 +7242,15 @@ async function fullChecks() {
   // Desktop smoke inside the table scenario, not the PWA update flow.
   await page.setViewportSize({ width: 1440, height: 900 });
   await overflow();
-  await page.locator('[data-act="complete"]').click();
   assert.equal(
-    await page.locator('[data-act="step-confirm"]').isDisabled(),
+    await page.locator('[data-act="complete"]').isDisabled(),
     true,
     "the desktop step stays blocked without a target",
   );
-  await page.keyboard.press("Escape");
-  assert.equal(await page.locator("[data-preview-reason]").count(), 1);
-  assert.ok(
-    (await page.locator("[data-preview-reason]").innerText()).trim().length > 0,
-    "the desktop preview explains the rejected empty command",
+  assert.equal(
+    await page.locator('[data-act="step-confirm"]').count(),
+    0,
+    "the desktop blocked step opens no sheet",
   );
   await page.screenshot({
     path: join(screenshots, "storyteller-step-preview-desktop.png"),
@@ -3650,7 +7258,7 @@ async function fullChecks() {
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.screenshot({
     path: join(screenshots, "storyteller-step-preview-phone.png"),
     fullPage: true,
@@ -3671,11 +7279,11 @@ async function fullChecks() {
     fullPage: true,
   });
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(200);
+  await settled();
   // The poisoned Mayor loses the ability, so the Imp's step also asks nothing.
   assert.equal(await stepRole(), "imp");
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   assert.equal(
     await page.locator("select[data-redirect]").count(),
@@ -3683,7 +7291,7 @@ async function fullChecks() {
     "a poisoned Mayor attacked by the Imp must not offer a redirection",
   );
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(200);
+  await settled();
   const mayorDead = await page.evaluate(
     async () => (await window.PG_MODULES()).store.state.players["1"].alive,
   );
@@ -3694,12 +7302,12 @@ async function fullChecks() {
   await seedMayorNight2();
   await route("/table");
   await page.locator('[data-target][data-id="2"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await completeStep();
-  await page.waitForTimeout(200);
+  await settled();
   assert.equal(await stepRole(), "imp");
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   assert.equal(
     await page.locator("select[data-redirect]").count(),
@@ -3707,12 +7315,12 @@ async function fullChecks() {
     "a healthy Mayor still offers a redirection",
   );
   await page.locator("select[data-redirect]").selectOption("2");
-  await page.waitForTimeout(150);
+  await settled();
   await page.keyboard.press("Escape");
   await page.locator('[data-target][data-id="3"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   assert.equal(
     await page.locator("select[data-redirect]").inputValue(),
@@ -3732,7 +7340,7 @@ async function fullChecks() {
   await route("/table");
   assert.equal(await stepRole(), "imp");
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   const redirectSelect = page.locator("select[data-redirect]");
   assert.equal(await redirectSelect.count(), 1, "a healthy Mayor offers a redirection");
@@ -3756,9 +7364,9 @@ async function fullChecks() {
     "a Monk-protected player is offered and labelled as no death",
   );
   await redirectSelect.selectOption("2");
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(200);
+  await settled();
   let mayorState: { mayorAlive: boolean; nightDeaths: number; protectedAlive?: boolean } =
     await page.evaluate(async () => {
       const { state } = (await window.PG_MODULES()).store;
@@ -3774,12 +7382,12 @@ async function fullChecks() {
   await seedMayorRedirectTargets();
   await route("/table");
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   await page.locator("select[data-redirect]").selectOption("3");
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="step-confirm"]').click();
-  await page.waitForTimeout(200);
+  await settled();
   mayorState = await page.evaluate(async () => {
     const { state } = (await window.PG_MODULES()).store;
     return {
@@ -3829,7 +7437,7 @@ async function fullChecks() {
     const start = engine.startNight(game);
     if (!start.ok) throw new Error(JSON.stringify(start));
     while (engine.currentStep(game)!.roleId !== "sailor") {
-      engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+      window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
     }
     store.replaceState(game);
     dispatchEvent(new PopStateEvent("popstate"));
@@ -3837,7 +7445,7 @@ async function fullChecks() {
   await route("/table");
   assert.equal(await stepRole(), "sailor");
   await page.locator('[data-target][data-id="2"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   assert.equal(
     await page.locator("select[data-bmr-drunk]").count(),
@@ -3882,14 +7490,14 @@ async function fullChecks() {
         for (let night = 1; night <= 2; night += 1) {
           if (game.night.queue.some((step) => step.roleId === target)) break;
           while (engine.currentStep(game)) {
-            engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+            window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
           }
           if (!engine.endNight(game).ok || !engine.endDay(game).ok) break;
           start = engine.startNight(game);
           if (!start.ok) return start;
         }
         while (engine.currentStep(game)!.roleId !== target) {
-          engine.skipStep(game, engine.currentStep(game)!.key, "browser check");
+          window.fixtureSkip(engine, game, engine.currentStep(game)!.key, "browser check");
         }
         store.replaceState(game);
         dispatchEvent(new PopStateEvent("popstate"));
@@ -3898,7 +7506,7 @@ async function fullChecks() {
       { roles, target },
     );
     assert.equal(seeded.ok, true, JSON.stringify(seeded));
-    await page.waitForTimeout(100);
+    await settled();
   };
 
   await seedBmrStep(["sailor", "innkeeper", "gambler", "goon", "assassin", "shabaloth"], "gambler");
@@ -3979,14 +7587,14 @@ async function fullChecks() {
   assert.equal(await selfButton.isDisabled(), false, "the Fortune Teller can select themself");
   await selfButton.click();
   await page.locator('[data-target][data-id="2"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(
     await page.locator('[data-act="complete"]').isEnabled(),
     true,
     "self plus another player is a complete Fortune Teller choice",
   );
   await completeStep();
-  await page.waitForTimeout(200);
+  await settled();
   const fortuneGiven = await page.evaluate(async () => {
     const { state } = (await window.PG_MODULES()).store;
     const step = state.night.queue.find((candidate) => candidate.roleId === "fortuneteller");
@@ -4013,7 +7621,7 @@ async function fullChecks() {
   // The host points at any player as the Minion tip: pick the Townsfolk at
   // seat 3, not the real Minion at seat 7.
   await page.locator('[data-target][data-id="3"]').click();
-  await page.waitForTimeout(100);
+  await settled();
   await page.locator('[data-act="complete"]').click();
   await page.locator('[data-act="show-info"]').click();
   await page.waitForSelector("[data-lunatic-card]");
@@ -4096,7 +7704,7 @@ async function fullChecks() {
   await route("/table");
   assert.equal(await stepRole(), "imp");
   await page.locator('[data-target][data-id="1"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.ok(
     (await page.locator('[data-consequence="prevented"]').innerText()).trim().length > 0,
     "the blocked Soldier attack is a prevented death",
@@ -4126,6 +7734,8 @@ async function fullChecks() {
   // Restore the seven-player game the rest of the script expects.
   await seed(7);
   await route("/table");
+
+  phase("role steps");
 
   // Issue #45: a rejected import renders its reason in the console banner.
   await openTableMenu();
@@ -4187,9 +7797,9 @@ async function fullChecks() {
     "the day transition button stays enabled",
   );
   assert.equal(
-    await page.locator("[data-preview]").count(),
+    await page.locator("[data-dock-quiet]").count(),
     1,
-    "the day card shows its transition preview",
+    "the day dock states the quiet state in one line",
   );
   await page.locator("[data-virgin-form] select").selectOption("1");
   await page.locator("[data-virgin-form] button").click();
@@ -4203,23 +7813,6 @@ async function fullChecks() {
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["1"].name),
     "Alice",
   );
-
-  // A public tab is read-only and updates live.
-  const publicPage = await context.newPage();
-  await publicPage.goto(url + "#/public");
-  await publicPage.waitForSelector(".public");
-  await page.evaluate(async () => {
-    const store = (await window.PG_MODULES()).store;
-    store.run((game) => {
-      game.players["2"].alive = false;
-      return { ok: true };
-    });
-  });
-  await publicPage.waitForFunction(
-    () => document.querySelector(".public-count b")?.textContent === "5",
-  );
-  assert.equal(await publicPage.locator(".host-role, .host-bluffs, .host-notes").count(), 0);
-  await publicPage.close();
 
   // A bluff token opens the role card, and notes follow the store when another
   // game replaces this one.
@@ -4289,10 +7882,12 @@ async function fullChecks() {
   await page.locator('[data-seat-open="7"]').click();
   await page.waitForSelector("[data-player-sheet]");
   await page.locator('[data-act="player-execute"]').click();
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   assert.equal(await page.locator(".host-review").count(), 0);
   await page.locator('[data-act="review"]').click();
   assert.equal(await page.locator(".host-review").count(), 1);
+
+  phase("console dialogs");
 
   // Privacy projection and interrupted role timer cannot overwrite another route.
   await seed(7, "deal");
@@ -4335,10 +7930,6 @@ async function fullChecks() {
   );
   await page.locator('[data-act="back-cancel"]').click();
   await route("/help");
-  await page.clock.install();
-  await page.clock.fastForward(46000);
-  assert.equal(await page.locator(".player-card, .host").count(), 0);
-  await page.clock.resume();
   await route("/player");
   await route("/bag");
   assert.equal(
@@ -4350,7 +7941,7 @@ async function fullChecks() {
 
   // The seat ring follows the store for names, but a publish never replaces an
   // order the host is editing.
-  await seed(7, "seat");
+  await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
   await page.evaluate(async () => {
@@ -4370,7 +7961,7 @@ async function fullChecks() {
     next.order = next.order.slice().reverse();
     store.replaceState(next);
   });
-  await page.waitForTimeout(200);
+  await settled();
   assert.equal(
     (await page.locator('.seat-item[data-index="0"] .seat-name').textContent()) ?? "",
     "Zed",
@@ -4378,7 +7969,7 @@ async function fullChecks() {
   );
 
   // Regression: dragging a seat onto another must swap them, and enter undo.
-  await seed(7, "seat");
+  await seed(7, "deal");
   await route("/seat");
   await page.waitForSelector('.seat-item[data-index="0"]');
   const seatNames = () =>
@@ -4401,16 +7992,67 @@ async function fullChecks() {
     "the actions render under the ring",
   );
   assert.equal(
-    await page.locator('#screen main a[href$="/player"]').count(),
+    await page.locator('.seat-actions a[href$="/player"]').count(),
     1,
     "one player control remains",
   );
   assert.equal(
-    await page.locator('#screen main a[href$="/secrets"]').count(),
+    await page.locator('.seat-actions a[href$="/secrets"]').count(),
     0,
     "the seat screen keeps no secrets shortcut",
   );
   await page.locator("#seat-ring").scrollIntoViewIfNeeded();
+  assert.equal(
+    await page.locator("#seat-ring [data-table-rail]").count(),
+    1,
+    "the seat ring renders the table rail",
+  );
+  assert.equal(
+    await page.locator("#seat-ring [data-table-felt]").count(),
+    1,
+    "the seat ring renders the table felt",
+  );
+  const seatFelt = await page.locator("#seat-ring [data-table-felt]").evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { backgroundImage: style.backgroundImage, boxShadow: style.boxShadow };
+  });
+  assert.match(seatFelt.backgroundImage, /radial-gradient/, "the seat felt is one radial surface");
+  const seatRailShadow = await page
+    .locator("#seat-ring [data-table-rail]")
+    .evaluate((node) => getComputedStyle(node).boxShadow);
+  assert.ok(seatRailShadow !== "none", "the seat ring rail carries the surface shadow");
+  const medallions = await page.locator("[data-seat-medallion]").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const style = getComputedStyle(node);
+      const box = node.getBoundingClientRect();
+      const value = style.borderTopLeftRadius;
+      const round = value.endsWith("%")
+        ? parseFloat(value) >= 50
+        : parseFloat(value) >= box.height / 2 - 0.5;
+      return { clip: style.clipPath, round, width: box.width, height: box.height };
+    }),
+  );
+  assert.equal(medallions.length, beforeDrag.length, "every seat renders a medallion");
+  assert.deepEqual(
+    medallions.filter((medallion) => !medallion.round),
+    [],
+    "every medallion is round",
+  );
+  assert.deepEqual(
+    medallions.filter((medallion) => medallion.clip !== "none"),
+    [],
+    "no medallion keeps the amber hexagon clip",
+  );
+  assert.equal(
+    await page.locator("[data-seat-count]").innerText(),
+    String(beforeDrag.length),
+    "the centre count equals the rendered seats",
+  );
+  assert.equal(
+    await page.locator("[data-seat-dead]").getAttribute("data-seat-dead"),
+    "0",
+    "the centre reports the dead count",
+  );
   const dragFrom = await page.locator('.seat-item[data-index="0"]').boundingBox();
   const dragTo = await page.locator('.seat-item[data-index="2"]').boundingBox();
   assert.ok(dragFrom && dragTo, "the ring renders the dragged seat and the target");
@@ -4418,7 +8060,7 @@ async function fullChecks() {
   await page.mouse.down();
   await page.mouse.move(dragTo.x + dragTo.width / 2, dragTo.y + dragTo.height / 2, { steps: 12 });
   await page.mouse.up();
-  await page.waitForTimeout(150);
+  await settled();
   assert.deepEqual(
     await seatNames(),
     [beforeDrag[2], beforeDrag[1], beforeDrag[0], ...beforeDrag.slice(3)],
@@ -4509,8 +8151,8 @@ async function fullChecks() {
     "the draft and its history survive a language switch",
   );
 
-  // The use action is the only commit; it routes to the table when the phase
-  // is not "seat". The saved order must equal the order on the ring.
+  // The use action is the only commit; from deal it moves the game to seat and
+  // continues to secrets. The saved order must equal the order on the ring.
   const displayedNames = await seatNames();
   const displayedIds = await page.evaluate(async (names) => {
     const { store } = await window.PG_MODULES();
@@ -4520,7 +8162,7 @@ async function fullChecks() {
     return names.map((name) => byName.get(name));
   }, displayedNames);
   await page.locator('[data-act="use"]').click();
-  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await page.waitForFunction(() => document.body.dataset.route === "secrets");
   const savedOrder = await page.evaluate(async () =>
     (await window.PG_MODULES()).store.state.order.slice(),
   );
@@ -4557,7 +8199,20 @@ async function fullChecks() {
     [],
     "every action is at least 44 pixels high",
   );
+  await route("/table");
+  await seed(15, "deal");
+  await route("/seat");
+  await page.waitForSelector('.seat-item[data-index="0"]');
+  assert.equal(await page.locator(".seat-item").count(), 15, "the ring renders fifteen seats");
+  assert.equal(
+    await page.locator(".seat-name:visible").count(),
+    15,
+    "all fifteen names stay visible on the seat ring",
+  );
+  await overflow();
   await page.setViewportSize({ width: 1440, height: 900 });
+
+  phase("privacy and seat");
 
   // Full night/day transition at tablet size using a 12-player game.
   await page.setViewportSize({ width: 1024, height: 900 });
@@ -4593,15 +8248,20 @@ async function fullChecks() {
         history.pushState(null, "", path);
         dispatchEvent(new PopStateEvent("popstate"));
       }, "/pocket" + path);
-      const marker = { "/bag": ".setup", "/seat": ".seat-ring", "/secrets": ".secrets-head" }[path];
+      const marker = {
+        "/bag": ".setup",
+        "/seat": ".seat-ring, [data-seat-locked]",
+        "/secrets": ".secrets-head",
+      }[path];
       if (marker) await page.waitForSelector(marker);
-      await page.waitForTimeout(80);
+      await settled();
       await overflow();
     }
   }
 
-  // Mobile app bar menu (issue #141): one burger below 900 px, the inline list
-  // at desktop, and the same panel on the string-composed screens.
+  // App bar menu (issue #141): one burger below 1440 px so the grouped list
+  // never wraps, the inline row at desktop, and the same panel on the
+  // string-composed screens.
   await page.setViewportSize({ width: 390, height: 844 });
   await route("/table");
   await page.waitForSelector(".host");
@@ -4621,7 +8281,11 @@ async function fullChecks() {
   const menuHrefs = await menuPanel
     .locator("a")
     .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href") || ""));
-  for (const name of ["table", "bag", "seat", "secrets", "player", "sheet", "public", "help"]) {
+  assert.ok(
+    menuHrefs.includes(new URL(url).pathname),
+    `the panel links the home page: ${JSON.stringify(menuHrefs)}`,
+  );
+  for (const name of ["table", "bag", "seat", "secrets", "player", "sheet", "help"]) {
     assert.ok(
       menuHrefs.some((href) => href.endsWith("/" + name)),
       `the panel links /${name}: ${JSON.stringify(menuHrefs)}`,
@@ -4668,6 +8332,24 @@ async function fullChecks() {
     menuRows.every((height) => height >= 44),
     "every menu row is 44 px: " + JSON.stringify(menuRows),
   );
+
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await route("/table");
+  await page.waitForSelector(".host");
+  // The panel keeps its open state across a rotation, so close it first: the
+  // height below measures the bar with its menu shut.
+  await page.keyboard.press("Escape");
+  await settled();
+  assert.equal(
+    await page.locator("[data-app-bar-toggle]").isVisible(),
+    true,
+    "1024 px keeps the list in the burger instead of wrapping it",
+  );
+  assert.equal(await page.locator("[data-app-bar-menu]").isVisible(), false);
+  const barHeight = await page
+    .locator("[data-app-bar-toggle]")
+    .evaluate((node) => node.closest("header")?.clientHeight ?? 0);
+  assert.ok(barHeight <= 64, "the bar stays one row at 1024 px: " + barHeight);
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await route("/table");
@@ -4728,16 +8410,6 @@ async function fullChecks() {
     "the panel language change keeps the route",
   );
   await page.keyboard.press("Escape");
-
-  await route("/public");
-  await page.waitForSelector(".public");
-  assert.equal(
-    await page.locator("[data-app-bar-toggle]").count(),
-    0,
-    "the public screen has no burger",
-  );
-  assert.equal(await page.locator("[data-app-bar-menu]").count(), 0);
-  assert.equal(await page.locator(".lang-switch").isVisible(), true);
 
   // Role sheet scenario selector (issue #14): edition filtering, a separate
   // Travellers toggle, language/reload persistence and game-state isolation.
@@ -4988,7 +8660,7 @@ async function fullChecks() {
     );
     await sheetLegibility([320, 360, 390, 768, 1280, 1440], 87);
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.waitForTimeout(60);
+    await settled();
     await overflow();
   }
   assert.equal(
@@ -5030,7 +8702,7 @@ async function fullChecks() {
   });
   assert.equal(surface.fontSize, "14px", "the body font size is unchanged");
   assert.equal(surface.lineHeight, "20.3px", "the body line height is unchanged");
-  assert.match(surface.fontFamily, /Inter/, "the body font family is unchanged");
+  assert.match(surface.fontFamily, /Golos Text/, "the body uses the store prose face");
   assert.equal(surface.margin, "0px", "the base layer keeps the margin reset");
 
   // Shared dialog contract: focus in, Escape, overlay and close control,
@@ -5114,6 +8786,8 @@ async function fullChecks() {
   );
   await route("/table");
 
+  phase("routes and sheet");
+
   // Project-subpath offline bootstrap, including dynamically imported engine modules.
   await page.waitForFunction(
     async () => !!(await navigator.serviceWorker.getRegistration())?.active,
@@ -5130,7 +8804,7 @@ async function fullChecks() {
   await page.locator('[data-seat-open="12"]').click();
   await page.waitForSelector("[data-player-sheet]");
   await page.locator('[data-act="player-execute"]').click();
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   assert.equal(
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["11"].roleId),
     "imp",
@@ -5140,7 +8814,7 @@ async function fullChecks() {
   await page.locator('[data-seat-open="11"]').click();
   await page.waitForSelector("[data-player-sheet]");
   await page.locator('[data-act="player-execute"]').click();
-  await page.locator('[data-act="execute"]').click();
+  await executeNow();
   assert.equal(
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.winner?.team),
     "good",
@@ -5165,6 +8839,7 @@ async function fullChecks() {
       try {
         return await target.evaluate(read);
       } catch {
+        // Deliberate: retry after a reload that destroyed the reading document.
         await target.waitForTimeout(200);
       }
     }
@@ -5190,9 +8865,29 @@ async function fullChecks() {
     readPage(target, () => Number(sessionStorage.getItem("pg-test-loads") || "0"));
   // Publish a worker without asking the page to look for it: only the opening
   // check can find this one.
-  const publish = (cache: string) => {
+  const publish = (cache: string, installDelay = 0) => {
     releaseOverride = versionSource(cache);
+    if (installDelay > 0) {
+      releaseOverride += `\nself.addEventListener("install", (event) => {
+  const { promise, resolve } = Promise.withResolvers();
+  setTimeout(resolve, ${installDelay});
+  event.waitUntil(promise);
+});\n`;
+    }
   };
+  // The banner can turn visible while the service worker swaps documents.
+  // A DOM predicate survives that swap; a CSS selector wait can resolve and
+  // still time out on the stale document. The actionable prompt is ready only.
+  const waitForBanner = (target: Page = page) =>
+    target.waitForFunction(() => {
+      const banner = document.getElementById("update-banner");
+      return Boolean(banner && !banner.hidden && banner.dataset.state === "available");
+    });
+  const waitForDownloading = (target: Page = page) =>
+    target.waitForFunction(() => {
+      const banner = document.getElementById("update-banner");
+      return Boolean(banner && !banner.hidden && banner.dataset.state === "downloading");
+    });
   const deploy = async (cache: string) => {
     publish(cache);
     await page.evaluate(async () => {
@@ -5203,7 +8898,7 @@ async function fullChecks() {
       async () => !!(await navigator.serviceWorker.getRegistration())?.waiting,
       { timeout: 20000 },
     );
-    await page.waitForSelector("#update-banner:not([hidden])");
+    await waitForBanner();
   };
   const waitForLoads = (target: Page, expected: number) =>
     target.waitForFunction(
@@ -5255,6 +8950,7 @@ async function fullChecks() {
         stable = 0;
       }
       if (loads !== null) previous = loads;
+      // Deliberate: poll until the load count holds still.
       await target.waitForTimeout(200);
     }
     let diagnosis = "state unavailable";
@@ -5292,7 +8988,8 @@ async function fullChecks() {
   // Offline clients keep running the cached app; returning online checks again.
   await context.setOffline(true);
   await page.waitForFunction(() => navigator.onLine === false);
-  publish(nextCache);
+  publish(nextCache, 1200);
+  // Deliberate: an offline client must not install a worker within this window.
   await page.waitForTimeout(300);
   assert.equal(
     await page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())?.waiting),
@@ -5302,11 +8999,18 @@ async function fullChecks() {
   await context.setOffline(false);
   await page.waitForFunction(() => navigator.onLine === true);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await waitForDownloading();
+  assert.match(
+    (await page.locator("#update-message").textContent()) ?? "",
+    /downloading an update/i,
+  );
+  assert.equal(await page.locator("#update-now").isVisible(), false);
+  assert.equal(await page.locator("#update-later").isVisible(), false);
   await page.waitForFunction(
     async () => !!(await navigator.serviceWorker.getRegistration())?.waiting,
     { timeout: 15000 },
   );
-  await page.waitForSelector("#update-banner:not([hidden])");
+  await waitForBanner();
   assert.match((await page.locator("#update-message").textContent()) ?? "", /update is ready/i);
   assert.equal(
     await workerVersion(),
@@ -5325,6 +9029,7 @@ async function fullChecks() {
   const timeOrigin = await page.evaluate(() => performance.timeOrigin);
   await page.locator("#update-later").click();
   assert.equal(await page.locator("#update-banner").isVisible(), false);
+  // Deliberate: Later must not reload the running document at any point in this window.
   await page.waitForTimeout(400);
   assert.equal(
     await page.evaluate(() => performance.timeOrigin),
@@ -5380,6 +9085,7 @@ async function fullChecks() {
   // A deploy found while the page stays open waits for the host.
   await deploy(fourthCache);
   const loadsBeforeApply = await loadCount();
+  // Deliberate: a deploy found while the page stays open must not reload by itself.
   await page.waitForTimeout(500);
   assert.equal(await loadCount(), loadsBeforeApply, "a later deploy does not reload by itself");
   assert.equal(
@@ -5429,6 +9135,7 @@ async function fullChecks() {
   await page.locator("#update-now").click();
   await waitForLoads(page, loadsBeforeApply + 1);
   await page.waitForSelector(".host");
+  // Deliberate: activation after a failed save is asynchronous and must finish here.
   await page.waitForTimeout(600);
   assert.equal(await workerVersion(), fourthCache, "a failed save does not stop activation");
   assert.equal(await page.locator("#update-banner").isVisible(), false);
@@ -5444,34 +9151,45 @@ async function fullChecks() {
   });
 
   // Two windows reload once each, with no save coordination between them.
-  const publicTab = await context.newPage();
-  await publicTab.goto(url + "#/public");
-  await publicTab.waitForSelector(".public");
+  const otherTab = await context.newPage();
+  await otherTab.goto(url);
+  await otherTab.evaluate(() => {
+    history.pushState(null, "", "/pocket/sheet");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await otherTab.waitForSelector(".sheet-page");
   await deploy(fifthCache);
-  await publicTab.waitForSelector("#update-banner:not([hidden])");
+  // The app checks on visibility/online; a background tab does not get a
+  // guaranteed updatefound event. Drive the same check the app exposes.
+  await otherTab.evaluate(() => window.dispatchEvent(new Event("online")));
+  await waitForBanner(otherTab);
   const hostLoads = await loadCount();
-  const publicLoads = await loadCount(publicTab);
-  await page.locator("#update-now").click();
+  const otherLoads = await loadCount(otherTab);
+  // Activation reloads this window, so a Playwright retry can race the hidden
+  // banner; the handler itself is the behavior under test.
+  await page.evaluate(() => {
+    const button = document.getElementById("update-now");
+    if (button instanceof HTMLButtonElement) button.click();
+  });
   await waitForLoads(page, hostLoads + 1);
   await page.waitForSelector(".host");
-  await waitForLoads(publicTab, publicLoads + 1);
-  await publicTab.waitForSelector(".public");
+  await waitForLoads(otherTab, otherLoads + 1);
+  await otherTab.waitForSelector(".sheet-page");
+  // Deliberate: both windows get this window to prove each reloads exactly once.
   await page.waitForTimeout(1200);
   assert.equal(await loadCount(), hostLoads + 1, "the applying window reloads exactly once");
-  assert.equal(
-    await loadCount(publicTab),
-    publicLoads + 1,
-    "the other window reloads exactly once",
-  );
+  assert.equal(await loadCount(otherTab), otherLoads + 1, "the other window reloads exactly once");
   assert.equal(await workerVersion(), fifthCache, "the new worker controls the reloaded app");
-  assert.equal(await workerVersion(publicTab), fifthCache, "every window runs the new worker");
-  await publicTab.close();
+  assert.equal(await workerVersion(otherTab), fifthCache, "every window runs the new worker");
+  await otherTab.close();
 
   // The pre-#11 client scenario needed the unbundled source tree. The worker
   // protocol it exercised (activation, cache pruning) is covered by
   // src/infrastructure/offline/offline-worker.test.ts, and the game survival of
   // an update is asserted above.
   releaseOverride = null;
+
+  phase("offline and update");
 
   // Issue #46 — phone acceptance. A blank profile, no config file and no saved
   // bag registry: every screen from setup to the finale is reached by tapping
@@ -5549,15 +9267,29 @@ async function fullChecks() {
   };
 
   const fillPhoneSecrets = async (tab: Page) => {
-    // The pair must include the player who really holds the role named by the
-    // block heading; the Drunk-mask editor reuses the same slot, so it must be
-    // filled through the heading too.
-    for (const block of await tab.locator(".secrets-info").all()) {
+    // The screen opens one obligation at a time, so the helper visits each
+    // index item. The pair must include the player who really holds the role
+    // named by the block heading; the Drunk-mask editor reuses the same slot,
+    // so it must be filled through the heading too.
+    const openObligation = async (id: string) => {
+      const button = tab.locator(`[data-obligation="${id}"]`);
+      if (!(await button.count())) return;
+      await button.click();
+      await settled(tab);
+    };
+    const obligationIds = await tab
+      .locator("[data-obligation]")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-obligation") || ""));
+    for (const id of obligationIds) {
+      if (!id) continue;
+      await openObligation(id);
+      const block = tab.locator(".secrets-info").first();
+      if (!(await block.count())) continue;
       const roleSelect = block.locator("select[data-info-role]");
       if (!(await roleSelect.count())) continue;
       const heading = (
         await block
-          .locator("h3")
+          .locator("h2")
           .innerText()
           .catch(() => "")
       ).trim();
@@ -5578,7 +9310,7 @@ async function fullChecks() {
           );
         if (!firstRole) continue;
         await roleSelect.selectOption(firstRole);
-        await tab.waitForTimeout(120);
+        await settled(tab);
         roleValue = firstRole;
       }
       const currentA = await pairA.inputValue();
@@ -5598,10 +9330,11 @@ async function fullChecks() {
       const first = trueRole?.value ?? options.find((option) => option.value)?.value ?? "";
       const second = options.find((option) => option.value && option.value !== first)?.value ?? "";
       if (first) await pairA.selectOption(first);
-      await tab.waitForTimeout(120);
+      await settled(tab);
       if (second) await pairB.selectOption(second);
-      await tab.waitForTimeout(120);
+      await settled(tab);
     }
+    await openObligation("herring");
     const herring = tab.locator("select[data-herring]");
     if (await herring.count()) {
       const good = await herring
@@ -5635,7 +9368,7 @@ async function fullChecks() {
             await free.first().evaluate((node) => (node as HTMLElement).click());
           }
         }
-        await tab.waitForTimeout(100);
+        await settled(tab);
       }
       const given = tab.locator("select[data-given]:visible");
       if (await given.count()) {
@@ -5658,7 +9391,7 @@ async function fullChecks() {
           .locator("[data-step-sheet]:visible")
           .waitFor({ timeout: 2000 })
           .catch(() => {});
-        await tab.waitForTimeout(80);
+        await settled(tab);
         const sheetGiven = tab.locator("select[data-given]:visible");
         if (await sheetGiven.count()) {
           const value = await sheetGiven
@@ -5698,11 +9431,9 @@ async function fullChecks() {
           }
         }
       } else {
-        const skip = tab.locator('[data-act="skip"]:visible');
-        assert.ok(await skip.count(), "a night step exposes a control");
-        await skip.first().click();
+        await advanceFixtureStep(tab);
       }
-      await tab.waitForTimeout(120);
+      await settled(tab);
     }
     throw new Error("the phone night did not end");
   };
@@ -5769,7 +9500,7 @@ async function fullChecks() {
       await tab.waitForSelector(".secrets");
       await record("secrets", "secrets");
       await fillPhoneSecrets(tab);
-      await tab.waitForSelector(".secrets-status.is-ok");
+      await tab.waitForSelector('[data-act="start"]:not([disabled])');
       await tab.locator('[data-act="start"]').click();
       await tab.waitForSelector('[data-table-dock][data-phase="night"]');
       await record("night", "table");
@@ -5808,8 +9539,12 @@ async function fullChecks() {
       );
       await tab.locator(`[data-seat-open="${demonId}"]`).click();
       await tab.waitForSelector("[data-player-sheet]");
+      // The sheet opens with a focus move; tapping before it settles can land
+      // on the moving surface.
+      await settled(tab);
       await tab.locator('[data-act="player-execute"]').click();
-      await tab.locator('[data-act="execute"]').click();
+      await settled(tab);
+      await executeNow(tab);
       await tab.waitForSelector('[data-table-dock][data-phase="over"]');
       await record("result", "table");
 
@@ -5920,7 +9655,7 @@ async function fullChecks() {
       );
     });
   });
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(
     await page.locator('[data-seat-open="2"] [data-seat-badge="registered-dead"]').count(),
     1,
@@ -5951,7 +9686,7 @@ async function fullChecks() {
       state.winner = { team: "good", reason: "demon-dead", title: "Победа добра" };
     });
   });
-  await page.waitForTimeout(150);
+  await settled();
   assert.match(
     await page.locator('[data-step="over"] [data-win-reason="demon-dead"]').innerText(),
     /Демон казнён|Demon was executed|Demon edam edildi/,
@@ -6000,15 +9735,18 @@ async function fullChecks() {
   );
   assert.match(
     await page.locator('[data-act="reset-step"]').innerText(),
-    /Очистить выбор|Clear selection|Seçimi təmizlə/,
+    /Очистить выбор|Clear selection|Seçimi təmizlə/i,
     "the draft reset is not labelled as undo",
   );
+  while (!(await page.locator('[data-table-dock] [data-act="skip"]').count())) {
+    await advanceFixtureStep();
+  }
   const stepBeforeUndo = await stepRole();
   await page.locator('[data-act="skip"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.notEqual(await stepRole(), stepBeforeUndo, "skip advances the night");
   await page.locator('[data-table-dock] [data-act="undo"]').click();
-  await page.waitForTimeout(150);
+  await settled();
   assert.equal(await stepRole(), stepBeforeUndo, "the dock undo restores the step");
   await openTableMenu();
   assert.equal(
@@ -6042,7 +9780,7 @@ async function fullChecks() {
     await page.locator('[data-act="player-execute"]').click();
     const executeCorpse = page.locator('[data-table-dock] [data-act="execute"]');
     assert.equal(await executeCorpse.isEnabled(), true, width + "px: corpse execution enabled");
-    await executeCorpse.click();
+    await executeNow();
     const execution = await page.evaluate(async () => {
       const { state } = (await window.PG_MODULES()).store;
       return {
@@ -6110,21 +9848,50 @@ async function fullChecks() {
     await page.screenshot({ path: join(screenshots, `retained-twin-${width}.png`) });
   }
 
-  await savedCustomBagRestoresPool();
-  await currentScriptRoleCorrections();
-  await madnessExecutionFromTable();
-  await playerBubbleVoting();
-  await lunaticSetupControls();
-  await setupZeroIsTheLibrariansAlone();
-  await newDemonWakesOnce();
-  await pukkaChoosesGoonWhileSelfPoisoned();
-  await mayorRedirectIsAsked();
-  await heirQuestionLeadsTheNight();
-  await heirQuestionLeadsAnOpenSheet();
-  await chefRegistrationIsLabelled();
-  await tinkerNightDeathNeedsTheAbility();
-  await nightResurrectionNeedsTheAbility();
-  assert.deepEqual(errors, []);
+  phase("phone acceptance");
+
+  await timed("saved-custom-bag", savedCustomBagRestoresPool);
+  await timed("mixed-script", mixedScriptDiagnostics);
+  await timed("no-beta-labels", officialScriptsAreNotBeta);
+  await timed("role-corrections", currentScriptRoleCorrections);
+  await timed("madness-execution", madnessExecutionFromTable);
+  await timed("player-voting", playerBubbleVoting);
+  await timed("player-card", playerCardHasNoCountdown);
+  await timed("seat-lock", seatOrderIsFixedAfterStart);
+  await timed("drunk-slayer", drunkSlayerFromTable);
+  await timed("queue-panel", queuePanelReachable);
+  await timed("notes-debounce", notesDebounce);
+  await timed("secrets-checks", secretsChecks);
+  await timed("corrections", correctionSurface);
+  await timed("klutz-day", klutzDayChoice);
+  await timed("pacifist-survival", pacifistSurvivalControl);
+  await timed("day-reset", dayChangeClearsExecutionDrafts);
+  await timed("lunatic-setup", lunaticSetupControls);
+  await timed("verification-contracts", verificationContracts);
+  await timed("setup-zero", setupZeroIsTheLibrariansAlone);
+  await timed("washerwoman", washerwomanFalseInformationCard);
+  await timed("demon-wake", newDemonWakesOnce);
+  await timed("pukka-goon", pukkaChoosesGoonWhileSelfPoisoned);
+  await timed("goon-alignment", goonAlignmentReveal);
+  await timed("mayor-redirect", mayorRedirectIsAsked);
+  await timed("heir-question", heirQuestionLeadsTheNight);
+  await timed("heir-sheet", heirQuestionLeadsAnOpenSheet);
+  await timed("chef-label", chefRegistrationIsLabelled);
+  await timed("pithag-deaths", pithagArbitraryDeathReachable);
+  await timed("tinker-first-night", tinkerFirstNightDeathReachable);
+  await timed("journal-pairs", journalInformationPairsInspectable);
+  await timed("dreamer-pair", dreamerInformationPairThroughTable);
+  await timed("evil-twin-introduction", evilTwinIntroductionThroughTable);
+  await timed("tinker-night", tinkerNightDeathNeedsTheAbility);
+  await timed("night-resurrection", nightResurrectionNeedsTheAbility);
+  await timed("storefront-welcome", storefrontWelcomeAt390);
+  await timed("heir-reload", heirChoiceSurvivesReload);
+  await timed("vortox-label", vortoxFalseInformationLabel);
+  await timed("cerenovus-privacy", cerenovusMadnessStaysPrivate);
+  await timed("adjudication-persistence", adjudicationPersistence);
+  await timed("game-end-chronicle", gameEndChronicle);
+  if (errors.length) console.log("FAILED RESPONSES: " + failed.join(" | "));
+  assert.deepEqual(errors, [], `console: ${errors.join(" | ")}; failed: ${failed.join(" | ")}`);
   console.log(
     "Browser checks passed: phone/tablet, night/day, Virgin, route cleanup, privacy, reload, cross-tab, languages, native role sheet, dialog contract, offline project-subpath reload, fast PWA update.",
   );
@@ -6132,30 +9899,13 @@ async function fullChecks() {
 }
 
 try {
-  const focused = process.env.PG_BROWSER_CHECK;
-  if (focused) {
-    const check = {
-      "saved-custom-bag": savedCustomBagRestoresPool,
-      "role-corrections": currentScriptRoleCorrections,
-      "madness-execution": madnessExecutionFromTable,
-      "player-voting": playerBubbleVoting,
-      "lunatic-setup": lunaticSetupControls,
-      "setup-zero": setupZeroIsTheLibrariansAlone,
-      "demon-wake": newDemonWakesOnce,
-      "pukka-goon": pukkaChoosesGoonWhileSelfPoisoned,
-      "mayor-redirect": mayorRedirectIsAsked,
-      "heir-question": heirQuestionLeadsTheNight,
-      "heir-sheet": heirQuestionLeadsAnOpenSheet,
-      "chef-label": chefRegistrationIsLabelled,
-      "tinker-night": tinkerNightDeathNeedsTheAbility,
-      "night-resurrection": nightResurrectionNeedsTheAbility,
-    }[focused];
-    if (!check) throw new Error("Unknown browser check: " + focused);
+  if (focusedName) {
+    const check = focusedChecks[focusedName];
     await page.goto(url);
-    await page.waitForSelector(".host");
-    await check();
-    assert.deepEqual(errors, []);
-    console.log("Browser check passed: " + focused);
+    await route("/table");
+    await timed(focusedName, check);
+    assert.deepEqual(errors, [], `console: ${errors.join(" | ")}; failed: ${failed.join(" | ")}`);
+    console.log("Browser check passed: " + focusedName);
   } else {
     await fullChecks();
   }

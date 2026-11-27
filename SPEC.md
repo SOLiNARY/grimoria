@@ -22,41 +22,41 @@ profile.
   of `favicon.svg` and satisfy Chrome's install icon sizes.
 - The base path is one normalized `BASE_PATH`: it feeds Vite, the router root,
   the generated `404.html` and the worker registration.
-- Routes are paths: `/bag`, `/seat`, `/secrets`, `/table`, `/player`,
-  `/public`, `/help`, `/demo`, `/sheet` and `/sheet/{ru,en,az}`. Default
-  route is `/table`.
-- `/table` is the Storyteller console. `/player` and `/public` are
-  player-facing and must never render full grimoire state.
+- Routes are paths: `/`, `/bag`, `/seat`, `/secrets`, `/table`, `/player`,
+  `/reference`, `/reference/{roleId}`, `/help`, `/demo`, `/sheet` and
+  `/sheet/{ru,en,az}`. `/` is the welcome page; an unknown path falls back to
+  `/table`.
+- `/table` is the Storyteller console. `/player` is player-facing and must
+  never render full grimoire state.
 
 ## Modules
 
-| File | Responsibility |
-|---|---|
-| `src/core/` | command contracts, prepare/adopt, validated state, typed events, core ports |
-| `src/application/` | store factory, application ports, legacy command adapter, read models |
-| `src/infrastructure/` | browser storage, platform, preferences |
-| `src/ui/` | React shell, router store, legacy bridge, shared components, native screens, Tailwind entry and tokens |
-| `src/entry/` | composition root: store facade, locale boot, offline registration and the two DOM screens |
-| `src/application/dispatch/adopt.ts` | the one conversion point from the engine result union to the typed store result |
-| `src/core/model/state.ts` | schema v4, script metadata, player defaults, public projection, migration, import/export validation |
-| `src/core/model/scripts.ts` | official script catalog, BotC script JSON parsing and validation |
-| `src/core/model/rules.ts` | Trouble Brewing, Bad Moon Rising and Sects & Violets composition, bag validation, recommended sets, night order, labels |
-| `src/core/engine/index.ts` | stable API for `engine/` domain modules: deal, night, BMR/S&V queues and outcomes, effects, information, day, host execution, win, corrections |
-| `src/core/engine/commands.ts` | one command registry: Validate, Preview, Apply, invariants, idempotency ledger and domain-event diff |
-| `src/entry/store.ts` | browser composition root and facade over `createGameStore`: live state, dispatch, undo, import/export |
-| `src/ui/screens/bag.tsx` | setup screen: scenario picker, count, legal bag, bluffs, Drunk mask |
-| `src/ui/screens/seat.tsx` | seat order and swaps |
-| `src/ui/screens/secrets.tsx` | red herring, one-of-two pairs, reminder checklist |
-| `src/ui/screens/table/` | host table: seat ring and hub, fixed dock, dawn report, player card, night/day decisions, win, review |
-| `src/ui/screens/player.tsx` | safe handoff with a public-only role projection |
-| `src/ui/screens/public.tsx` | public screen with no roles, bluffs, notes or effects |
-| `src/entry/screens/help.ts` | compact rules and all-role reference |
-| `src/entry/screens/demo.ts` | separate scripted 10-player teaching game |
-| `src/ui/screens/sheet.tsx` | all-role sheet in Russian, English and Azerbaijani; read-only |
-| `src/ui/store/use-game.ts` | one subscription over the cached store snapshot |
-| `src/ui/legacy-bridge.tsx` | mounts an unmigrated screen and disposes it on navigation |
-| `src/ui/i18n/strings.ts` | keyed en/ru/az UI catalogs in `src/ui/i18n/locales/`; role names come from the role catalog |
-| `src/ui/i18n/translate.ts` | existing text translator and language switch |
+| File                                | Responsibility                                                                                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/core/`                         | command contracts, prepare/adopt, validated state, typed events, core ports                                                                    |
+| `src/application/`                  | store factory, application ports, legacy command adapter, read models                                                                          |
+| `src/infrastructure/`               | browser storage, platform, preferences                                                                                                         |
+| `src/ui/`                           | React shell, router store, legacy bridge, shared components, native screens, Tailwind entry and tokens                                         |
+| `src/entry/`                        | composition root: store facade, locale boot, offline registration and the two DOM screens                                                      |
+| `src/application/dispatch/adopt.ts` | the one conversion point from the engine result union to the typed store result                                                                |
+| `src/core/model/state.ts`           | schema v4, script metadata, player defaults, public projection, migration, import/export validation                                            |
+| `src/core/model/scripts.ts`         | official script catalog, BotC script JSON parsing and validation                                                                               |
+| `src/core/model/rules.ts`           | Trouble Brewing, Bad Moon Rising and Sects & Violets composition, bag validation, recommended sets, night order, labels                        |
+| `src/core/engine/index.ts`          | stable API for `engine/` domain modules: deal, night, BMR/S&V queues and outcomes, effects, information, day, host execution, win, corrections |
+| `src/core/engine/commands.ts`       | one command registry: Validate, Preview, Apply, invariants, idempotency ledger and domain-event diff                                           |
+| `src/entry/store.ts`                | browser composition root and facade over `createGameStore`: live state, dispatch, undo, import/export                                          |
+| `src/ui/screens/bag.tsx`            | setup screen: scenario picker, count, legal bag, bluffs, Drunk mask                                                                            |
+| `src/ui/screens/seat.tsx`           | seat order and swaps                                                                                                                           |
+| `src/ui/screens/secrets.tsx`        | red herring, one-of-two pairs, reminder checklist                                                                                              |
+| `src/ui/screens/table/`             | host table: seat ring and hub, fixed dock, dawn report, player card, night/day decisions, win, review                                          |
+| `src/ui/screens/player.tsx`         | safe handoff with a public-only role projection                                                                                                |
+| `src/entry/screens/help.ts`         | compact rules and all-role reference                                                                                                           |
+| `src/entry/screens/demo.ts`         | separate scripted 10-player teaching game                                                                                                      |
+| `src/ui/screens/sheet.tsx`          | all-role sheet in Russian, English and Azerbaijani; read-only                                                                                  |
+| `src/ui/store/use-game.ts`          | one subscription over the cached store snapshot                                                                                                |
+| `src/ui/legacy-bridge.tsx`          | mounts an unmigrated screen and disposes it on navigation                                                                                      |
+| `src/ui/i18n/strings.ts`            | keyed en/ru/az UI catalogs in `src/ui/i18n/locales/`; role names come from the role catalog                                                    |
+| `src/ui/i18n/translate.ts`          | existing text translator and language switch                                                                                                   |
 
 No screen reads or writes `localStorage` directly. Screens mutate the singleton
 through engine functions, then call `save()`/`run()` from `src/entry/store.ts`.
@@ -100,9 +100,13 @@ problem.
 ```
 
 `applied` is the idempotency ledger: command id mapped to `{ type, at,
-rulesetVersion, fingerprint, followUp, undoable }`. A repeated command id is a
-no-op only when its type, payload and ruleset version match the fingerprint; a
-different payload or version with the same id is rejected.
+rulesetVersion, identity, followUp, undoable }`. `identity` is a compact digest
+of the canonical fingerprint of type, payload and ruleset version; the full
+fingerprint stays in the prepared command, journal entry and execution seed. A
+legacy entry may carry the full `fingerprint` instead; it remains valid and is
+compared in full. A repeated command id is a no-op only when its type, payload
+and ruleset version match; a different payload or version with the same id is
+rejected.
 
 `journal` is the deterministic command history: one base state plus the ordered
 accepted commands, each with its id, type, host payload, resolved `at`, ruleset
@@ -153,8 +157,10 @@ state and optional pending Demon-heir choice.
   phases; a wrong-phase command returns a typed rejection and leaves state
   unchanged. `endNight` requires night, `dealGame` requires the setup family,
   a roster reset returns the game to setup, and `over` rejects play commands.
-  A same-edition custom script runs the automatic engine; `manualOnly` is legal
-  only for a mixed-edition pool.
+  A same-edition custom script runs its edition's automatic engine. A mixed
+  script runs automatically when its compatibility verdict is `verified` or
+  `requires-storyteller-choice`; `manualOnly` is the explicit fallback, legal
+  only for a mixed-edition pool and required when the verdict is `unsupported`.
 - The host chooses false information, registration variants, Mayor redirects
   and a Demon heir when several Minions are eligible. The engine offers only
   allowed choices.
@@ -175,9 +181,11 @@ state and optional pending Demon-heir choice.
   moves exactly one per activation, including after a script switch. Named
   pools and exact bags can be saved, reloaded, exported and imported. Legal
   does not mean balanced.
-- `/seat`: ring in seat order, swap, shuffle, undo; names only, after players
-  have entered them in `/player`. New games start with blank names; the player
-  flow requires a non-empty name before it claims a number.
+- `/seat`: one table surface: the app bar, a measured stadium of round
+  medallions in seat order, a numeric centre and a fixed action dock. Swap,
+  drag, shuffle and undo change the draft; the commit action saves it. Names
+  only, after players have entered them in `/player`. New games start with blank
+  names; the player flow requires a non-empty name before it claims a number.
 - `/secrets`: host-chosen red herring and one-of-two pairs (no auto-fill),
   reminder checklist, host-only role roster.
 - `/table`: one host table. The app bar stays above a scrollable stage that
@@ -206,11 +214,9 @@ state and optional pending Demon-heir choice.
   actual win cause, including a Demon execution. The host-adjudicated tracking
   warning appears once per screen. Win and review gate stay.
 - `/player`: number picker; a tap on a free number shows the shown role with
-  the auto-hide deadline; name entry; saving the name returns to the number
+  the name entry; saving the name returns to the number
   picker, which offers seat arrangement once every number is claimed; warning
   before returning to the host console.
-- `/public`: phase, alive count, public deaths, winner. No roles, bluffs,
-  notes, effects or hidden information.
 - `/help`: rules and all-role reference without the current game's secrets.
 - `/demo`: separate scripted game; never touches the saved real game.
 - `/sheet/{ru,en,az}`: scenario-filtered Trouble Brewing, Bad Moon Rising,
@@ -228,13 +234,16 @@ state and optional pending Demon-heir choice.
   day. The Storyteller resolves each printed ability; the night card exposes
   the role ability and the outcome controls.
 - A custom script is stored with the game and constrains the bag, bluffs and
-  Drunk mask to its roles. Imported custom scripts must use roles from a single
-  supported edition: all Trouble Brewing, all Bad Moon Rising or all Sects &
-  Violets. A manual custom pool may span editions. Same-edition pools use the
-  matching supported engine. Mixed pools run in an explicit manual-only
-  Storyteller mode: the host deals, resolves every ability and death, records
-  corrections and declares the winner. No automatic role or win check runs, and
-  the table carries a prominent warning.
+  Drunk mask to its roles. An imported custom script may use supported roles
+  from one edition or from several. A same-edition pool uses its edition's
+  automatic engine. A mixed pool is described by one compatibility verdict:
+  each role's audited support plus every registered interaction. A `verified`
+  or `requires-storyteller-choice` pool composes every edition's role steps into
+  one official night order and runs automatically; the latter still asks the
+  host for each legal discretion. An `unsupported` pool requires the explicit
+  manual-only mode: the host deals, resolves every ability and death, records
+  corrections and declares the winner, and the table carries a prominent
+  warning. No unsupported pair is presented as verified.
 - Accepted import sources: JSON file, URL (the host must allow CORS), clipboard
   text. The BotC format is an array of role ids or `{ id }` objects with an
   optional `_meta` entry; an object with `roles` is also accepted. `_meta.name`
@@ -297,17 +306,27 @@ reproduces that behaviour locally.
   "failed"`; an identical repeated failure publishes nothing; the next
   successful write clears it. Save revisions and disk snapshots detect
   conflicts, and an adopted cross-tab save clears undo history.
-- Disk snapshot checks prevent stale sequential overwrites between tabs.
+- Disk snapshot checks prevent stale sequential overwrites between tabs. The
+  read-check-write is not atomic across tabs: two simultaneous writers can both
+  observe the same stored value, and the later save wins. The app does not
+  promise multi-tab write serialization or a per-command expected revision.
+- The export is the host's complete private backup, not a shareable redacted
+  file: it carries the real roles, effects, host and player notes, the log and
+  the journal payloads, including note text recorded earlier. `state.applied`
+  keeps only a 128-bit command identity, so it sanitizes nothing and the ledger
+  is not a privacy boundary. The console and the export envelope both warn that
+  the file holds secrets. Public and player projections omit notes, roles,
+  bluffs and effects.
 - Public/player transitions return to the console with no cover step. Player role
   lookup occurs only for the selected seat; the number-picker projection
-  contains no role details. Auto-hide uses a fixed deadline and survives
-  rerendering without extending it.
+  contains no role details. The revealed card stays open until the name is
+  saved; Escape, a hidden document and a hidden page close it without a claim.
 - The phone table window is one column: the app bar, the scrollable table stage
   and the fixed dock. Instructions are collapsible and stored under `pg.guided`.
   Live controls target 44px minimum; the stage, not the document, scrolls.
-- The Virgin action records triggering or non-triggering first nominations. The
-  host can also record the voter list of a normal nomination; the engine counts
-  the threshold and the leader. A correction can reopen a claimed number.
+- The Virgin action records triggering or non-triggering first nominations. For
+  a normal nomination the host records the vote count; the engine applies the
+  threshold and the leader. A correction can reopen a claimed number.
 - Voting requires `ceil(living / 2)` votes plus a sole highest total.
 - `manifest.webmanifest`, `src/entry/offline.ts` and generated `sw.js` support
   offline loading. `scripts/build-offline.ts` hashes the runtime asset set and

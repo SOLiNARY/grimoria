@@ -5,6 +5,7 @@ import {
   attackNeedsRedirect,
   bmrDrunkEffect,
   butlerMaster,
+  canSkipStep,
   characterChoices,
   currentStep,
   demonChangePending,
@@ -20,10 +21,24 @@ import {
   setupErrors,
   soldierSafe,
   stepProgress,
+  survivesExecutionAllowed,
   vigormortisPoisonChoices,
 } from "../../core/engine/index.ts";
-import { hasAbility, livingPlayers, orderedPlayers, playerById } from "../../core/model/state.ts";
-import type { Effect, GameState, NightStep, RoleId, SavantTruth } from "../../core/model/types.ts";
+import {
+  hasAbility,
+  livingPlayers,
+  orderedPlayers,
+  playerById,
+  registersAlive,
+} from "../../core/model/state.ts";
+import type {
+  Effect,
+  GameState,
+  NightStep,
+  Player,
+  RoleId,
+  SavantTruth,
+} from "../../core/model/types.ts";
 import type { InfoResult } from "../../core/engine/index.ts";
 
 export interface SetupProblem {
@@ -37,8 +52,14 @@ export function progressProjection(state: GameState): { done: number; total: num
 }
 
 /** The phase-level facts the night, day and deal cards render. */
+/** Living players a nomination may start from; a registered-dead Zombuul cannot nominate. */
+export function nominatorChoices(state: GameState): Player[] {
+  return livingPlayers(state).filter(registersAlive);
+}
+
 export interface TableProjection {
   step: NightStep | null;
+  skippable: boolean;
   progress: { done: number; total: number };
   pendingDemonChange: NightStep | null;
   living: number;
@@ -48,8 +69,10 @@ export interface TableProjection {
 
 export function tableProjection(state: GameState): TableProjection {
   const living = livingPlayers(state).length;
+  const step = currentStep(state);
   return {
-    step: currentStep(state),
+    step,
+    skippable: step ? canSkipStep(state, step) : false,
     progress: progressProjection(state),
     pendingDemonChange: demonChangePending(state),
     living,
@@ -64,6 +87,15 @@ export interface ArtistProjection {
 }
 
 /** The living Artist, a Drunk shown the Artist, or a Philosopher who borrowed it. */
+/**
+ * Whether the engine would accept the Pacifist's survival for this execution
+ * target now: a good target and a living, unimpaired Pacifist in play. The
+ * console derives the control from this projection, never from a role list.
+ */
+export function survivalProjection(state: GameState, targetId: string | null | undefined): boolean {
+  return Boolean(targetId) && survivesExecutionAllowed(state, String(targetId));
+}
+
 export function artistProjection(state: GameState): ArtistProjection | null {
   const player = orderedPlayers(state).find(
     (candidate) => candidate.alive && hasAbility(candidate, "artist"),
@@ -198,8 +230,8 @@ export function seatProjection(state: GameState, playerId: string): SeatProjecti
   const player = playerById(state, playerId);
   return {
     impaired: isImpaired(state, playerId),
-    drunk: Boolean(drunkEffect),
-    poisoned: !drunkEffect && isImpaired(state, playerId),
+    drunk: Boolean(drunkEffect) || Boolean(player && player.roleId === "drunk"),
+    poisoned: Boolean(poisonEffect),
     protected: Boolean(protection),
     safeFromAttack: Boolean(protection) || soldierSafe(state, playerId),
     butlerMasterId: butlerMaster(state, playerId),

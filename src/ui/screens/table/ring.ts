@@ -4,6 +4,14 @@
 
 export type LabelSide = "right" | "left" | "above" | "below";
 
+/** The class placement of one seat label relative to its medallion. */
+export const SEAT_LABEL_SIDE: Record<LabelSide, string> = {
+  right: "right-[calc(100%+6px)] top-1/2 -translate-y-1/2 items-end text-right",
+  left: "left-[calc(100%+6px)] top-1/2 -translate-y-1/2 items-start text-left",
+  above: "bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 items-center text-center",
+  below: "top-[calc(100%+4px)] left-1/2 -translate-x-1/2 items-center text-center",
+};
+
 /** Space kept between the shared table box and the stadium contour. */
 const INSET_X = 34;
 const INSET_Y = 52;
@@ -168,7 +176,7 @@ export const SEAT_BADGE_KEY: Record<SeatBadge, string> = {
 };
 
 export const SEAT_BADGE_TONE: Record<SeatBadge, string> = {
-  acting: "border-table-primary/60 text-table-primary",
+  acting: "border-table-primary/60 text-text",
   nominated: "border-crimson text-danger",
   scheduled: "border-crimson/60 text-danger",
   dead: "border-edge-2 text-muted",
@@ -176,8 +184,8 @@ export const SEAT_BADGE_TONE: Record<SeatBadge, string> = {
   "ghost-vote": "border-townsfolk/60 text-townsfolk",
   "no-ghost-vote": "border-edge-2 text-muted",
   poison: "border-outsider/60 text-outsider",
-  drunk: "border-amber-2/60 text-amber-2",
-  protection: "border-amber-2/60 text-amber-2",
+  drunk: "border-amber-2/60 text-accent-text",
+  protection: "border-amber-2/60 text-accent-text",
 };
 
 /**
@@ -195,7 +203,7 @@ export function seatBadges(state: SeatState): SeatBadge[] {
   }
   if (state.registeredDead) badges.push("registered-dead");
   if (state.drunk) badges.push("drunk");
-  else if (state.poisoned || state.impaired) badges.push("poison");
+  if (state.poisoned || (!state.drunk && state.impaired)) badges.push("poison");
   if (state.protected) badges.push("protection");
   return badges;
 }

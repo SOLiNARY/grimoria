@@ -26,6 +26,7 @@ import {
 import {
   effectiveRoleId,
   hasAbility,
+  hasTrueAbility,
   livingPlayers,
   nowIso,
   orderedPlayers,
@@ -36,9 +37,11 @@ import {
 } from "../model/state.ts";
 
 import { executionThreshold, dayAt, currentAt, addLog } from "./context.ts";
+import { recordHostChoice } from "./host-choice.ts";
 import { lifecycleGuard } from "./lifecycle.ts";
 import { idSuffix } from "../model/ports.ts";
 import type { CommandExecutionContext } from "../model/ports.ts";
+import type { Juggler } from "../model/types.ts";
 import { systemPorts } from "../model/ports.ts";
 import { effectActive, isImpaired, butlerMaster } from "./effects.ts";
 import { appendConditionalSteps, buildNightQueue } from "./night.ts";
@@ -49,6 +52,7 @@ import {
   madnessEffects,
   madnessReviewsDue,
   reconcileNoDashiiPoison,
+  reconcileVigormortisPoison,
   vortoxFalsifies,
 } from "./sv.ts";
 import { kill, resolveDemonDeath, checkWin, setWinner } from "./death.ts";
@@ -81,7 +85,7 @@ export function virginTriggers(
   nominator: Player,
   options: DayOptions = {},
 ): boolean {
-  if (!nominee || nominee.roleId !== "virgin" || !nominee.alive) return false;
+  if (!nominee || !hasTrueAbility(nominee, "virgin") || !nominee.alive) return false;
   if (nominee.used.virgin) return false;
   if (isImpaired(state, nominee.id, dayAt(state))) return false;
   const realTownsfolk = roleTeam(nominator.roleId || "") === "townsfolk";
@@ -108,7 +112,7 @@ export function nominate(
   }
   const nominator = playerById(state, nominatorId);
   const nominee = playerById(state, nomineeId);
-  if (!nominator || !nominator.alive)
+  if (!nominator || !registersAlive(nominator))
     return { ok: false, errorCode: "error.11", error: "Номинировать может только живой." };
   if (!nominee) return { ok: false, errorCode: "error.12", error: "Номинант не найден." };
   if (state.day.nominations.some((nomination) => nomination.nominatorId === nominator.id)) {
@@ -149,11 +153,24 @@ export function nominate(
     return death;
   };
 
-  const virgin = nominee.roleId === "virgin" ? nominee : null;
+  const virgin = hasTrueAbility(nominee, "virgin") ? nominee : null;
   if (virgin && virgin.alive && !virgin.used.virgin) {
     const triggers = virginTriggers(state, virgin, nominator, options);
     virgin.used.virgin = true;
     if (triggers) {
+      if (
+        nominator.roleId === "spy" &&
+        options.spyRegistersTownsfolk === true &&
+        !isImpaired(state, nominator.id, dayAt(state))
+      ) {
+        recordHostChoice(
+          state,
+          "registration",
+          "Шпион регистрируется как Горожанин",
+          nominator.id,
+          ports,
+        );
+      }
       state.day.execution = {
         playerId: nominator.id,
         cause: "virgin",
@@ -461,7 +478,7 @@ export function recordVotes(
     const id = String(rawId);
     const player = playerById(state, id);
     if (!player) continue;
-    if (player.alive) {
+    if (registersAlive(player)) {
       valid.add(id);
       continue;
     }
@@ -499,7 +516,7 @@ export function recordVotes(
   nomination.butlerWarning = warnings;
   nomination.deadVoters = ordered.filter((id) => {
     const player = playerById(state, id);
-    return player && !player.alive;
+    return player && !registersAlive(player);
   });
   // "If the Demon changes players after the original Demon voted … the
   // Flowergirl detects the original Demon" (Flowergirl r2907). Keep the role
@@ -570,7 +587,7 @@ export function resetVotes(
     return { ok: false, errorCode: "error.22", error: "Казнь уже состоялась." };
   for (const id of nomination.deadVoters || ([] as string[])) {
     const player = playerById(state, id);
-    if (player && !player.alive) player.voteToken = true;
+    if (player && !registersAlive(player)) player.voteToken = true;
   }
   nomination.votes = [];
   nomination.deadVoters = [];
@@ -643,7 +660,10 @@ export function executePlayer(
       ports,
     );
   }
-  if (!isManualScript(state.script) && isSnvScript(state.script)) reconcileNoDashiiPoison(state);
+  if (!isManualScript(state.script) && isSnvScript(state.script)) {
+    reconcileNoDashiiPoison(state);
+    reconcileVigormortisPoison(state);
+  }
   if (
     !isManualScript(state.script) &&
     death &&
@@ -691,7 +711,7 @@ export function moonchildChoice(
   if (guard) return guard;
   const moonchild = orderedPlayers(state).find(
     (player) =>
-      player.roleId === "moonchild" &&
+      hasTrueAbility(player, "moonchild") &&
       !player.alive &&
       !(player.used && player.used.moonchildTarget),
   );
@@ -701,9 +721,9 @@ export function moonchildChoice(
     return { ok: false, errorCode: "error.31", error: "Цель должна быть живой." };
   moonchild.used = moonchild.used || {};
   moonchild.used.moonchildTarget = target.id;
-  // The ability is used when the Moonchild learns of the death; a drunk or
-  // poisoned Moonchild at that moment wastes it (States r1039).
-  moonchild.used.moonchildImpaired = isImpaired(state, moonchild.id, currentAt(state));
+  // Moonchild r1783: only the choice-time alignment is stored. Impairment is
+  // judged at the night resolution, so a choice made while impaired still
+  // kills when the Moonchild is sober and healthy then.
   // Moonchild r1783: the choice-time alignment decides, even if the Goon turns
   // evil before the curse resolves.
   moonchild.used.moonchildTargetEvil = realTeamOf(target) === "evil";
@@ -720,18 +740,36 @@ export function moonchildChoice(
   return { ok: true, targetId: target.id };
 }
 
-function jugglerDayGuard(state: GameState) {
+function jugglerHolder(state: GameState, actorId?: string | null): Player | null {
+  if (actorId != null) {
+    const actor = playerById(state, String(actorId));
+    return actor && actor.alive && hasAbility(actor, "juggler") ? actor : null;
+  }
+  return (
+    orderedPlayers(state).find((player) => player.alive && hasAbility(player, "juggler")) || null
+  );
+}
+
+/** The holder's own record. A legacy single ledger belongs to its holder only. */
+function jugglerRecordFor(state: GameState, holderId: string): Juggler | null {
+  const scoped = state.jugglers?.[holderId];
+  if (scoped) return scoped;
+  const legacy = state.juggler;
+  if (!legacy) return null;
+  if (legacy.holderId) return legacy.holderId === holderId ? legacy : null;
+  return Object.keys(state.jugglers || {}).length ? null : legacy;
+}
+
+function jugglerDayGuard(state: GameState, actorId?: string | null) {
   const guard = lifecycleGuard(state, "jugglerGuess");
   if (guard) return guard;
-  const juggler = orderedPlayers(state).find(
-    (player) => player.alive && hasAbility(player, "juggler"),
-  );
-  if (!juggler) return { ok: false, errorCode: "error.29", error: "Жонглёра нет в игре." };
-  const current = state.juggler;
+  const holder = jugglerHolder(state, actorId);
+  if (!holder) return { ok: false, errorCode: "error.29", error: "Жонглёра нет в игре." };
+  const current = jugglerRecordFor(state, holder.id);
   if (current && typeof current.day === "number" && current.day !== state.day.number) {
     return { ok: false, errorCode: "error.7", error: "Жонглёр угадывает в свой первый день." };
   }
-  return { ok: true as const };
+  return { ok: true as const, holderId: holder.id };
 }
 
 // Juggler r2401: up to five public guesses on their first day; characters and
@@ -740,8 +778,9 @@ export function reportJugglerGuesses(
   state: GameState,
   guesses: Array<{ playerId: string; roleId: string }>,
   ports: CommandExecutionContext = systemPorts,
+  actorId?: string | null,
 ) {
-  const guard = jugglerDayGuard(state);
+  const guard = jugglerDayGuard(state, actorId);
   if (guard.ok === false) return guard;
   if (!Array.isArray(guesses)) {
     return { ok: false, errorCode: "error.39", error: "Передайте список догадок Жонглёра." };
@@ -764,7 +803,14 @@ export function reportJugglerGuesses(
   const correct = clean.filter(
     (guess) => (playerById(state, guess.playerId)?.roleId ?? null) === guess.roleId,
   ).length;
-  state.juggler = { day: state.day.number, guesses: clean, correct };
+  const record: Juggler = {
+    day: state.day.number,
+    guesses: clean,
+    correct,
+    holderId: guard.holderId!,
+  };
+  state.jugglers = { ...state.jugglers, [guard.holderId!]: record };
+  state.juggler = record;
   addLog(
     state,
     {
@@ -775,7 +821,7 @@ export function reportJugglerGuesses(
     },
     ports,
   );
-  return { ok: true, juggler: state.juggler };
+  return { ok: true, juggler: record };
 }
 
 export function jugglerGuess(
@@ -783,12 +829,14 @@ export function jugglerGuess(
   playerId: string,
   roleId: string,
   ports: CommandExecutionContext = systemPorts,
+  actorId?: string | null,
 ) {
-  const guard = jugglerDayGuard(state);
+  const guard = jugglerDayGuard(state, actorId);
   if (guard.ok === false) return guard;
   const target = playerById(state, playerId);
   if (!target) return { ok: false, errorCode: "error.31", error: "Цель не найдена." };
-  const stored = state.juggler && state.juggler.guesses;
+  const current = jugglerRecordFor(state, guard.holderId!);
+  const stored = current && current.guesses;
   const guesses: JugglerGuess[] = Array.isArray(stored)
     ? stored.map((entry) => ({ playerId: String(entry.playerId), roleId: entry.roleId }))
     : stored && typeof stored === "object"
@@ -798,6 +846,7 @@ export function jugglerGuess(
     state,
     [...guesses, { playerId: target.id, roleId: roleId as RoleId }],
     ports,
+    guard.holderId!,
   );
 }
 
@@ -988,7 +1037,7 @@ export function tinkerDeath(
   if (guard) return guard;
   const player = playerById(state, playerId);
   if (!player) return { ok: false, errorCode: "error.1", error: "Игрок не найден." };
-  if (!player.alive || player.roleId !== "tinker") {
+  if (!player.alive || !hasTrueAbility(player, "tinker")) {
     return { ok: false, errorCode: "error.58", error: "Тинкер не в игре или уже мёртв." };
   }
   const at = currentAt(state);
@@ -1006,6 +1055,10 @@ export function tinkerDeath(
 
 // Pacifist r2601: only a living, unimpaired Pacifist can spare an executed good
 // player, and only for an execution the day decides.
+export function survivesExecutionAllowed(state: GameState, playerId: string): boolean {
+  return survivalAllowed(state, playerId, dayAt(state));
+}
+
 function survivalAllowed(state: GameState, playerId: string, at: DeadAt): boolean {
   const player = playerById(state, playerId);
   if (!player || realTeamOf(player) === "evil") return false;
@@ -1076,6 +1129,16 @@ export function execute(
   // Link the death before the win check: the Mastermind and the Demon-dead
   // result both read the recorded execution death.
   state.day.execution.deathId = death ? death.id : null;
+  if (options.survives && !death) {
+    recordHostChoice(
+      state,
+      "pacifist-survival",
+      (nominee ? nominee.name || "Игрок " + nominee.seat : nomination.nomineeId) +
+        " выжил при казни.",
+      nomination.nomineeId,
+      ports,
+    );
+  }
   checkWin(state, {}, ports);
   addLog(
     state,
@@ -1146,6 +1209,15 @@ export function executeByDecision(
   ) {
     const good = realTeamOf(player) !== "evil";
     setWinner(state, good ? "evil" : "good", "mastermind", ports);
+  }
+  if (options.survives && !death) {
+    recordHostChoice(
+      state,
+      "pacifist-survival",
+      (player.name || "Игрок " + player.seat) + " выжил при казни.",
+      player.id,
+      ports,
+    );
   }
   addLog(
     state,
@@ -1271,7 +1343,9 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
       const good = player ? realTeamOf(player) !== "evil" : false;
       setWinner(state, good ? "evil" : "good", "mastermind", ports);
     } else {
-      setWinner(state, "good", "demon-dead", ports);
+      // Mastermind r2993: no execution on the extra day means good wins, and
+      // the reason must say so instead of claiming a Demon inheritance.
+      setWinner(state, "good", "mastermind-no-execution", ports);
     }
     return { ok: true, winner: state.winner };
   }
@@ -1292,7 +1366,7 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
   // the next night queue is built.
   if (
     !state.juggler &&
-    orderedPlayers(state).some((player) => player.alive && player.roleId === "juggler")
+    orderedPlayers(state).some((player) => player.alive && hasAbility(player, "juggler"))
   ) {
     state.juggler = { day: state.day.number, guesses: [] };
   }
@@ -1307,6 +1381,14 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
   // (Scarlet Woman r3117). The flag survives the night reset; the queue build
   // below appends the YOU ARE step before the flag is cleared. A change made
   // last night was woken last night (Imp r3116), so it is not carried again.
+  // A death today places the reveal before the Imp step, so the new Demon acts
+  // that night; a carried night change stays after it and acts no more.
+  const demonDiedToday = state.deaths.some(
+    (death) =>
+      death.phase === "day" &&
+      death.number === state.day.number &&
+      roleTeam(death.roleId || "") === "demon",
+  );
   const demonChanged =
     state.night.demonChanged &&
     (repeatsDemonWake(ports.rulesetVersion) || newDemonAwaitsWake(state));
@@ -1324,7 +1406,7 @@ export function endDay(state: GameState, ports: CommandExecutionContext = system
   state.phase = "night";
   state.night.queue = buildNightQueue(state, ports);
   if (demonChanged) {
-    appendConditionalSteps(state, ports);
+    appendConditionalSteps(state, ports, demonDiedToday ? "day" : "night");
     state.night.demonChanged = false;
   }
   addLog(
@@ -1364,7 +1446,7 @@ export function useSlayer(
   if (guard) return guard;
   if (state.day.ended) return { ok: false, errorCode: "error.8", error: "День уже завершён." };
   const slayer = playerById(state, slayerId);
-  if (!slayer || !slayer.alive || slayer.roleId !== "slayer") {
+  if (!slayer || !slayer.alive || !hasAbility(slayer, "slayer")) {
     return { ok: false, errorCode: "error.29", error: "Истребитель не может действовать." };
   }
   if (slayer.used.slayer)
@@ -1389,13 +1471,20 @@ export function useSlayer(
     (target.roleId === "recluse" &&
       options.recluseRegistersDemon === true &&
       !isImpaired(state, target.id, at));
+  if (
+    target.roleId === "recluse" &&
+    options.recluseRegistersDemon === true &&
+    !isImpaired(state, target.id, at)
+  ) {
+    recordHostChoice(state, "registration", "Отшельник регистрируется как Демон", target.id, ports);
+  }
   const module = roleModule("slayer");
   const context: DayContext = {
     actorId: slayerId,
     action: "slayer-shot",
     targetIds: [target.id],
     targetId: target.id,
-    impaired: isImpaired(state, slayerId, at),
+    impaired: slayer.roleId === "drunk" || isImpaired(state, slayerId, at),
     targetAlive: target.alive,
     targetRegistersDemon,
     at,

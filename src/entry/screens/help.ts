@@ -8,9 +8,11 @@ import {
   NIGHT_FIRST,
   NIGHT_OTHER,
   isBmrScript,
+  isMixedEdition,
   isSnvScript,
   nightSequence,
 } from "../../core/model/rules.ts";
+import { orderedScriptRoles } from "../../core/model/night-order.ts";
 import { t, teamText } from "../../ui/i18n/strings.ts";
 import { path } from "../../infrastructure/routing/history-router.ts";
 import { state } from "../store.ts";
@@ -45,9 +47,18 @@ export function mount(root: HTMLElement): () => void {
   abort = new AbortController();
   const bmr = isBmrScript(state.script);
   const snv = isSnvScript(state.script);
+  const mixed = isMixedEdition(state.script?.roles ?? []);
   const edition = snv ? "snv" : bmr ? "bmr" : "tb";
-  const first = edition === "tb" ? NIGHT_FIRST : nightSequence(1, edition);
-  const other = edition === "tb" ? NIGHT_OTHER : nightSequence(2, edition);
+  const first = mixed
+    ? orderedScriptRoles(state.script.roles, 1)
+    : edition === "tb"
+      ? NIGHT_FIRST
+      : nightSequence(1, edition);
+  const other = mixed
+    ? orderedScriptRoles(state.script.roles, 2)
+    : edition === "tb"
+      ? NIGHT_OTHER
+      : nightSequence(2, edition);
   const phase =
     state.phase === "night"
       ? `${t("night")} ${state.night.number}`
@@ -71,7 +82,7 @@ export function mount(root: HTMLElement): () => void {
     </header>
     <main class="help-shell mt-3.5 grid grid-cols-1 gap-3">
       <section class="help-section min-w-0 rounded-md border border-edge bg-crypt-2 p-4"><h2 class="m-0 mb-2.5 font-role text-[17px] font-normal text-brass">${esc(t("stepHelp"))}</h2><div class="help-walk grid grid-cols-1 gap-2">
-        ${STAGES.map(([key, label]) => `<article class="help-walk-row rounded-sm border border-edge bg-crypt-3 p-2.5"><h3 class="m-0 mb-1.5 font-role text-[13px] font-normal text-amber max-[640px]:text-[14px]">${esc(t(label))}</h3><p class="m-0 text-[12px] leading-[1.55] text-muted max-[640px]:text-[13px]">${esc(t("help." + key))}</p></article>`).join("")}
+        ${STAGES.map(([key, label]) => `<article class="help-walk-row rounded-sm border border-edge bg-crypt-3 p-2.5"><h3 class="m-0 mb-1.5 font-role text-[13px] font-normal text-accent-text max-[640px]:text-[14px]">${esc(t(label))}</h3><p class="m-0 text-[12px] leading-[1.55] text-muted max-[640px]:text-[13px]">${esc(t("help." + key))}</p></article>`).join("")}
       </div></section>
       <section class="help-section min-w-0 rounded-md border border-edge bg-crypt-2 p-4"><h2 class="m-0 mb-2.5 font-role text-[17px] font-normal text-brass">${esc(t("firstNightList"))}</h2><ol class="help-order m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-1 p-0">${nightList(first)}</ol><p class="m-0 mt-2 text-[12px] leading-[1.5] text-muted">${esc(t("noBluffs"))}</p></section>
       <section class="help-section min-w-0 rounded-md border border-edge bg-crypt-2 p-4"><h2 class="m-0 mb-2.5 font-role text-[17px] font-normal text-brass">${esc(t("otherNightList"))}</h2><ol class="help-order m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-1 p-0">${nightList(other)}</ol><p class="m-0 mt-2 text-[12px] leading-[1.5] text-muted">${esc(t("help.nightExceptions"))}</p></section>
@@ -88,7 +99,7 @@ export function mount(root: HTMLElement): () => void {
         ).join("")}
       </div></section>
     </main>
-    <p class="m-0 mt-4 text-center text-[10px] font-[650] uppercase tracking-[0.18em] text-muted">Grimoria v${esc(__APP_VERSION__)}</p>
+    <p class="m-0 mt-4 text-center text-[10px] font-[650] uppercase tracking-[0.18em] text-muted">Grimoria v${esc(__APP_VERSION__)} · <a class="underline underline-offset-2 hover:text-text" href="${esc(path("changelog"))}">${esc(t("changelog"))}</a></p>
   </div>`;
   initAppBarMenu(root, abort.signal);
   return unmount;

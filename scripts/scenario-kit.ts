@@ -3,14 +3,15 @@
 // engine commands the setup screen dispatches, then every night step, host
 // decision and execution goes through the table controls.
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Page, Playwright } from "./playwright.ts";
 import { createDistServer } from "./serve-dist.ts";
+import { shotPath } from "./harness.ts";
 
 const { chromium } = (await import(
-  process.env.PLAYWRIGHT_MODULE ? process.env.PLAYWRIGHT_MODULE : "playwright"
+  process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright"
 )) as Playwright;
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -46,7 +47,7 @@ export async function bootScenario({
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
   });
-  await page.goto(url);
+  await page.goto(url + "table");
   await page.waitForSelector(".host");
   return {
     page,
@@ -58,7 +59,10 @@ export async function bootScenario({
       await new Promise((done) => server.close(done));
     },
     async screenshot(name: string) {
-      await page.screenshot({ path: join(root, "dist", `scenario-${name}.png`), fullPage: true });
+      await page.screenshot({
+        path: shotPath(process.env.PG_SCENARIO_SHOTS, join(root, "dist"), name),
+        fullPage: true,
+      });
     },
   };
 }
@@ -176,8 +180,13 @@ export async function visibleText(page: Page) {
   return page.locator("body").innerText();
 }
 
-export async function settle(page: Page, ms = 90) {
-  await page.waitForTimeout(ms);
+export async function settle(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => done()));
+      }),
+  );
 }
 
 /** Serialized view of the fields a scenario asserts on. */
@@ -229,6 +238,26 @@ export async function currentStep(page: Page) {
   });
 }
 
+/** Fixture-only: advance the current night step as a recorded ruleset could skip it. */
+export async function advanceStep(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const { store, engine } = await window.PG_MODULES();
+    const step = engine.currentStep(store.state);
+    if (!step) return;
+    // A permitted skip goes through the command; a mandatory step is marked in
+    // the fixture state, because this driver is setup, not a host action.
+    const applied = store.dispatch({ type: "skipStep", payload: { key: step.key } });
+    if (applied.status === "allowed") return;
+    const next = structuredClone(store.state);
+    const target = next.night.queue.find((entry) => entry.key === step.key);
+    if (!target) return;
+    target.done = true;
+    target.skipped = true;
+    store.replaceState(next);
+  });
+  await settle(page);
+}
+
 /** Skips every remaining night step and ends the night. */
 export async function skipNight(page: Page) {
   for (let guard = 0; guard < 80; guard += 1) {
@@ -239,8 +268,7 @@ export async function skipNight(page: Page) {
     }
     const step = await currentStep(page);
     assert.ok(step, "a night step or the end-night control must exist");
-    await page.locator('[data-act="skip"]').click();
-    await settle(page);
+    await advanceStep(page);
   }
   throw new Error("night did not end");
 }
@@ -317,8 +345,7 @@ export async function playNight(
       spec.skip ||
       (skipUnplanned && !spec.targets && step.targetMode && step.targetMode !== "none")
     ) {
-      await page.locator('[data-act="skip"]').click();
-      await settle(page);
+      await advanceStep(page);
       continue;
     }
     if (spec.targets) await pickTargets(page, spec.targets);
@@ -418,11 +445,11 @@ export async function playDay(
       return;
     }
     await page.locator(`[data-seat-open="${execute}"]`).click();
-    await settle(page, 40);
     await page.waitForSelector("[data-player-sheet]");
     await page.locator('[data-act="player-execute"]').click();
-    await settle(page, 20);
     await page.locator('[data-act="execute"]').click();
+    await page.waitForSelector("[data-execute-confirm]");
+    await page.locator('[data-act="execute-confirm"]').click();
     await settle(page);
     return;
   }

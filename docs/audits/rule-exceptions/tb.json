@@ -1,0 +1,181 @@
+[
+  {
+    "id": "ROLE-BUTLER-004",
+    "statement": "Если Master опускает руку до подсчёта голоса Butler, Butler обязан немедленно опустить руку.",
+    "source": {
+      "file": "docs/official/wiki/Butler.r3120.wikitext",
+      "page": "Butler",
+      "revision": 3120,
+      "section": "Summary"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "A live table gesture: the Butler must lower a raised hand when the Master lowers theirs before the tally. The engine stores votes and emits a private warning after the fact; it has no hand state and no engine-visible consequence. Source: Butler r3120 Summary."
+  },
+  {
+    "id": "ROLE-BUTLER-007",
+    "statement": "Butler может свободно поддерживать изгнание Traveller, поскольку изгнание не является голосованием.",
+    "source": {
+      "file": "docs/official/wiki/Butler.r3120.wikitext",
+      "page": "Butler",
+      "revision": 3120,
+      "section": "Summary"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Out of scope: Travellers and exile are not modelled in this edition, so there is no exile record to exempt from the Butler's master restriction."
+  },
+  {
+    "id": "ROLE-CHEF-004",
+    "statement": "Evil Travellers учитываются, если они присоединились к игре до действия Chef.",
+    "source": {
+      "file": "docs/official/wiki/Chef.r2510.wikitext",
+      "page": "Chef",
+      "revision": 2510,
+      "section": "Summary"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Out of scope: Travellers are not modelled in this edition, so an evil Traveller can never join the seat ring the Chef counts."
+  },
+  {
+    "id": "ROLE-FORTUNE-TELLER-007",
+    "statement": "В маленьких играх иногда рекомендуется сделать Fortune Teller собственным Red Herring.",
+    "source": {
+      "file": "docs/official/wiki/Fortune_Teller.r3123.wikitext",
+      "page": "Fortune Teller",
+      "revision": 3123,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Explicit Storyteller advice for small games. It prescribes no game state and has no engine-visible consequence. Source: Fortune Teller r3123 How to Run."
+  },
+  {
+    "id": "ROLE-INVESTIGATOR-005",
+    "statement": "Reminder-жетоны Investigator рекомендуется убрать, когда это удобно.",
+    "source": {
+      "file": "docs/official/wiki/Investigator.r2983.wikitext",
+      "page": "Investigator",
+      "revision": 2983,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Reminder-token hygiene advice, not a game rule. Tokens are physical aids and have no engine-visible consequence. Source: Investigator r2983 How to Run."
+  },
+  {
+    "id": "ROLE-MAYOR-004",
+    "statement": "Travellers считаются игроками для победы Mayor и должны быть изгнаны до неё; изгнание не является казнью.",
+    "source": {
+      "file": "docs/official/wiki/Mayor.r2995.wikitext",
+      "page": "Mayor",
+      "revision": 2995,
+      "section": "Summary"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Out of scope: Travellers and exile are not modelled in this edition, so no live Traveller can change the three-alive Mayor count and no exile record exists."
+  },
+  {
+    "id": "ROLE-MAYOR-005",
+    "statement": "Fabled не считаются игроками для победы Mayor.",
+    "source": {
+      "file": "docs/official/wiki/Mayor.r2995.wikitext",
+      "page": "Mayor",
+      "revision": 2995,
+      "section": "Summary"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Out of scope: Fabled are not modelled in this edition, so no Fabled token can be counted among or excluded from the players."
+  },
+  {
+    "id": "ROLE-MAYOR-007",
+    "statement": "Ведущему рекомендуется сохранять Mayor живым до финального дня; в редких случаях, если группа уверена в Mayor слишком рано, можно позволить ему умереть.",
+    "source": {
+      "file": "docs/official/wiki/Mayor.r2995.wikitext",
+      "page": "Mayor",
+      "revision": 2995,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Explicit Storyteller advice about pacing and keeping the Mayor alive. It prescribes no game state and has no engine-visible consequence. Source: Mayor r2995 How to Run."
+  },
+  {
+    "id": "ROLE-MONK-005",
+    "statement": "Защита Monk предотвращает и другие вредные эффекты способности Demon, например отравление или смену alignment.",
+    "source": {
+      "file": "docs/official/wiki/Monk.r3124.wikitext",
+      "page": "Monk",
+      "revision": 3124,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "The pinned sentence is explicitly other-editions. The engine now applies the Monk's protection to the No Dashii poison in a mixed script; other non-killing Demon effects remain explicit unsupported combinations through the interaction registry.",
+    "evidence": [
+      "wiki: docs/official/wiki/Monk.r3124.wikitext § How to Run — in other editions, Demons may have abilities other than killing.",
+      "test: src/core/engine/mixed.test.ts::the No Dashii poison respects Soldier and Monk protection (MIXED-PROTECTION-01)."
+    ]
+  },
+  {
+    "id": "ROLE-RAVENKEEPER-005",
+    "statement": "Ведущему рекомендуется не позволять игрокам обсуждать свои ночные действия в момент их совершения.",
+    "source": {
+      "file": "docs/official/wiki/Ravenkeeper.r3125.wikitext",
+      "page": "Ravenkeeper",
+      "revision": 3125,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Advice about table conduct: not letting players discuss their night actions while they happen. It has no engine-visible consequence. Source: Ravenkeeper r3125 How to Run."
+  },
+  {
+    "id": "ROLE-SCARLET-WOMAN-003",
+    "statement": "Travellers не учитываются при подсчёте пяти живых игроков.",
+    "source": {
+      "file": "docs/official/wiki/Scarlet_Woman.r3117.wikitext",
+      "page": "Scarlet Woman",
+      "revision": 3117,
+      "section": "Summary"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Out of scope: Travellers are not modelled in this edition, so none can enter the living count the Scarlet Woman's five-player threshold reads."
+  },
+  {
+    "id": "ROLE-SOLDIER-002",
+    "statement": "Soldier защищён и от других вредных эффектов способности Demon, например от отравления или смены alignment.",
+    "source": {
+      "file": "docs/official/wiki/Soldier.r3121.wikitext",
+      "page": "Soldier",
+      "revision": 3121,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "The pinned sentence is other-editions. The engine now keeps the Soldier safe from the No Dashii poison in a mixed script; other non-killing Demon effects remain explicit unsupported combinations through the interaction registry.",
+    "evidence": [
+      "wiki: docs/official/wiki/Soldier.r3121.wikitext § How to Run — in other editions.",
+      "test: src/core/engine/mixed.test.ts::the No Dashii poison respects Soldier and Monk protection (MIXED-PROTECTION-01)."
+    ]
+  },
+  {
+    "id": "ROLE-UNDERTAKER-006",
+    "statement": "При нескольких казнях со смертью в день Ведущий выбирает, какого персонажа показать.",
+    "source": {
+      "file": "docs/official/wiki/Undertaker.r3115.wikitext",
+      "page": "Undertaker",
+      "revision": 3115,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Trouble Brewing has one execution per day; the extra-execution clause is explicitly other-editions and has no TB input.",
+    "evidence": [
+      "wiki: docs/official/wiki/Undertaker.r3115.wikitext § How to Run — in Trouble Brewing there is one execution per day; other editions differ."
+    ]
+  },
+  {
+    "id": "ROLE-WASHERWOMAN-006",
+    "statement": "Reminder-жетоны Washerwoman рекомендуется убрать, когда это удобно.",
+    "source": {
+      "file": "docs/official/wiki/Washerwoman.r2630.wikitext",
+      "page": "Washerwoman",
+      "revision": 2630,
+      "section": "How to Run"
+    },
+    "status": "non-mechanical-exception",
+    "reason": "Reminder-token hygiene advice, not a game rule. Tokens are physical aids and have no engine-visible consequence. Source: Washerwoman r2630 How to Run."
+  }
+]

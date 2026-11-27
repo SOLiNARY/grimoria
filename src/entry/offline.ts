@@ -7,6 +7,7 @@ const CHECK_INTERVAL = 30 * 60 * 1000;
 // The waiting worker activates promptly; past this the prompt asks for a retry.
 const ACTIVATION_TIMEOUT = 5000;
 const PHASE_MESSAGES: Record<string, string> = {
+  downloading: "updateDownloading",
   applying: "updateApplying",
   activateFailed: "updateActivateFailed",
 };
@@ -17,7 +18,7 @@ export async function prepareOffline(): Promise<void> {
   const updateButton = document.getElementById("update-now") as HTMLButtonElement | null;
   const laterButton = document.getElementById("update-later") as HTMLButtonElement | null;
 
-  // idle | available | applying | activateFailed
+  // idle | downloading | available | applying | activateFailed
   let phase = "idle";
   let registration: ServiceWorkerRegistration | null = null;
   let reloading = false;
@@ -36,10 +37,13 @@ export async function prepareOffline(): Promise<void> {
   function setPhase(next: string): void {
     phase = next;
     if (!(banner && message && updateButton && laterButton)) return;
+    const busy = next === "applying" || next === "downloading";
     banner.dataset.state = next;
     banner.hidden = next === "idle";
-    updateButton.disabled = next === "applying";
-    laterButton.disabled = next === "applying";
+    updateButton.hidden = busy;
+    laterButton.hidden = busy;
+    updateButton.disabled = busy;
+    laterButton.disabled = busy;
     paint();
   }
 
@@ -124,8 +128,14 @@ export async function prepareOffline(): Promise<void> {
     };
     const watch = (worker: ServiceWorker | null | undefined): void => {
       if (!worker) return;
-      installed(worker);
-      worker.addEventListener("statechange", () => installed(worker));
+      const statechange = (): void => {
+        if (worker.state === "installing" && phase === "idle" && navigator.serviceWorker.controller)
+          setPhase("downloading");
+        if (worker.state === "redundant" && phase === "downloading") setPhase("idle");
+        installed(worker);
+      };
+      statechange();
+      worker.addEventListener("statechange", statechange);
     };
     const adopt = (): void => {
       for (const worker of [reg.installing, reg.waiting]) if (worker) automatic.add(worker);

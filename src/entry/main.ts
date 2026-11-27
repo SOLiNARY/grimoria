@@ -23,6 +23,7 @@ import { mountShell } from "../ui/main.tsx";
 import { toPreviewOutcome } from "../ui/screens/table/helpers.ts";
 import type { LegacyScreen, ShellPorts } from "../ui/ports.ts";
 import { createRouteStore } from "../ui/router.ts";
+import { roleFacts } from "../application/reference/role-facts.ts";
 
 const screens: Record<string, LegacyScreen> = {
   "/help": help,
@@ -126,6 +127,8 @@ async function boot(): Promise<void> {
     history: {
       canUndo: store.canUndo,
       undo: store.undo,
+      canRedo: store.canRedo,
+      redo: store.redo,
     },
     guidance: { for: guideFor },
     presets: {
@@ -160,6 +163,7 @@ async function boot(): Promise<void> {
     assets: { url: assetUrl },
     prefs: { read: readPreference, write: writePreference },
     legacy: { screens },
+    reference: { facts: roleFacts },
   };
 
   start({ root: import.meta.env?.BASE_URL || "/", handler: () => notify?.() });

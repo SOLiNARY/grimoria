@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ALL_ROLES, isGoodRole } from "../model/rules.ts";
+import { ALL_ROLES, isGoodRole, roleTeam } from "../model/rules.ts";
 import { clone, createGame, exportGame, importGame, validateState } from "../model/state.ts";
 import { badMoonRisingScript } from "../model/scripts.ts";
 import { validatePayload } from "../commands/contracts.ts";
 import { autoSecrets, dealGame, endDay, endNight, skipStep, startNight } from "./index.ts";
+import { systemPorts } from "../model/ports.ts";
+import { ANY_STEP_RESURRECTS_RULESET_VERSION } from "./command-versions.ts";
+import type { CommandExecutionContext } from "../model/ports.ts";
 import {
   RULESET_VERSION,
   applyCommand,
@@ -15,6 +18,9 @@ import {
   previewCommand,
   replay,
   validateCommand,
+  infoForStep,
+  isImpaired,
+  moonchildChoice,
 } from "./index.ts";
 import {
   CYCLIC_CASCADE,
@@ -80,12 +86,25 @@ function toDay(state: GameState) {
   assert.equal(result.ok, true, JSON.stringify(result));
   while (state.night.queue.some((step) => !step.done && !step.skipped)) {
     const step = state.night.queue.find((candidate) => !candidate.done && !candidate.skipped)!;
-    const result = skipStep(state, step.key, "test");
-    assert.equal(result.ok, true, JSON.stringify(result));
+    // Fixture setup, not a host action: a permitted skip is the engine's, a
+    // mandatory living step is skipped as the recorded ruleset did.
+    assert.equal(skipFixtureStep(state, step.key), true, step.key);
   }
   const ended = endNight(state);
   assert.equal(ended.ok, true, JSON.stringify(ended));
   return state;
+}
+
+// A legacy port lets a fixture skip a step the current host rule refuses.
+const FIXTURE_PORTS: CommandExecutionContext = {
+  ...systemPorts,
+  rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+};
+
+/** Fixture setup, not a host action: skip a step as the recorded ruleset did. */
+function skipFixtureStep(state: GameState, key: string): boolean {
+  if (skipStep(state, key, "fixture").ok) return true;
+  return skipStep(state, key, "fixture", FIXTURE_PORTS).ok;
 }
 
 function manualVotingGame() {
@@ -292,7 +311,7 @@ test("manual vote totals clear each day while the spent dead vote persists", () 
   assert.equal(state.day.voteCounts, undefined);
   while (state.night.queue.some((step) => !step.done && !step.skipped)) {
     const step = state.night.queue.find((candidate) => !candidate.done && !candidate.skipped)!;
-    assert.equal(skipStep(state, step.key, "manual voting fixture").ok, true);
+    assert.equal(skipFixtureStep(state, step.key), true);
   }
   assert.equal(endNight(state).ok, true);
   assert.equal(state.day.voteCounts, undefined);
@@ -530,7 +549,8 @@ test("apply records command metadata but no event log in the state", () => {
   assert.ok(result.events.every((event) => event.commandId === "c7"));
   assert.equal(state.applied["c7"].type, "completeStep");
   assert.equal(state.applied["c7"].rulesetVersion, RULESET_VERSION);
-  assert.equal(typeof state.applied["c7"].fingerprint, "string");
+  assert.equal(typeof state.applied["c7"].identity, "string");
+  assert.equal(state.applied["c7"].fingerprint, undefined);
   assert.equal(Object.hasOwn(state, "events"), false);
 });
 
@@ -684,10 +704,13 @@ test("a night step skips without a reason through the command contract", () => {
     3: "mayor",
     4: "poisoner",
     5: "imp",
-    6: "recluse",
+    6: "monk",
+    7: "soldier",
   });
   startNight(state);
-  const step = state.night.queue.find((candidate) => !candidate.done && !candidate.skipped)!;
+  // A system step has no actor, so the engine allows this skip.
+  const step = state.night.queue.find((candidate) => candidate.kind === "system")!;
+  assert.ok(step, "the first night has a system step");
   assert.deepEqual(validatePayload("skipStep", { key: step.key }), [], "the reason is optional");
   assert.deepEqual(validatePayload("skipStep", { key: step.key, reason: "host note" }), []);
   const skipped = applyCommand(state, {
@@ -1096,13 +1119,18 @@ test("a drunk effect suspends while its living source is impaired", () => {
   assert.equal(afterPoison.impaired.has("2"), true);
 });
 
-test("a dead-source drunk effect stays active", () => {
+test("a dead-source on-death drunk stays active and a plain dead-source drunk ends", () => {
   const state = poisonFixture();
   state.players["1"].alive = false;
-  state.effects.push(drunkEffect("sweetheart-drunk", "1", "2", 1));
+  state.effects.push(
+    { ...drunkEffect("sweetheart-drunk", "1", "2", 1), onDeath: true },
+    drunkEffect("plain-dead-source-drunk", "1", "3", 1),
+  );
   const graph = outcome(effectGraph(state, { phase: "night", number: 2 }));
   assert.equal(graph.activeDrunk.has("sweetheart-drunk"), true);
   assert.equal(graph.impaired.has("2"), true);
+  assert.equal(graph.activeDrunk.has("plain-dead-source-drunk"), false);
+  assert.equal(graph.impaired.has("3"), false);
 });
 
 test("a source impaired by poison and drunk loses its own effects", () => {
@@ -1396,10 +1424,34 @@ function replayFixture() {
   for (const step of state.night.queue.filter(
     (candidate) => !candidate.done && !candidate.skipped,
   )) {
+    const min =
+      step.bmr || step.sv
+        ? step.minTargets || 0
+        : step.targetMode === "none"
+          ? 0
+          : step.targetMode === "two"
+            ? 2
+            : 1;
+    const pool = state.order.filter(
+      (id) => state.players[id].alive && id !== step.actorId && id !== step.previousTarget,
+    );
+    const targetIds = pool.slice(0, min);
+    const info = infoForStep(state, step, { targetIds });
+    const options = Array.isArray(info.options) ? info.options : [];
+    let given: Record<string, unknown> = { kind: "note", text: "fixture" };
+    if (options.length) {
+      const option = options[0];
+      if (info.kind === "number") given = { kind: "number", value: Number(option) };
+      else if (info.kind === "yes-no") given = { kind: "yes-no", value: Boolean(option) };
+      else if (info.kind === "role-pair")
+        given = { kind: "role-pair", pair: String(option).split("|") };
+      else if (info.kind === "character" || info.kind === "one-of-two")
+        given = { kind: info.kind, roleId: String(option) };
+    }
     run({
-      id: "journal-skip-" + step.key,
-      type: "skipStep",
-      payload: { key: step.key, reason: "replay fixture" },
+      id: "journal-complete-" + step.key,
+      type: "completeNightStep",
+      payload: { key: step.key, targetIds, given },
       at: "2026-02-01T20:06:00.000Z",
     });
   }
@@ -1622,7 +1674,11 @@ test("record-only commands coalesce into one replayable journal entry", () => {
 
   const replayed = outcome(replay(state.journal));
   assert.equal(replayed.ok, true, JSON.stringify(replayed));
-  assert.equal(JSON.stringify(replayed.state), JSON.stringify(state));
+  assert.deepEqual(
+    canonicalState(replayed.state),
+    canonicalState(state),
+    "replay reproduces the canonical game; the applied ledger is not domain state",
+  );
 
   const start = applyCommand(state, {
     id: "notes-then-night",
@@ -1631,6 +1687,56 @@ test("record-only commands coalesce into one replayable journal entry", () => {
   });
   assert.equal(start.status, "allowed", JSON.stringify(start));
   assert.equal(state.journal.entries.length, 2, "a domain command adds its own entry");
+});
+
+test("record-only command identities keep the saved state linear", () => {
+  const state = createGame(7);
+  const sizes = new Map<number, number>();
+  let first: Command | null = null;
+  for (let index = 1; index <= 4000; index += 1) {
+    const notes = "n" + index + ":" + "x".repeat(index);
+    const command: Command = {
+      id: "notes-" + index,
+      type: "setNotes",
+      payload: { notes },
+      at: "2026-03-02T10:00:00.000Z",
+    };
+    first ||= command;
+    const result = applyCommand(state, command);
+    assert.equal(result.status, "allowed", JSON.stringify(result));
+    if (index === 1000 || index === 2000 || index === 4000) {
+      sizes.set(index, JSON.stringify(state).length);
+    }
+  }
+
+  const size1000 = sizes.get(1000);
+  const size2000 = sizes.get(2000);
+  const size4000 = sizes.get(4000);
+  assert.ok(size1000 && size2000 && size4000);
+  assert.ok(
+    size4000 < 2_000_000,
+    "4000 note changes stay below a typical localStorage budget: " + size4000,
+  );
+  assert.ok(
+    size4000 - size2000 < (size2000 - size1000) * 2.5,
+    "the save grows roughly linearly: " + [size1000, size2000, size4000].join(" -> "),
+  );
+  assert.equal(
+    JSON.stringify(state.applied).includes("n2000:"),
+    false,
+    "applied entries keep no intermediate note text",
+  );
+  assert.equal(
+    exportGame(state).includes("n2000:"),
+    false,
+    "the export keeps no intermediate note text",
+  );
+
+  assert.ok(first);
+  const repeated = applyCommand(state, first);
+  assert.equal(repeated.status, "allowed");
+  assert.equal(repeated.idempotent, true);
+  assert.equal(state.notes, "n4000:" + "x".repeat(4000));
 });
 
 test("two interleaved games keep their own clock, random sequence and ids", () => {
@@ -1728,4 +1834,115 @@ test("an imported save without a journal keeps the recorded key order", () => {
     JSON.stringify(imported.state),
     "a command after the import replays with the same key order",
   );
+});
+
+test("a legacy Moonchild save ignores used.moonchildImpaired when the night state is sober (BMR-MOONCHILD-01)", () => {
+  // Moonchild r1783: the choice's target dies the next night if it is good;
+  // impairment is judged when the curse resolves, not when the choice was
+  // made. A save written before that fix carries the old stored flag.
+  const state = createGame(9);
+  state.script = badMoonRisingScript();
+  state.scriptId = "bmr";
+  const assignment = {
+    1: "moonchild",
+    2: "chambermaid",
+    3: "courtier",
+    4: "sailor",
+    5: "devilsadvocate",
+    6: "po",
+    7: "fool",
+    8: "tinker",
+    9: "minstrel",
+  } as const;
+  state.setup.roles = Object.values(assignment);
+  state.setup.bluffs = ["innkeeper", "gossip", "grandmother"];
+  for (const [id, roleId] of Object.entries(assignment)) {
+    const player = state.players[id]!;
+    player.roleId = roleId;
+    player.shownRoleId = roleId;
+    player.team = roleTeam(roleId) === "minion" || roleTeam(roleId) === "demon" ? "evil" : "good";
+    player.name = "P" + id;
+  }
+  state.players["1"].alive = false;
+  state.effects.push({
+    id: "legacy-moonchild-choice-poison",
+    kind: "poison",
+    sourceId: "2",
+    targetId: "1",
+    start: { phase: "day", number: 1 },
+    expires: { phase: "night", number: 2 },
+    active: true,
+  });
+  state.phase = "day";
+  state.day = {
+    number: 1,
+    morning: [],
+    nominations: [],
+    activeNominationId: null,
+    execution: null,
+    ended: false,
+    open: true,
+  };
+  assert.equal(isImpaired(state, "1"), true, "the Moonchild is poisoned when they choose");
+  assert.equal(moonchildChoice(state, "2").ok, true);
+  state.players["1"].used.moonchildImpaired = true;
+  assert.deepEqual(validateState(state), []);
+
+  const reloaded = importGame(exportGame(state));
+  assert.equal(reloaded.ok, true, reloaded.ok ? "" : reloaded.error);
+  if (!reloaded.ok) return;
+  assert.equal(
+    reloaded.state.players["1"].used.moonchildImpaired,
+    true,
+    "the legacy save still carries the stored flag",
+  );
+
+  const ended = applyCommand(reloaded.state, {
+    id: "legacy-moonchild-end-day",
+    type: "endDay",
+    payload: {},
+  });
+  assert.equal(ended.status, "allowed", JSON.stringify(ended));
+  assert.equal(reloaded.state.night.number, 2);
+  assert.equal(isImpaired(reloaded.state, "1"), false, "the poison expired at the night");
+  const step = reloaded.state.night.queue.find((candidate) => candidate.roleId === "moonchild");
+  assert.ok(step, "the Moonchild wakes on the next night");
+  assert.deepEqual(step.targetIds, ["2"], "the public choice is kept");
+  const nightCanonical = canonicalState(reloaded.state);
+
+  const resolved = applyCommand(reloaded.state, {
+    id: "legacy-moonchild-resolve",
+    type: "completeStep",
+    payload: { key: step.key },
+  });
+  assert.equal(resolved.status, "allowed", JSON.stringify(resolved));
+  assert.equal(
+    reloaded.state.players["2"].alive,
+    false,
+    "the Moonchild is sober and healthy when the curse resolves, so the good choice dies",
+  );
+  assert.equal(reloaded.state.journal.entries.length, 2);
+  assert.deepEqual(
+    reloaded.state.journal.entries.map((entry) => entry.id),
+    ["legacy-moonchild-end-day", "legacy-moonchild-resolve"],
+  );
+
+  const replayed = replay(reloaded.state.journal);
+  assert.equal(replayed.ok, true, replayed.ok ? "" : replayed.error);
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(reloaded.state));
+
+  const undone = replay({
+    base: reloaded.state.journal.base,
+    entries: reloaded.state.journal.entries.slice(0, -1),
+  });
+  assert.equal(undone.ok, true, undone.ok ? "" : undone.error);
+  assert.equal(undone.state.players["2"].alive, true, "the resolution can be replayed back");
+  assert.deepEqual(canonicalState(undone.state), nightCanonical);
+
+  const redone = replay({
+    base: reloaded.state.journal.base,
+    entries: reloaded.state.journal.entries,
+  });
+  assert.equal(redone.ok, true, redone.ok ? "" : redone.error);
+  assert.equal(redone.state.players["2"].alive, false);
 });

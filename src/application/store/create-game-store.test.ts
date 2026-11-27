@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  clone,
   createGame,
+  exportGame as exportSavedGame,
   importGame as importSavedGame,
   validateState,
 } from "../../core/model/state.ts";
@@ -19,10 +21,13 @@ import {
 import {
   ANY_ROLE_ZERO_RULESET_VERSION,
   ANY_STEP_RESURRECTS_RULESET_VERSION,
+  MANDATORY_STEP_SKIP_RULESET_VERSION,
   OPEN_TINKER_STEP_RULESET_VERSION,
   REPEATED_DEMON_WAKE_RULESET_VERSION,
   RULESET_VERSION,
 } from "../../core/engine/command-versions.ts";
+import { systemPorts } from "../../core/model/ports.ts";
+import { fingerprintOf } from "../../core/engine/command-state.ts";
 import { createGameStore } from "./create-game-store.ts";
 import type { GameStore } from "./create-game-store.ts";
 import type { StorePorts } from "../ports/index.ts";
@@ -350,7 +355,14 @@ test("a failed write after a winning command rolls back the death and the winner
   assert.equal(startNight(state).ok, true);
   while (state.night.queue.some((step) => !step.done && !step.skipped)) {
     const step = state.night.queue.find((candidate) => !candidate.done && !candidate.skipped)!;
-    assert.equal(skipStep(state, step.key, "fixture").ok, true);
+    // Fixture setup, not a host action: skip as the recorded ruleset did.
+    const skipped = skipStep(state, step.key, "fixture").ok
+      ? true
+      : skipStep(state, step.key, "fixture", {
+          ...systemPorts,
+          rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+        }).ok;
+    assert.equal(skipped, true);
   }
   assert.equal(endNight(state).ok, true);
   assert.equal(game.replaceState(state).ok, true);
@@ -421,6 +433,88 @@ test("undo and redo replay the journal and a new dispatch clears redo", () => {
 
   game.dispatch(orderCommand(game, original));
   assert.equal(game.canRedo(), false, "a new command drops the redo stack");
+});
+
+test("a record-only command keeps the redo step", () => {
+  const { game } = store();
+  const original = [...game.getSnapshot().state.order];
+  game.dispatch(orderCommand(game, [...original].reverse()));
+  const changed = [...game.getSnapshot().state.order];
+  assert.equal(game.undo().ok, true);
+  assert.equal(game.canRedo(), true);
+
+  const notes = game.prepare({ type: "setNotes", payload: { notes: "kept" } });
+  assert.equal(notes.ok, true);
+  if (!notes.ok) return;
+  assert.equal(game.dispatch(notes.command).status, "allowed");
+  assert.equal(game.canRedo(), true, "a note does not discard the forward step");
+
+  const review = game.prepare({ type: "setReviewOpen", payload: { open: true } });
+  assert.equal(review.ok, true);
+  if (!review.ok) return;
+  assert.equal(game.dispatch(review.command).status, "allowed");
+  assert.equal(game.canRedo(), true, "opening the review does not discard it either");
+
+  assert.equal(game.redo().ok, true);
+  assert.deepEqual(game.getSnapshot().state.order, changed);
+  assert.equal(game.getSnapshot().state.notes, "kept");
+  assert.equal(game.getSnapshot().state.reviewOpen, true);
+  assert.equal(game.canRedo(), false);
+});
+
+test("undo and redo cross the winning command", () => {
+  const { game } = store();
+  const state = createGame(7);
+  const assignment = {
+    1: "slayer",
+    2: "chef",
+    3: "empath",
+    4: "monk",
+    5: "soldier",
+    6: "poisoner",
+    7: "imp",
+  };
+  Object.keys(assignment).forEach((id) => {
+    state.players[id].name = "P" + id;
+  });
+  state.setup.count = 7;
+  state.setup.roles = [...new Set(Object.values(assignment))];
+  state.setup.bluffs = ["butler", "drunk", "saint"];
+  const dealt = dealGame(state, { assignment });
+  assert.equal(dealt.ok, true, JSON.stringify(dealt));
+  autoSecrets(state);
+  assert.equal(startNight(state).ok, true);
+  while (state.night.queue.some((step) => !step.done && !step.skipped)) {
+    const step = state.night.queue.find((candidate) => !candidate.done && !candidate.skipped)!;
+    const skipped = skipStep(state, step.key, "fixture").ok
+      ? true
+      : skipStep(state, step.key, "fixture", {
+          ...systemPorts,
+          rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+        }).ok;
+    assert.equal(skipped, true);
+  }
+  assert.equal(endNight(state).ok, true);
+  assert.equal(game.replaceState(state).ok, true);
+
+  const prepared = game.prepare({
+    type: "useSlayer",
+    payload: { slayerId: "1", targetId: "7" },
+  });
+  assert.equal(prepared.ok, true);
+  if (!prepared.ok) return;
+  assert.equal(game.dispatch(prepared.command).status, "allowed");
+  assert.equal(game.getSnapshot().state.winner?.team, "good");
+  assert.equal(game.getSnapshot().state.phase, "over");
+
+  assert.equal(game.undo().ok, true);
+  assert.equal(game.getSnapshot().state.winner, null, "the undo leaves the game over");
+  assert.equal(game.getSnapshot().state.phase, "day");
+  assert.equal(game.canRedo(), true);
+
+  assert.equal(game.redo().ok, true);
+  assert.equal(game.getSnapshot().state.winner?.team, "good", "redo restores the winner");
+  assert.equal(game.getSnapshot().state.phase, "over");
 });
 
 test("undo and redo persist the replayed game instead of skipping the save", () => {
@@ -539,6 +633,322 @@ test("an import with a failed write leaves the game unchanged", () => {
   assert.equal(game.getSnapshot().state, before.state);
   assert.deepEqual(game.getSnapshot().state.order, before.state.order);
   storage.fail = false;
+});
+
+test("a failed replacement operation never publishes the uncommitted game", () => {
+  const operations = [
+    {
+      name: "reset",
+      replacement: "",
+      apply: (game: GameStore) => game.reset(7),
+    },
+    {
+      name: "replaceState",
+      replacement: "replacement",
+      apply: (game: GameStore) => {
+        const next = createGame(7);
+        next.notes = "replacement";
+        return game.replaceState(next);
+      },
+    },
+    {
+      name: "importGame",
+      replacement: "imported",
+      apply: (game: GameStore) => {
+        const next = createGame(7);
+        next.notes = "imported";
+        return game.importGame(exportSavedGame(next));
+      },
+    },
+  ];
+  for (const operation of operations) {
+    for (const mode of ["thrown", "stale"] as const) {
+      const storage = memoryStorage();
+      const { game } = store(storage);
+      assert.equal(
+        game.dispatch(command(game, { type: "setNotes", payload: { notes: "before" } })).status,
+        "allowed",
+      );
+      const published: string[] = [];
+      game.subscribe(() => published.push(game.getSnapshot().state.notes));
+      if (mode === "thrown") {
+        storage.fail = true;
+      } else {
+        const disk = createGame(7);
+        disk.notes = "another tab";
+        disk.revision = 99;
+        storage.values.set(KEY, JSON.stringify(disk));
+      }
+      const result = operation.apply(game);
+      assert.equal(result.ok, false, operation.name + " / " + mode);
+      assert.equal(
+        game.getSnapshot().state.notes,
+        "before",
+        operation.name + " / " + mode + " restores the game",
+      );
+      assert.equal(
+        published.includes(operation.replacement),
+        false,
+        operation.name + " / " + mode + " never publishes the replacement",
+      );
+      assert.equal(
+        published.at(-1),
+        "before",
+        operation.name + " / " + mode + " publishes the rolled-back state",
+      );
+      assert.equal(game.getSnapshot().save.status, "failed");
+      storage.fail = false;
+    }
+  }
+});
+
+test("a dispatch from a tab whose disk moved cannot publish or overwrite", () => {
+  const initial = createGame(7);
+  initial.notes = "initial";
+  const storage = memoryStorage(JSON.stringify(initial));
+  const first = store(storage).game;
+  const second = store(storage).game;
+  assert.equal(
+    first.dispatch(command(first, { type: "setNotes", payload: { notes: "first" } })).status,
+    "allowed",
+  );
+  const disk = storage.readRaw();
+  const published: string[] = [];
+  second.subscribe(() => published.push(second.getSnapshot().state.notes));
+  const result = second.dispatch(
+    command(second, { type: "setNotes", payload: { notes: "second" } }),
+  );
+  assert.equal(result.status, "rejected");
+  assert.equal(result.errorCode, "persist-failed");
+  assert.equal(second.getSnapshot().state.notes, "initial");
+  assert.equal(storage.readRaw(), disk);
+  assert.equal(published.includes("second"), false);
+  assert.equal(published.at(-1), "initial");
+});
+
+test("a command that violates invariants is rejected without mutation or publication", () => {
+  const { game, storage } = store();
+  Reflect.set(game.state.players["1"], "roleId", "not-a-role");
+  const before = game.getSnapshot();
+  const serialized = JSON.stringify(game.state);
+  const writes = storage.writes;
+  let published = 0;
+  game.subscribe(() => {
+    published += 1;
+  });
+  const result = game.dispatch(
+    command(game, { type: "setOrder", payload: { order: [...game.state.order].reverse() } }),
+  );
+  assert.equal(result.status, "rejected");
+  assert.equal(result.errorCode, "invariant-violation");
+  assert.equal(JSON.stringify(game.state), serialized);
+  assert.equal(game.getSnapshot(), before);
+  assert.equal(published, 0);
+  assert.equal(storage.writes, writes);
+});
+
+test("a repeated record-only command stays idempotent after journal coalescing", () => {
+  const { game, storage } = store();
+  const first = command(game, { type: "setNotes", payload: { notes: "one" } });
+  assert.equal(game.dispatch(first).status, "allowed");
+  assert.equal(
+    game.dispatch(command(game, { type: "setNotes", payload: { notes: "two" } })).status,
+    "allowed",
+  );
+  const writes = storage.writes;
+  const repeated = game.dispatch(first);
+  assert.equal(repeated.status, "allowed");
+  assert.equal(repeated.idempotent, true);
+  assert.equal(game.getSnapshot().state.notes, "two");
+  assert.equal(storage.writes, writes);
+});
+
+test("an accepted record-only id survives coalescing and an undo replay", () => {
+  const { game, storage } = store();
+  const first = command(game, { type: "setNotes", payload: { notes: "one" } });
+  assert.equal(game.dispatch(first).status, "allowed");
+  assert.equal(
+    game.dispatch(command(game, { type: "setNotes", payload: { notes: "two" } })).status,
+    "allowed",
+  );
+  const order = command(game, {
+    type: "setOrder",
+    payload: { order: [...game.state.order].reverse() },
+  });
+  assert.equal(game.dispatch(order).status, "allowed");
+  assert.equal(Object.keys(game.state.applied).length, 3);
+  assert.equal(game.undo().ok, true);
+  assert.equal(Object.hasOwn(game.state.applied, first.id), true);
+  assert.equal(Object.hasOwn(game.state.applied, order.id), false);
+  assert.equal(Object.keys(game.state.applied).length, 2);
+  assert.equal(JSON.stringify(game.state.applied).includes("one"), false);
+
+  const writes = storage.writes;
+  const repeated = game.dispatch(first);
+  assert.equal(repeated.status, "allowed");
+  assert.equal(repeated.idempotent, true);
+  assert.equal(game.getSnapshot().state.notes, "two");
+  assert.equal(storage.writes, writes);
+});
+
+test("redo restores the undone id without losing a coalesced accepted id", () => {
+  const { game, storage } = store();
+  const first = command(game, { type: "setNotes", payload: { notes: "one" } });
+  assert.equal(game.dispatch(first).status, "allowed");
+  assert.equal(
+    game.dispatch(command(game, { type: "setNotes", payload: { notes: "two" } })).status,
+    "allowed",
+  );
+  const original = [...game.state.order];
+  const order = command(game, {
+    type: "setOrder",
+    payload: { order: [...original].reverse() },
+  });
+  assert.equal(game.dispatch(order).status, "allowed");
+  assert.equal(game.undo().ok, true);
+  assert.equal(game.redo().ok, true);
+  assert.equal(Object.hasOwn(game.state.applied, first.id), true);
+  assert.equal(Object.hasOwn(game.state.applied, order.id), true);
+
+  const writes = storage.writes;
+  const repeatedFirst = game.dispatch(first);
+  const repeatedOrder = game.dispatch(order);
+  assert.equal(repeatedFirst.status, "allowed");
+  assert.equal(repeatedOrder.status, "allowed");
+  if (repeatedFirst.status !== "allowed" || repeatedOrder.status !== "allowed") return;
+  assert.equal(repeatedFirst.idempotent, true);
+  assert.equal(repeatedOrder.idempotent, true);
+  assert.equal(storage.writes, writes);
+  assert.deepEqual(game.getSnapshot().state.order, [...original].reverse());
+});
+
+test("an undone id leaves the ledger and applies again", () => {
+  const { game, storage } = store();
+  const order = command(game, {
+    type: "setOrder",
+    payload: { order: [...game.state.order].reverse() },
+  });
+  assert.equal(game.dispatch(order).status, "allowed");
+  assert.equal(game.undo().ok, true);
+  assert.equal(Object.hasOwn(game.state.applied, order.id), false);
+  assert.equal(game.canRedo(), true);
+  const writes = storage.writes;
+  const repeated = game.dispatch(order);
+  assert.equal(repeated.status, "allowed");
+  assert.notEqual(repeated.idempotent, true);
+  assert.equal(storage.writes, writes + 1);
+  assert.equal(game.canRedo(), false);
+});
+
+test("an accepted id survives undo, save and reload", () => {
+  const { game, storage } = store();
+  const first = command(game, { type: "setNotes", payload: { notes: "one" } });
+  assert.equal(game.dispatch(first).status, "allowed");
+  assert.equal(
+    game.dispatch(command(game, { type: "setNotes", payload: { notes: "two" } })).status,
+    "allowed",
+  );
+  assert.equal(
+    game.dispatch(
+      command(game, {
+        type: "setOrder",
+        payload: { order: [...game.state.order].reverse() },
+      }),
+    ).status,
+    "allowed",
+  );
+  assert.equal(game.undo().ok, true);
+
+  const reloaded = store(storage).game;
+  const writes = storage.writes;
+  const repeated = reloaded.dispatch(first);
+  assert.equal(repeated.status, "allowed");
+  assert.equal(repeated.idempotent, true);
+  assert.equal(reloaded.getSnapshot().state.notes, "two");
+  assert.equal(storage.writes, writes);
+  assert.equal(JSON.stringify(reloaded.state.applied).includes("one"), false);
+
+  const conflict = reloaded.dispatch(
+    command(reloaded, { id: first.id, type: "setNotes", payload: { notes: "other" } }),
+  );
+  assert.equal(conflict.status, "rejected");
+  assert.equal(conflict.errorCode, "command-id-conflict");
+});
+
+test("an id coalesced by an older save has no ledger record and applies again", () => {
+  const { game, storage } = store();
+  const first = command(game, { type: "setNotes", payload: { notes: "one" } });
+  assert.equal(game.dispatch(first).status, "allowed");
+  assert.equal(
+    game.dispatch(command(game, { type: "setNotes", payload: { notes: "two" } })).status,
+    "allowed",
+  );
+
+  const saved = clone(game.state);
+  delete saved.applied[first.id];
+  storage.values.set(KEY, JSON.stringify(saved));
+  const reloaded = store(storage).game;
+  const repeated = reloaded.dispatch(first);
+  assert.equal(repeated.status, "allowed");
+  assert.notEqual(repeated.idempotent, true);
+  assert.equal(reloaded.getSnapshot().state.notes, "one");
+});
+
+test("a legacy full fingerprint coexists with a compact identity", () => {
+  const { game, storage } = store();
+  const first = command(game, { type: "setNotes", payload: { notes: "legacy" } });
+  assert.equal(game.dispatch(first).status, "allowed");
+  const order = command(game, {
+    type: "setOrder",
+    payload: { order: [...game.state.order].reverse() },
+  });
+  assert.equal(game.dispatch(order).status, "allowed");
+
+  const entry = game.state.applied[first.id];
+  assert.ok(entry);
+  delete entry.identity;
+  entry.fingerprint = fingerprintOf(first, RULESET_VERSION);
+  storage.values.set(KEY, JSON.stringify(game.state));
+
+  const reloaded = store(storage).game;
+  const repeated = reloaded.dispatch(first);
+  assert.equal(repeated.status, "allowed");
+  assert.equal(repeated.idempotent, true);
+  assert.equal(reloaded.getSnapshot().state.notes, "legacy");
+  const repeatedOrder = reloaded.dispatch(order);
+  assert.equal(repeatedOrder.status, "allowed");
+  assert.equal(repeatedOrder.idempotent, true);
+  const conflict = reloaded.dispatch(
+    command(reloaded, { id: first.id, type: "setNotes", payload: { notes: "other" } }),
+  );
+  assert.equal(conflict.status, "rejected");
+  assert.equal(conflict.errorCode, "command-id-conflict");
+
+  const replayed = replay(reloaded.state.journal);
+  assert.equal(replayed.ok, true, replayed.ok ? "" : replayed.error);
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), canonicalState(reloaded.state));
+});
+
+test("a history reset clears the applied ledger of the previous game", () => {
+  const { game } = store();
+  const first = command(game, { type: "setNotes", payload: { notes: "one" } });
+  assert.equal(game.dispatch(first).status, "allowed");
+  assert.equal(
+    game.dispatch(command(game, { type: "newGame", payload: { count: 7 } })).status,
+    "allowed",
+  );
+  assert.equal(Object.hasOwn(game.state.applied, first.id), false);
+  const repeated = game.dispatch(first);
+  assert.equal(repeated.status, "allowed");
+  assert.notEqual(repeated.idempotent, true);
+  assert.equal(game.getSnapshot().state.notes, "one");
+
+  const imported = exportSavedGame(createGame(7));
+  assert.equal(game.importGame(imported).ok, true);
+  assert.equal(Object.hasOwn(game.state.applied, first.id), false);
+  game.reset(7);
+  assert.equal(Object.keys(game.state.applied).length, 0);
 });
 
 test("a malformed import is rejected without a write", () => {
@@ -761,6 +1171,42 @@ test("a game saved before the zero became the Librarian's alone continues, and u
   const redone = game.redo();
   assert.equal(redone.ok, true, redone.ok ? "" : `${redone.errorCode}: ${redone.error}`);
   assert.deepEqual(canonicalState(game.getSnapshot().state), continued);
+});
+
+test("a game saved after a mid-game seat reorder keeps that order through replay and undo (SYS-LIFECYCLE-02)", () => {
+  // The journal reorders the seats on night 1 and restores them on day 1, as
+  // the ruleset before #328 accepted. A command sent now may not reorder, but
+  // the saved history must still replay and undo to the recorded order.
+  const text = readFileSync(
+    new URL("../../core/engine/fixtures/legacy-seat-order-game.json", import.meta.url),
+    "utf8",
+  );
+  const storage = memoryStorage(text);
+  const { game } = store(storage);
+  const loaded = canonicalState(game.getSnapshot().state);
+  const recorded = game.state.journal.entries.length;
+  assert.equal(game.state.phase, "day");
+  assert.equal(game.canUndo(), false, "the commands that arrived with the load are history");
+  assert.equal(
+    game.state.journal.entries.some(
+      (entry) =>
+        entry.type === "setOrder" && entry.rulesetVersion === MANDATORY_STEP_SKIP_RULESET_VERSION,
+    ),
+    true,
+  );
+
+  const replayed = replay(game.state.journal);
+  assert.equal(replayed.ok, true, JSON.stringify(replayed));
+  if (!replayed.ok) return;
+  assert.deepEqual(canonicalState(replayed.state), loaded);
+
+  const open = game.dispatch(command(game, { type: "openNominations", payload: {} }));
+  assert.equal(open.status, "allowed", JSON.stringify(open));
+  assert.equal(game.state.journal.entries.length, recorded + 1);
+  const undone = game.undo();
+  assert.equal(undone.ok, true, undone.ok ? "" : `${undone.errorCode}: ${undone.error}`);
+  assert.deepEqual(canonicalState(game.getSnapshot().state), loaded);
+  assert.deepEqual(game.state.order, loaded.order);
 });
 
 test("a game saved the day after an Imp self-kill by an older ruleset does not wake the new Demon again, and undo replays its journal (TB-IMP-01)", () => {

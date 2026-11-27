@@ -18,6 +18,7 @@ import {
   soldierSafe,
   stepProgress,
 } from "../../core/engine/index.ts";
+import { ANY_STEP_RESURRECTS_RULESET_VERSION } from "../../core/engine/command-versions.ts";
 import { createGame, livingPlayers } from "../../core/model/state.ts";
 import type { CommandInput } from "../../core/commands/contracts.ts";
 import type { Command, Effect, GameState, NightStep } from "../../core/model/types.ts";
@@ -26,6 +27,7 @@ import {
   artistProjection,
   mayorRedirectNeeded,
   madnessReviewProjection,
+  nominatorChoices,
   progressProjection,
   resurrectChoices,
   savantProjection,
@@ -33,6 +35,7 @@ import {
   setupProjection,
   secretsProjection,
   stepProjection,
+  survivalProjection,
   tableProjection,
   targetBounds,
 } from "./table.ts";
@@ -126,14 +129,28 @@ interface Row {
 
 function skipOpenSteps(state: GameState): void {
   for (let step = currentStep(state); step; step = currentStep(state)) {
-    play(state, { type: "skipStep", payload: { key: step.key, reason: "projection test" } });
+    fixtureSkip(state, step);
   }
 }
 
 function skipUntil(state: GameState, roleId: string): void {
   for (let step = currentStep(state); step && step.roleId !== roleId; step = currentStep(state)) {
-    play(state, { type: "skipStep", payload: { key: step.key, reason: "projection test" } });
+    fixtureSkip(state, step);
   }
+}
+
+// The projection tests advance the night as a fixture, not as a host action, so
+// a mandatory step is skipped under the version that allowed it.
+function fixtureSkip(state: GameState, step: NightStep): void {
+  sequence += 1;
+  const result = applyCommand(state, {
+    id: `projection-${sequence}`,
+    type: "skipStep",
+    payload: { key: step.key, reason: "projection test" },
+    rulesetVersion: ANY_STEP_RESURRECTS_RULESET_VERSION,
+  } as Command);
+  assert.equal(result.status, "allowed", "the fixture skip is allowed");
+  expectProjectionEqualsEngine(state);
 }
 
 const SCENARIO: Row[] = [
@@ -153,7 +170,7 @@ const SCENARIO: Row[] = [
     play: (state) => {
       const step = currentStep(state);
       assert.equal(step?.roleId, "poisoner", "the Poisoner wakes first");
-      play(state, { type: "skipStep", payload: { key: step!.key, reason: "projection test" } });
+      fixtureSkip(state, step!);
       assert.deepEqual(tableProjection(state).progress, { done: 1, total: 3 });
     },
   },
@@ -289,7 +306,7 @@ test("a seat projection reports a poisoned chef, a soldier and a butler master",
     if (step.roleId === "poisoner" || step.roleId === "butler") {
       play(game, { type: "completeNightStep", payload: { key: step.key, targetIds: ["4"] } });
     } else {
-      play(game, { type: "skipStep", payload: { key: step.key, reason: "projection test" } });
+      fixtureSkip(game, step);
     }
   }
   assert.equal(seatProjection(game, "4").impaired, true);
@@ -533,4 +550,87 @@ test("the Savant projection offers only the legal truth patterns", () => {
     truth: "neither",
   };
   assert.equal(savantProjection(state)?.visitedToday, true);
+});
+
+test("a registered-dead Zombuul is not offered as a nominator", () => {
+  const game = createGame(5);
+  game.script = {
+    id: "bmr",
+    name: "Bad Moon Rising",
+    edition: "bmr",
+    roles: ["zombuul", "assassin", "sailor", "courtier", "chambermaid"],
+  };
+  game.scriptId = "bmr";
+  game.setup.count = 5;
+  game.setup.roles = ["zombuul", "assassin", "sailor", "courtier", "chambermaid"];
+  game.setup.bluffs = [];
+  assert.equal(
+    dealGame(game, {
+      assignment: {
+        1: "zombuul",
+        2: "assassin",
+        3: "sailor",
+        4: "courtier",
+        5: "chambermaid",
+      },
+    }).ok,
+    true,
+  );
+  game.players["1"].registeredDead = true;
+  const ids = nominatorChoices(game)
+    .map((player) => player.id)
+    .sort();
+  assert.deepEqual(ids, ["2", "3", "4", "5"]);
+  assert.equal(game.players["1"].alive, true, "the Zombuul stays secretly alive");
+});
+
+test("survivalProjection follows the engine's Pacifist condition (BMR-PACIFIST-01)", () => {
+  const game = scene();
+  game.players["1"].roleId = "pacifist";
+  game.players["1"].used = {};
+  assert.equal(
+    survivalProjection(game, "2"),
+    true,
+    "a living healthy Pacifist spares a good target",
+  );
+  assert.equal(survivalProjection(game, "4"), false, "an evil target cannot survive");
+  assert.equal(survivalProjection(game, ""), false, "no target, no control");
+  assert.equal(survivalProjection(game, "99"), false, "an unknown target has no control");
+  game.players["1"].alive = false;
+  assert.equal(survivalProjection(game, "2"), false, "a dead Pacifist cannot spare");
+  game.players["1"].alive = true;
+  game.effects.push({
+    id: "pacifist-drunk",
+    kind: "drunk",
+    sourceId: "4",
+    targetId: "1",
+    start: { phase: "day", number: 1 },
+    expires: null,
+    active: true,
+  });
+  assert.equal(survivalProjection(game, "2"), false, "an impaired Pacifist cannot spare");
+});
+
+test("seatProjection keeps a drunk and a poisoned state apart (UI-074)", () => {
+  const game = scene();
+  game.phase = "day";
+  game.day.number = 1;
+  game.night.number = 1;
+  game.players["1"].roleId = "drunk";
+  game.players["1"].shownRoleId = "chef";
+  assert.equal(seatProjection(game, "1").drunk, true);
+  assert.equal(seatProjection(game, "1").poisoned, false, "the Drunk role alone is not poison");
+  game.effects.push({
+    id: "drunk-poison",
+    kind: "poison",
+    sourceId: "4",
+    targetId: "1",
+    start: { phase: "day", number: 1 },
+    expires: null,
+    active: true,
+  });
+  const both = seatProjection(game, "1");
+  assert.equal(both.drunk, true);
+  assert.equal(both.poisoned, true, "both true states show at once");
+  assert.equal(both.impaired, true);
 });

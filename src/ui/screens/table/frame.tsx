@@ -1,18 +1,66 @@
 // The console tools and the night queue. They live in the table menu or under
 // the step sheet; nothing here dispatches on its own.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { tableProjection } from "../../../application/read-models/table.ts";
 import { playerById } from "../../../core/model/state.ts";
-import { EventLog } from "../../components/arcane/index.ts";
-import { displayName, localizeVars, roleNameOf, timerText } from "./helpers.ts";
+import { displayName, roleNameOf, timerText } from "./helpers.ts";
+import { GameLog } from "./log.tsx";
 import { PanelHead, RoleToken, Warn } from "./parts.tsx";
 import type { TableView } from "./view.ts";
 import { INLINE, MUTED, PANEL, QUEUE_ITEM } from "./styles.ts";
 
+/**
+ * The host notes field. The textarea keeps a local draft and commits it after
+ * a pause, on blur and on unmount, so typing never journals one command per
+ * character. A save that arrives from outside (import, undo) replaces the
+ * draft.
+ */
+function NotesField({ value, commit }: { value: string; commit: (notes: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const committed = useRef(value);
+  const latest = useRef(value);
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => {
+    committed.current = value;
+    setDraft(value);
+    latest.current = value;
+  }, [value]);
+  useEffect(() => {
+    latest.current = draft;
+    if (draft === committed.current) return;
+    const id = setTimeout(() => {
+      committed.current = draft;
+      commitRef.current(draft);
+    }, 600);
+    return () => clearTimeout(id);
+  }, [draft]);
+  useEffect(
+    () => () => {
+      if (latest.current !== committed.current) commitRef.current(latest.current);
+    },
+    [],
+  );
+  return (
+    <textarea
+      className="host-notes field mt-1 min-h-[84px] resize-y"
+      id="host-notes"
+      data-notes
+      maxLength={4000}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft === committed.current) return;
+        committed.current = draft;
+        commitRef.current(draft);
+      }}
+    />
+  );
+}
+
 export function SidePanel({ view, className = "" }: { view: TableView; className?: string }) {
   const { state, ports, actions } = view;
   const t = ports.strings.t;
-  const entries = (state.log || []).slice(-8).reverse();
   return (
     <div className={`${className} grid gap-2`}>
       {state.storageError ? (
@@ -20,69 +68,7 @@ export function SidePanel({ view, className = "" }: { view: TableView; className
           <p>{state.storageError}</p>
         </Warn>
       ) : null}
-      <EventLog
-        title={t("log")}
-        emptyLabel={t("none")}
-        allLabel={t("all")}
-        filters={[
-          { id: "night", label: t("night") },
-          { id: "day", label: t("day") },
-          { id: "death", label: t("deaths") },
-        ]}
-        entries={entries.map((entry) => {
-          const scope =
-            entry.kind === "night"
-              ? ("night" as const)
-              : entry.kind === "day"
-                ? ("day" as const)
-                : /death|execut|kill/i.test(entry.kind)
-                  ? ("death" as const)
-                  : ("other" as const);
-          const time = entry.at
-            ? new Date(entry.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-            : "";
-          // A step line carries the catalog key of its note, its role and its
-          // night; the Russian strings stay for lines written before them.
-          const noteVars =
-            entry.noteVars && typeof entry.noteVars === "object"
-              ? (entry.noteVars as Record<string, unknown>)
-              : undefined;
-          const detail =
-            typeof entry.noteKey === "string"
-              ? t(entry.noteKey, localizeVars(noteVars, ports.roles.byId))
-              : entry.detail;
-          const phaseNumber = typeof entry.phaseNumber === "number" ? entry.phaseNumber : 0;
-          const phase =
-            entry.phaseCode === "night" || entry.phaseCode === "day"
-              ? phaseNumber
-                ? t(entry.phaseCode) + " " + phaseNumber
-                : t(entry.phaseCode)
-              : entry.phase;
-          const voteLogKey =
-            entry.case === "vote-count"
-              ? "ui.logVoteCount"
-              : entry.case === "dead-vote-used"
-                ? "ui.logDeadVoteUsed"
-                : entry.case === "dead-vote-restored"
-                  ? "ui.logDeadVoteRestored"
-                  : null;
-          const votePlayer = entry.playerId ? playerById(state, entry.playerId) : null;
-          return {
-            title: voteLogKey
-              ? t(voteLogKey, {
-                  name: votePlayer ? displayName(votePlayer, t) : t("ui.unknown"),
-                  n: entry.detail ?? "",
-                })
-              : typeof entry.roleId === "string"
-                ? roleNameOf(entry.roleId, ports.roles.byId)
-                : entry.title,
-            detail: `${phase}${detail && !voteLogKey ? " · " + detail : ""}`,
-            ...(time ? { time } : {}),
-            scope,
-            ...(scope === "death" ? { tone: "danger" as const } : {}),
-          };
-        })}
-      />
+      <GameLog view={view} previewCount={8} />
       <section className={`${PANEL} host-bluffs`}>
         <PanelHead label={t("bluffs")} />
         <div className="flex min-h-6 flex-wrap gap-[5px]">
@@ -105,15 +91,9 @@ export function SidePanel({ view, className = "" }: { view: TableView; className
         <label className="label" htmlFor="host-notes">
           {t("notes")}
         </label>
-        <textarea
-          className="host-notes field mt-1 min-h-[84px] resize-y"
-          id="host-notes"
-          data-notes
-          maxLength={4000}
+        <NotesField
           value={state.notes || ""}
-          onChange={(event) =>
-            actions.run({ type: "setNotes", payload: { notes: event.target.value } })
-          }
+          commit={(notes) => actions.run({ type: "setNotes", payload: { notes } })}
         />
         <p className={MUTED}>{t("correctionHint")}</p>
       </section>
@@ -156,8 +136,10 @@ export function QueuePanel({ view }: { view: TableView }) {
     <section className={`${PANEL} mx-auto mt-2 grid w-full max-w-[900px] gap-2`} data-panel="queue">
       <span className="label">{t("queue")}</span>
       <div className="flex items-baseline gap-2">
-        <b className="font-role text-[40px] leading-none tabular-nums text-amber">{done}</b>
-        <span className="text-[10px] uppercase tracking-[.14em] text-muted">из {total} ходов</span>
+        <b className="font-role text-[40px] leading-none tabular-nums text-accent-text">{done}</b>
+        <span className="text-[12px] uppercase tracking-[.14em] text-muted">
+          {t("ui.queueOf", { total })}
+        </span>
       </div>
       <div className="flex gap-[3px]" aria-hidden="true">
         {Array.from({ length: segments }, (_, index) => (
@@ -167,8 +149,8 @@ export function QueuePanel({ view }: { view: TableView }) {
           />
         ))}
       </div>
-      <p className={`${MUTED} !text-[10px]`}>
-        {next ? `Далее: ${next}.` : total ? t("ui.done") : t("noWake")}
+      <p className={`${MUTED} !text-[12px]`}>
+        {next ? t("ui.queueNext", { names: next }) : total ? t("ui.done") : t("noWake")}
       </p>
       <button
         className="btn min-h-[38px] w-full !justify-center max-[900px]:min-h-11"
@@ -177,7 +159,7 @@ export function QueuePanel({ view }: { view: TableView }) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        {open ? "Скрыть порядок" : "Показать порядок"}
+        {open ? t("ui.hideOrder") : t("ui.showOrder")}
       </button>
       {open ? (
         <ol className="mt-1 grid list-none gap-[3px] p-0">

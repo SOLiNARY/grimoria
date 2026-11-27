@@ -14,6 +14,17 @@ export function stillWakes(state: GameState, player: Player | null): boolean {
   return Boolean(player && (player.alive || minionRetainsAbility(state, player.id)));
 }
 
+function diedAsRole(
+  death: { playerId: string; roleId?: string | null },
+  state: GameState,
+  roleId: string,
+): boolean {
+  if (death.roleId === roleId) return true;
+  if (death.roleId !== "philosopher") return false;
+  const player = state.players[death.playerId];
+  return player?.used?.philosopherAbility === roleId;
+}
+
 /** The player died recently while holding this role, or null. */
 export function deathAsRecently(
   state: GameState,
@@ -35,26 +46,48 @@ export function deathAsRecently(
 }
 
 /** The player died tonight or during the day before this night. */
-export function diedRecently(state: GameState, playerId: string): boolean {
+export function diedRecently(state: GameState, playerId: string, roleId?: string | null): boolean {
   const night = nightNumber(state);
   return state.deaths.some(
     (death) =>
       !death.fake &&
       death.playerId === playerId &&
+      (roleId == null || diedAsRole(death, state, roleId)) &&
       ((death.phase === "night" && death.number === night) ||
         (death.phase === "day" && death.number === night - 1)),
   );
 }
 
 /** The Demon killed this player tonight or during the day before this night. */
-export function diedByDemon(state: GameState, playerId: string): boolean {
+export function diedByDemon(state: GameState, playerId: string, roleId?: string | null): boolean {
   const night = nightNumber(state);
   return state.deaths.some(
     (death) =>
       !death.fake &&
       death.playerId === playerId &&
+      (roleId == null || diedAsRole(death, state, roleId)) &&
       death.demon === true &&
       ((death.phase === "night" && death.number === night) ||
         (death.phase === "day" && death.number === night - 1)),
   );
+}
+
+/**
+ * The player who killed this player as the Demon, or null for a death record
+ * written before the attack stored its source. Sage r3009 names the Demon that
+ * killed the Sage, which need not be the current holder of the Demon role.
+ */
+export function demonKillerId(state: GameState, playerId: string): string | null {
+  const night = nightNumber(state);
+  const death = [...state.deaths]
+    .reverse()
+    .find(
+      (entry) =>
+        !entry.fake &&
+        entry.playerId === playerId &&
+        entry.demon === true &&
+        ((entry.phase === "night" && entry.number === night) ||
+          (entry.phase === "day" && entry.number === night - 1)),
+    );
+  return death && typeof death.attackerId === "string" ? death.attackerId : null;
 }

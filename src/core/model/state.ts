@@ -5,8 +5,8 @@ import type {
   GameState,
   LogEntry,
   Player,
-  Role,
   RoleId,
+  Script,
 } from "./types.js";
 
 // Game state schema v4. Pure functions: no DOM, no localStorage.
@@ -21,6 +21,7 @@ import {
   roleTeam,
 } from "./rules.ts";
 import { troubleBrewingScript } from "./scripts.ts";
+import { scriptRunsAutomatically } from "./script-definition.ts";
 import { effectGraph } from "./effect-graph.ts";
 import type { CommandExecutionContext } from "./ports.ts";
 import { systemPorts } from "./ports.ts";
@@ -142,6 +143,7 @@ export function createGame(
     herringId: null,
     gossip: null,
     juggler: null,
+    jugglers: {},
     artist: null,
     savant: null,
     abnormal: [],
@@ -315,17 +317,15 @@ export function hasAbility(player: Player | null | undefined, roleId: RoleId): b
   return player.used?.philosopherAbility === roleId;
 }
 
-export function publicRoleView(player: Player, role: Role) {
-  if (!player || !role) return null;
-  return {
-    seat: player.seat,
-    name: player.name,
-    role: role.name,
-    team: role.team === "minion" || role.team === "demon" ? "evil" : "good",
-    teamLabel: role.team,
-    ability: role.ability || "",
-    image: role.image,
-  };
+/**
+ * True when the ability really works for this player: their printed character
+ * or a good character the Philosopher borrowed. A drunk's shown character does
+ * not qualify, because the Drunk's ability does nothing (Drunk r3165). Use this
+ * for a hidden consequence the Storyteller records, not for a public attempt.
+ */
+export function hasTrueAbility(player: Player | null | undefined, roleId: RoleId): boolean {
+  if (!player) return false;
+  return player.roleId === roleId || player.used?.philosopherAbility === roleId;
 }
 
 export function publicGameView(state: GameState) {
@@ -479,6 +479,25 @@ export function migrateV3(old: Record<string, unknown>): GameState {
 
 // Recover drafts and mixed pools produced before the manual-only flag and the
 // custom- ID prefix existed. The caller validates the normalized state.
+function scriptOf(value: Record<string, unknown>, roles: RoleId[]): Script | null {
+  const edition = value.edition;
+  if (
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    (edition !== "tb" && edition !== "bmr" && edition !== "snv" && edition !== "custom")
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    name: value.name,
+    edition,
+    roles,
+    ...(typeof value.source === "string" ? { source: value.source } : {}),
+    ...(typeof value.author === "string" ? { author: value.author } : {}),
+  };
+}
+
 export function normalizeScriptState(value: unknown): unknown {
   if (!object(value)) return value;
   const script = value.script;
@@ -491,7 +510,10 @@ export function normalizeScriptState(value: unknown): unknown {
     value.scriptId = "custom-draft";
   }
   if (script.manualOnly === undefined && isMixedEdition(roles)) {
-    script.manualOnly = true;
+    // A certified mixed script runs automatically; an uncertified one keeps the
+    // explicit manual fallback.
+    const candidate = scriptOf(script, roles);
+    if (!candidate || !scriptRunsAutomatically(candidate)) script.manualOnly = true;
   }
   return value;
 }
@@ -562,9 +584,12 @@ function validateStateStructure(value: unknown): string[] {
       const fromBmr = scriptRoles.every((id) => BMR_ALL.includes(id));
       const fromSnv = scriptRoles.every((id) => SNV_ALL.includes(id));
       const mixed = !(fromTb || fromBmr || fromSnv);
+      const candidate = scriptOf(script, scriptRoles);
       check(
-        !mixed || script.manualOnly === true,
-        "Custom scripts cannot mix editions without manual-only mode.",
+        !mixed ||
+          script.manualOnly === true ||
+          (candidate !== null && scriptRunsAutomatically(candidate)),
+        "Mixed-edition scripts need a certified automatic compatibility or manual-only mode.",
       );
     }
     check(
@@ -997,6 +1022,12 @@ export function importGame(
   return { ok: true, state };
 }
 
+/**
+ * The host's complete private backup: real roles, effects, notes, the log and
+ * the journal payloads. This is not a shareable redacted file, and the compact
+ * `state.applied` identities sanitize nothing. The envelope and the console
+ * warn that the file holds secrets.
+ */
 export function exportGame(state: GameState, ports: CommandExecutionContext = systemPorts): string {
   return JSON.stringify(
     {

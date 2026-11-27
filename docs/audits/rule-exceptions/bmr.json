@@ -1,0 +1,367 @@
+{
+  "schemaVersion": 1,
+  "scope": "Bad Moon Rising role rules whose traceability status is ROLE_LEVEL_ONLY or ENGINE_PARTIAL",
+  "source": {
+    "traceability": "docs/audits/verification-gates/traceability.json",
+    "officialRules": "docs/audits/verification-gates/official-rules.json",
+    "proposals": "docs/audits/verification-gates/proposals/tb-bmr-roles.json",
+    "wiki": "docs/official/wiki",
+    "engineRules": "docs/rules-matrix.md, src/core/roles/*/rule.md"
+  },
+  "statusDefinitions": {
+    "non-mechanical-exception": "The sentence is a table, social, Storyteller-discretion, announcement or other-edition fact with no engine state to assert; a documented, permanent exception.",
+    "mechanical-gap": "The sentence has a mechanical consequence that no current test asserts (the engine may or may not implement it); it needs a test or engine change before it can be mapped.",
+    "covered-but-unmapped": "A current test already asserts the sentence's behaviour, but the mapping/citation is absent or cannot reach a verified row; no product change is needed."
+  },
+  "counts": {
+    "total": 65,
+    "mechanical-gap": 0,
+    "covered-but-unmapped": 49,
+    "non-mechanical-exception": 16
+  },
+  "rules": [
+    {
+      "id": "ROLE-COURTIER-008",
+      "role": "courtier",
+      "statement": "В изданиях с несколькими копиями персонажа Courtier делает drunk только одного из них.",
+      "source": {
+        "file": "docs/official/wiki/Courtier.r2968.wikitext",
+        "page": "Courtier",
+        "revision": 2968,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Multiple copies of one character are not modelled: the engine deals each character once, so the other-editions rule has no state to assert. The pinned text presents it as an other-edition example.",
+      "evidence": [
+        "wiki: docs/official/wiki/Courtier.r2968.wikitext § How to Run — 'In other editions, there can be multiple copies of the same character in play.'",
+        "code: src/core/model/rules.ts:BMR — one entry per character; roleHolder returns the single holder.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-COURTIER-008."
+      ]
+    },
+    {
+      "id": "ROLE-EXORCIST-006",
+      "role": "exorcist",
+      "statement": "Demon, выбранный Exorcist, всё равно просыпается, если его будит другая способность.",
+      "source": {
+        "file": "docs/official/wiki/Exorcist.r2973.wikitext",
+        "page": "Exorcist",
+        "revision": 2973,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "No Bad Moon Rising character wakes a Demon through a second ability, and the pinned text calls this a cross-edition interaction; the block closes only the Demon's own step, so the conditional has no reachable BMR path.",
+      "evidence": [
+        "wiki: docs/official/wiki/Exorcist.r2973.wikitext § How to Run — 'This may be relevant if using the Exorcist with characters from other editions.'",
+        "code: src/core/roles/exorcist/role.ts — emits block-demon for the chosen Demon's own step.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-EXORCIST-006."
+      ]
+    },
+    {
+      "id": "ROLE-GOSSIP-002",
+      "role": "gossip",
+      "statement": "Заявление должно быть определённым, слышимым и понятным всем, включая Ведущего, чтобы считаться использованием способности.",
+      "source": {
+        "file": "docs/official/wiki/Gossip.r1773.wikitext",
+        "page": "Gossip",
+        "revision": 1773,
+        "section": "Summary"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Whether a statement is definite, audible and understood is a table judgement with no engine state; the engine records only the Host's truth answer.",
+      "evidence": [
+        "wiki: docs/official/wiki/Gossip.r1773.wikitext § Summary.",
+        "code: src/core/engine/day.ts:gossipStatement — records a boolean truth.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-GOSSIP-002."
+      ]
+    },
+    {
+      "id": "ROLE-GOSSIP-007",
+      "role": "gossip",
+      "statement": "Ведущему рекомендуется выбирать цель, которая действительно умрёт, а не защищённую от смерти.",
+      "source": {
+        "file": "docs/official/wiki/Gossip.r1773.wikitext",
+        "page": "Gossip",
+        "revision": 1773,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Storyteller advice about choosing a victim that will actually die; no engine state or test can encode it.",
+      "evidence": [
+        "wiki: docs/official/wiki/Gossip.r1773.wikitext § How to Run.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-GOSSIP-007."
+      ]
+    },
+    {
+      "id": "ROLE-MASTERMIND-002",
+      "role": "mastermind",
+      "statement": "Игроки не узнают, что Demon умер.",
+      "source": {
+        "file": "docs/official/wiki/Mastermind.r2993.wikitext",
+        "page": "Mastermind",
+        "revision": 2993,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Whether players learn that the Demon died is a public-information fact; the engine enforces it only by not declaring a winner, and there is no player-facing 'learned' state to assert.",
+      "evidence": [
+        "test: src/core/engine/bmr.test.ts::the Mastermind extends the game by one day after a Demon execution (BMR-MASTERMIND-01) — no winner is set when the Demon dies.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-MASTERMIND-002."
+      ]
+    },
+    {
+      "id": "ROLE-MOONCHILD-004",
+      "role": "moonchild",
+      "statement": "Moonchild может получить совет от группы, но решение принимает сам.",
+      "source": {
+        "file": "docs/official/wiki/Moonchild.r1783.wikitext",
+        "page": "Moonchild",
+        "revision": 1783,
+        "section": "Summary"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Table advice and the player's own decision; the engine has no advice state.",
+      "evidence": [
+        "wiki: docs/official/wiki/Moonchild.r1783.wikitext § Summary.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-MOONCHILD-004."
+      ]
+    },
+    {
+      "id": "ROLE-PACIFIST-001",
+      "role": "pacifist",
+      "statement": "Когда казнён good-игрок, Ведущий выбирает, умирает он или остаётся жив.",
+      "source": {
+        "file": "docs/official/wiki/Pacifist.r2601.wikitext",
+        "page": "Pacifist",
+        "revision": 2601,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "The survival is a Storyteller choice; the engine exposes it as a host-choice flag and offers only the legal option.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::the Pacifist survival flag is legal only for a good target with a sober Pacifist (BMR-PACIFIST-01).",
+        "code: src/core/roles/pacifist/role.ts — the execution capability returns 'survives'."
+      ]
+    },
+    {
+      "id": "ROLE-PACIFIST-002",
+      "role": "pacifist",
+      "statement": "Группа узнаёт только факт казни и факт выживания, но не причину.",
+      "source": {
+        "file": "docs/official/wiki/Pacifist.r2601.wikitext",
+        "page": "Pacifist",
+        "revision": 2601,
+        "section": "Summary"
+      },
+      "status": "covered-but-unmapped",
+      "reason": "The engine stores the Pacifist survival as secret and the execution log marks the execution prevented; the BMR-PACIFIST-01 test asserts both, so the group learns the fact without the cause.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::the Pacifist survival flag is legal only for a good target with a sober Pacifist (BMR-PACIFIST-01).",
+        "wiki: docs/official/wiki/Pacifist.r2601.wikitext § Summary."
+      ]
+    },
+    {
+      "id": "ROLE-PACIFIST-003",
+      "role": "pacifist",
+      "statement": "Если казнённый остаётся жив, это всё равно считается казнью дня.",
+      "source": {
+        "file": "docs/official/wiki/Pacifist.r2601.wikitext",
+        "page": "Pacifist",
+        "revision": 2601,
+        "section": "Summary"
+      },
+      "status": "covered-but-unmapped",
+      "reason": "A surviving execution still records the day's execution; the generic execution test and the Pacifist survival path prove it, with no Pacifist mapping.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::execution is an execution event, not automatically a death (SYS-WINS-01).",
+        "test: src/core/engine/bmr.test.ts::a good player who survives the Mastermind extra-day execution still loses (BMR-MASTERMIND-01) — the Pacifist spares the execution and the day still resolves."
+      ]
+    },
+    {
+      "id": "ROLE-PACIFIST-004",
+      "role": "pacifist",
+      "statement": "Pacifist не влияет на изгнание Traveller.",
+      "source": {
+        "file": "docs/official/wiki/Pacifist.r2601.wikitext",
+        "page": "Pacifist",
+        "revision": 2601,
+        "section": "Examples"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Traveller exile is not modelled; the rule states a non-effect for a mechanic outside the supported scripts.",
+      "evidence": [
+        "code: no Traveller/exile path in src/core/engine.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-PACIFIST-004."
+      ]
+    },
+    {
+      "id": "ROLE-PACIFIST-005",
+      "role": "pacifist",
+      "statement": "Обычно достаточно запускать способность примерно раз за игру; можно чаще или, редко, никогда.",
+      "source": {
+        "file": "docs/official/wiki/Pacifist.r2601.wikitext",
+        "page": "Pacifist",
+        "revision": 2601,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Storyteller advice about how often to use the ability; no engine behaviour.",
+      "evidence": [
+        "wiki: docs/official/wiki/Pacifist.r2601.wikitext § How to Run.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-PACIFIST-005."
+      ]
+    },
+    {
+      "id": "ROLE-SHABALOTH-006",
+      "role": "shabaloth",
+      "statement": "На рассвете Ведущий объявляет, кто умер и кто вернулся к жизни, не называя причин.",
+      "source": {
+        "file": "docs/official/wiki/Shabaloth.r1790.wikitext",
+        "page": "Shabaloth",
+        "revision": 1790,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "The dawn announcement of deaths and returns without causes is Storyteller speech; the engine records the events but has no announcement contract for this role.",
+      "evidence": [
+        "wiki: docs/official/wiki/Shabaloth.r1790.wikitext § How to Run.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-SHABALOTH-006."
+      ]
+    },
+    {
+      "id": "ROLE-SHABALOTH-007",
+      "role": "shabaloth",
+      "statement": "Regurgitation рекомендуется применять редко — примерно раз за игру, максимум дважды.",
+      "source": {
+        "file": "docs/official/wiki/Shabaloth.r1790.wikitext",
+        "page": "Shabaloth",
+        "revision": 1790,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Storyteller advice about how often to regurgitate; no engine behaviour.",
+      "evidence": [
+        "wiki: docs/official/wiki/Shabaloth.r1790.wikitext § How to Run.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-SHABALOTH-007."
+      ]
+    },
+    {
+      "id": "ROLE-TINKER-001",
+      "role": "tinker",
+      "statement": "Ведущий может в любой момент убить Tinker.",
+      "source": {
+        "file": "docs/official/wiki/Tinker.r1782.wikitext",
+        "page": "Tinker",
+        "revision": 1782,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "The Storyteller decides when, and whether, the Tinker dies; the engine exposes the death as a host-choice outcome (ENGINE_PARTIAL) rather than a computed effect.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::a sober Tinker dies from an ability death during the day and the night (BMR-TINKER-01).",
+        "test: src/core/roles/tinker/role.test.ts::the Tinker's step resolves to nothing, healthy or impaired: the host marks the death (BMR-TINKER-01).",
+        "mapping: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-TINKER-001 → BMR-TINKER-01 (host-choice)."
+      ]
+    },
+    {
+      "id": "ROLE-TINKER-002",
+      "role": "tinker",
+      "statement": "Если Tinker умирает днём, Ведущий немедленно объявляет смерть.",
+      "source": {
+        "file": "docs/official/wiki/Tinker.r1782.wikitext",
+        "page": "Tinker",
+        "revision": 1782,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "The immediate daytime announcement is Storyteller speech; the engine records the ability death only.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::a sober Tinker dies from an ability death during the day and the night (BMR-TINKER-01) — the death record only.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-TINKER-002."
+      ]
+    },
+    {
+      "id": "ROLE-TINKER-003",
+      "role": "tinker",
+      "statement": "Если Tinker умирает ночью, смерть отмечается и объявляется на рассвете вместе с другими.",
+      "source": {
+        "file": "docs/official/wiki/Tinker.r1782.wikitext",
+        "page": "Tinker",
+        "revision": 1782,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "The dawn announcement of a night death is Storyteller speech; the death record exists but not an announcement contract.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::a sober Tinker dies from an ability death during the day and the night (BMR-TINKER-01) — the death record only.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-TINKER-003."
+      ]
+    },
+    {
+      "id": "ROLE-TINKER-004",
+      "role": "tinker",
+      "statement": "Tinker не может умереть от своей способности, пока защищён от смерти.",
+      "source": {
+        "file": "docs/official/wiki/Tinker.r1782.wikitext",
+        "page": "Tinker",
+        "revision": 1782,
+        "section": "Summary"
+      },
+      "status": "covered-but-unmapped",
+      "reason": "A protected Tinker does not die from the ability, and an asserting test exists, but the only Tinker engine row is host-choice, so the mapped sentence cannot rise above ENGINE_PARTIAL.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::a protected Tinker does not die from their ability (BMR-TINKER-01).",
+        "mapping: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-TINKER-004 → BMR-TINKER-01; BMR-TINKER-01 is host-choice."
+      ]
+    },
+    {
+      "id": "ROLE-TINKER-005",
+      "role": "tinker",
+      "statement": "Ведущий может никогда не убивать Tinker; это делает его подозрительным.",
+      "source": {
+        "file": "docs/official/wiki/Tinker.r1782.wikitext",
+        "page": "Tinker",
+        "revision": 1782,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "The host may never kill the Tinker; the absence of a host choice is not an assertable event.",
+      "evidence": [
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-TINKER-005."
+      ]
+    },
+    {
+      "id": "ROLE-TINKER-006",
+      "role": "tinker",
+      "statement": "Ведущему рекомендуется не убивать Tinker, если это приведёт к окончанию игры.",
+      "source": {
+        "file": "docs/official/wiki/Tinker.r1782.wikitext",
+        "page": "Tinker",
+        "revision": 1782,
+        "section": "How to Run"
+      },
+      "status": "non-mechanical-exception",
+      "reason": "Storyteller advice about not ending the game; no engine behaviour.",
+      "evidence": [
+        "wiki: docs/official/wiki/Tinker.r1782.wikitext § How to Run.",
+        "gap: docs/audits/verification-gates/proposals/tb-bmr-roles.json — ROLE-TINKER-006."
+      ]
+    },
+    {
+      "id": "ROLE-TINKER-007",
+      "role": "tinker",
+      "statement": "Если Tinker drunk или poisoned, у него нет способности, но Ведущий всё равно может изображать её.",
+      "source": {
+        "file": "docs/official/wiki/Tinker.r1782.wikitext",
+        "page": "Tinker",
+        "revision": 1782,
+        "section": "Summary"
+      },
+      "status": "covered-but-unmapped",
+      "reason": "The mechanical half (an impaired Tinker does not die) is asserted by BMR-TINKER-01; the pinned Tinker.r1782 page has no drunk, poisoned or pretend sentence, so the remaining clause has no source.",
+      "evidence": [
+        "test: src/core/engine/engine.test.ts::a drunk or poisoned Tinker does not die on their night step, as by day (BMR-TINKER-01).",
+        "wiki: docs/official/wiki/Tinker.r1782.wikitext § Summary — no impairment or pretend sentence."
+      ]
+    }
+  ]
+}

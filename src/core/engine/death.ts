@@ -9,7 +9,14 @@ import type {
 } from "../model/types.ts";
 
 // Trouble Brewing domain: death. No DOM or persistence.
-import { isBmrScript, isManualScript, isSnvScript, roleLabel, roleTeam } from "../model/rules.ts";
+import {
+  isBmrScript,
+  isManualScript,
+  isMixedEdition,
+  isSnvScript,
+  roleLabel,
+  roleTeam,
+} from "../model/rules.ts";
 import {
   livingPlayers,
   nowIso,
@@ -28,8 +35,12 @@ import { isImpaired, protectionFor, soldierSafe, mayorRedirects, bmrCannotDie } 
 import { HOST_CHOICE_REASONS } from "./host-choice.ts";
 
 import { appendConditionalSteps, demonChangePending } from "./night.ts";
-import { repeatsDemonWake } from "./command-versions.ts";
-import { minionRetainsAbility } from "./retention.ts";
+import {
+  recordsAttackSource,
+  recordsDemonAttackSource,
+  repeatsDemonWake,
+} from "./command-versions.ts";
+import { mastermindRetainsAbility, minionRetainsAbility } from "./retention.ts";
 import { becomeDemon } from "./becoming.ts";
 import { resolveDeathCapability } from "./death-ability.ts";
 import { resolveWinCapability } from "./win-ability.ts";
@@ -42,6 +53,7 @@ const DEMON_REASONS = {
   mayor: "Мэр жив, в городе ровно три игрока и казни не было.",
   "two-alive": "В живых осталось двое.",
   mastermind: "Кукловод продлил игру на один день.",
+  "mastermind-no-execution": "Кукловод продлил игру, но в дополнительный день никого не казнили.",
   vortox: "Вортокс: день закончился без казни.",
   "evil-twin": "Злой Близнец: добрый Близнец казнён.",
   klutz: "Растяпа выбрал противника, и его команда проигрывает.",
@@ -57,14 +69,24 @@ export function kill(
     bypassProtection?: boolean;
     ability?: string;
     bmr?: string | boolean;
+    /** The player whose attack caused this death; Sage r3009 names it. */
+    attackerId?: string;
   } = {},
   ports: CommandExecutionContext = systemPorts,
 ): Death | null {
   const player = playerById(state, playerId);
   if (!player || !player.alive) return null;
-  if (!isManualScript(state.script) && isBmrScript(state.script)) {
+  // A mixed script keeps the BMR protection rules for every edition's deaths:
+  // the Fool, Tea Lady, Sailor and Zombuul must still stop the kill, and the
+  // single-edition gate would skip them outside a pure BMR game.
+  const mixedScript = isMixedEdition(state.script.roles);
+  if (!isManualScript(state.script) && (isBmrScript(state.script) || mixedScript)) {
+    // Keep the real cause so the Innkeeper (any ability) and the Devil's
+    // Advocate (execution) still resolve. The Soldier is safe from the Demon
+    // only, so it reads a separate attribution rather than the cause alone.
     const prevented = bmrCannotDie(state, playerId, at, {
-      cause: cause === "demon" ? "demon" : extra.demon ? "demon" : cause,
+      cause,
+      demonAttack: cause === "demon" || extra.demon === true,
       bypassProtection: extra.bypassProtection === true,
     });
     if (prevented) {
@@ -294,11 +316,28 @@ export function resolveAttack(
 
   const victim = playerById(state, victimId) as Player;
   const wasDemon = roleTeam(victim.roleId || "") === "demon";
+  // Sage r3009 and Banshee read the attack source: a typed Demon attack must
+  // record that a Demon made it. Older journals have no such fields, so their
+  // replay stays byte-identical.
+  const attacker = playerById(state, attackerId);
+  const demonAttack = Boolean(attacker && roleTeam(attacker.roleId || "") === "demon");
   // Scarlet Woman r3117: "5 or more players alive" excludes a player other
   // abilities see as dead, such as a registered-dead Zombuul.
   const livingBefore = livingPlayers(state).filter(registersAlive).length;
   const selfKill = !redirected && victimId === attackerId;
-  const death = kill(state, victimId, selfKill ? "imp-self-kill" : "demon", at, {}, ports);
+  const death = kill(
+    state,
+    victimId,
+    selfKill ? "imp-self-kill" : "demon",
+    at,
+    recordsAttackSource(ports.rulesetVersion)
+      ? {
+          attackerId,
+          ...(recordsDemonAttackSource(ports.rulesetVersion) ? { demon: demonAttack } : {}),
+        }
+      : {},
+    ports,
+  );
 
   let inheritance = null;
   if (wasDemon && death) {
@@ -400,22 +439,28 @@ export function checkWin(
   // the winner after resolving the roles at the table.
   if (isManualScript(state.script)) return null;
   if (demonChangePending(state)) return null;
-  if (isBmrScript(state.script) && state.mastermind && state.mastermind.active) return null;
-  if (isSnvScript(state.script)) {
-    // "If the good player is executed, evil wins." Alignment decides: the good
-    // twin is the stored pair member, even after a character change. The pair is
-    // null while the Evil Twin character has no living, unimpaired holder inside
-    // the pair; the execution resolves before its own death.
-    const twins = evilTwinPair(state, {
-      executingId: state.day && state.day.execution ? state.day.execution.playerId : null,
-    });
-    if (
-      state.day &&
-      state.day.execution &&
-      twins &&
-      realTeamOf(twins.good) === "good" &&
-      state.day.execution.playerId === twins.good.id
-    ) {
+  // A mixed script carries the same shared win rules as the editions it
+  // composes: the Mastermind suspends the win, the Evil Twin and the Vortox
+  // resolve at their own timing, and the Mayor stays shared.
+  const mixed = isMixedEdition(state.script.roles);
+  if ((isBmrScript(state.script) || mixed) && state.mastermind && state.mastermind.active)
+    return null;
+  if (isSnvScript(state.script) || mixed) {
+    // "If the good player is executed, evil wins." A Cerenovus or Mutant
+    // madness execution can happen at night, outside the day's single
+    // execution; the death record carries the phase.
+    const executionDeath = [...state.deaths]
+      .reverse()
+      .find(
+        (death) =>
+          death.cause === "execution" &&
+          (death.phase === "day"
+            ? death.number === (state.day?.number ?? -1)
+            : death.number === state.night.number),
+      );
+    const executedId = executionDeath?.playerId ?? state.day?.execution?.playerId ?? null;
+    const twins = evilTwinPair(state, { executingId: executedId });
+    if (executedId && twins && realTeamOf(twins.good) === "good" && executedId === twins.good.id) {
       return setWinner(state, "evil", "evil-twin", ports);
     }
     if (endOfDay && state.day && !state.day.execution) {
@@ -429,14 +474,17 @@ export function checkWin(
       }
     }
   }
-  if (isBmrScript(state.script) && state.day && state.day.execution) {
+  if ((isBmrScript(state.script) || mixed) && state.day && state.day.execution) {
     const execution = state.day.execution;
     const death = execution.deathId
       ? state.deaths.find((candidate) => candidate.id === execution.deathId)
       : null;
     if (death && !death.fake && roleTeam(death.roleId || "") === "demon") {
-      const mastermind = livingPlayers(state).find(
-        (player) => player.roleId === "mastermind" && !isImpaired(state, player.id, dayAt(state)),
+      const mastermind = orderedPlayers(state).find(
+        (player) =>
+          player.roleId === "mastermind" &&
+          (player.alive || mastermindRetainsAbility(state, player.id)) &&
+          !isImpaired(state, player.id, dayAt(state)),
       );
       if (mastermind) {
         state.mastermind = {
@@ -480,8 +528,13 @@ export function checkWin(
 
   const demon = living.find((player) => roleTeam(player.roleId || "") === "demon");
   if (!demon) {
-    const twins = isSnvScript(state.script) ? evilTwinPair(state) : null;
-    if (twins && twins.evil.alive && twins.good.alive) return null;
+    const twins = isSnvScript(state.script) || mixed ? evilTwinPair(state) : null;
+    if (twins && twins.evil.alive && twins.good.alive) {
+      // Evil Twin r3101 removes the good win while both twins live; it does
+      // not suspend the separate two-alive evil win (Rules Explanation r1310).
+      if (living.length <= 2) return setWinner(state, "evil", "two-alive", ports);
+      return null;
+    }
     return setWinner(state, "good", "demon-dead", ports);
   }
   if (living.length <= 2) return setWinner(state, "evil", "two-alive", ports);

@@ -30,7 +30,7 @@ type BmrInfoOptions = { targetIds?: string[]; registrations?: Record<string, str
 // Bad Moon Rising scenario support. The Storyteller runs the printed
 // abilities; the engine owns the official night order, conditional wakes,
 // death/resurrection bookkeeping, and the Mastermind win condition.
-import { roleTeam, nightSequence, roleLabel } from "../model/rules.ts";
+import { BMR_ALL, isGoodRole, roleTeam, nightSequence, roleLabel } from "../model/rules.ts";
 
 import {
   effectiveRoleId,
@@ -38,9 +38,11 @@ import {
   orderedPlayers,
   playerById,
   realTeamOf,
+  registersAlive,
 } from "../model/state.ts";
 
 import { applyRoleAbility } from "./ability.ts";
+import { moduleInfoForStep } from "./information.ts";
 import { addLog, nightAt, currentAt, insertStepInto, setStepNote } from "./context.ts";
 import { lifecycleGuard } from "./lifecycle.ts";
 import { idSuffix } from "../model/ports.ts";
@@ -57,8 +59,10 @@ import {
 } from "../roles/night-step.ts";
 import { roleModule } from "../roles/registry.ts";
 import {
+  buildsFirstNightTinker,
   LEGACY_RULESET_VERSION,
   marksAnyDeathOnTinkerStep,
+  recordsStepChoice,
   resurrectsOnAnyStep,
 } from "./command-versions.ts";
 
@@ -89,14 +93,7 @@ const RESTORED_ON_RESURRECTION = [
   "moonchildTarget",
   "moonchildTargetEvil",
   "moonchildResolved",
-  "moonchildImpaired",
 ];
-
-// A step that is printed as a choice without a wake: the Gossip's victim is a
-// Storyteller consequence and the Tinker and the Moonchild do not wake at all,
-// so the Chambermaid must not count them (Chambermaid r2966: "how many woke
-// tonight due to their ability").
-const NOT_A_WAKE: Record<string, true> = { gossip: true, tinker: true, moonchild: true };
 
 // Roles whose deaths are recorded through the outcome panel; their ability must
 // work for a death to land (Goon r2977, Godfather r2394, Po r3104).
@@ -107,6 +104,8 @@ const IMPAIRABLE_DEATH: Record<string, true> = {
   shabaloth: true,
   godfather: true,
   gossip: true,
+  assassin: true,
+  moonchild: true,
 };
 
 // "Alive"/"living" appears in the printed ability of these roles.
@@ -126,13 +125,16 @@ function lunaticBluffIds(state: GameState, ports: CommandExecutionContext): stri
   const demon = state.bluffs ?? state.setup.bluffs ?? [];
   // Notes and given information are persisted and seed later random commands.
   // Old histories must retain their original empty-list result during replay.
-  return (
-    ports.rulesetVersion === LEGACY_RULESET_VERSION
-      ? (separate ?? demon)
-      : separate?.length
-        ? separate
-        : demon
-  ).map(String);
+  if (ports.rulesetVersion === LEGACY_RULESET_VERSION) return (separate ?? demon).map(String);
+  const stored = (separate?.length ? separate : demon).map(String);
+  if (stored.length) return stored;
+  // Lunatic r3112: the Lunatic always learns three good characters, including
+  // at 5–6 players where no demon bluffs are dealt. The list is stable so a
+  // replayed note is byte-identical; in-play characters are legal.
+  const inPlay = new Set(state.setup.roles);
+  const good = BMR_ALL.filter((id) => isGoodRole(id));
+  const absent = good.filter((id) => !inPlay.has(id));
+  return (absent.length >= 3 ? absent : good).slice(0, 3);
 }
 
 function bmrStepKey(
@@ -379,6 +381,17 @@ export function buildBmrNightQueue(
     }
     steps.push(step);
   });
+  // Tinker r1782: "You might die at any time." The role never wakes and has no
+  // printed slot, so the host's first-night death step is appended with the
+  // sequence length; older journals keep their old queue and step keys.
+  if (night === 1 && buildsFirstNightTinker(ports.rulesetVersion)) {
+    const declaration = nightStepFor(roleModule("tinker"), 1);
+    const actor =
+      livingPlayers(state).find((player) => effectiveRoleId(player) === "tinker") ?? null;
+    if (declaration && actor) {
+      steps.push(makeBmrStep(state, sequence.length, "tinker", actor, { ...declaration }));
+    }
+  }
   if (night === 1) {
     const demon = demonInfoStep(state, sequence.indexOf("lunatic") + 0.5);
     if (demon) insertStepInto(steps, demon);
@@ -549,12 +562,21 @@ export function completeBmrStep(
       if (goon) applyGoonTrigger(state, goon, actor, at, step, ports);
     }
     if (isImpaired(state, actor.id, at)) {
-      setStepNote(
-        step,
-        "note.abilityFailed",
-        null,
-        "Способность не сработала: игрок отравлен или пьян.",
-      );
+      if (recordsStepChoice(ports.rulesetVersion)) {
+        setStepNote(
+          step,
+          "note.bmr.courtierFailed",
+          { role: roleId },
+          "Выбран персонаж: " + roleLabel(roleId) + ". Способность не сработала.",
+        );
+      } else {
+        setStepNote(
+          step,
+          "note.abilityFailed",
+          null,
+          "Способность не сработала: игрок отравлен или пьян.",
+        );
+      }
       return;
     }
     for (const player of orderedPlayers(state)) {
@@ -568,6 +590,19 @@ export function completeBmrStep(
         expires: { phase: "night", number: at.number + 3 },
         active: true,
       });
+    }
+    // The choice is a character: name it and every player it made drunk.
+    const drunkNames = orderedPlayers(state)
+      .filter((player) => player.roleId === roleId)
+      .map((player) => player.name)
+      .join(", ");
+    if (recordsStepChoice(ports.rulesetVersion)) {
+      setStepNote(
+        step,
+        "note.bmr.courtierChoice",
+        { role: roleId, players: drunkNames || "—" },
+        "Выбран персонаж: " + roleLabel(roleId) + ". Пьяны до заката: " + (drunkNames || "—") + ".",
+      );
     }
     return;
   }
@@ -620,14 +655,11 @@ export function completeBmrStep(
   if (role === "moonchild" && actor && targets[0]) {
     const target = playerById(state, targets[0]);
     actor.used.moonchildResolved = true;
-    // The ability is used when the Moonchild learns of the death; the stored
-    // death-time flag decides. The night-time fallback keeps legacy saves.
+    // Moonchild r1783: the night resolution uses the Moonchild's state then,
+    // not the state when they chose. A legacy save may still carry
+    // `used.moonchildImpaired`; it is ignored so it cannot override this.
     const goonException = Boolean(step.goonImpaired && step.goonImpairedOnly);
-    const impairedAtDeath =
-      typeof actor.used.moonchildImpaired === "boolean"
-        ? actor.used.moonchildImpaired
-        : isImpaired(state, actor.id, at) && !goonException;
-    if (impairedAtDeath) {
+    if (isImpaired(state, actor.id, at) && !goonException) {
       setStepNote(
         step,
         "note.abilityFailed",
@@ -751,7 +783,8 @@ function applyGoonTrigger(
     // impaired again or dies later.
     permanent: true,
   });
-  if (alignment) goon.team = alignment;
+  const staysEvil = goon.used?.goonFromEvil === true && alignment === "good";
+  if (alignment && !staysEvil) goon.team = alignment;
   step.goonImpaired = true;
   step.goonId = goon.id;
   // True when the Goon's drunk is the only impairment: the Assassin still
@@ -765,9 +798,10 @@ function applyGoonTrigger(
       title: "Наёмник выбран: " + actor.name,
       detail:
         actor.name +
-        " пьян до заката. Наёмник теперь " +
-        (alignment === "evil" ? "злой" : "добрый") +
-        ".",
+        " пьян до заката. Наёмник " +
+        (staysEvil
+          ? "остаётся злым: его создала Яга из злого игрока."
+          : "теперь " + (alignment === "evil" ? "злой" : "добрый") + "."),
       playerId: goon.id,
     },
     ports,
@@ -830,33 +864,15 @@ export function bmrInfoForStep(
   const impaired = Boolean(
     actor && (isImpaired(state, actor.id, at) || bmrGoonWouldTrigger(state, step, targetIds)),
   );
-  if (role === "chambermaid") {
-    // Only characters who woke due to their ability count: the Gossip's victim
-    // is a Storyteller consequence and the Tinker and the Moonchild do not wake.
-    const count = targetIds.filter((id) => {
-      const woke = state.night.queue.filter(
-        (candidate) =>
-          candidate.kind === "role" &&
-          candidate.actorId === id &&
-          candidate.bmr &&
-          !candidate.skipped &&
-          !candidate.blocked &&
-          (candidate.done || candidate.key === step.key),
-      );
-      return woke.some(
-        (candidate) =>
-          !NOT_A_WAKE[String(candidate.roleId)] &&
-          candidate.noteKey !== "note.bmr.grandmotherDeath",
-      );
-    }).length;
-    return {
-      kind: "number",
-      value: count,
-      impaired,
-      needsChoice: impaired,
-      options: impaired ? [0, 1, 2] : [],
-    };
-  }
+  const owned = moduleInfoForStep(
+    state,
+    role ? roleModule(role) : null,
+    step,
+    options,
+    ports,
+    impaired,
+  );
+  if (owned) return owned;
   if (role === "grandmother") {
     const target = targetIds[0] ? playerById(state, targetIds[0]) : null;
     return {
@@ -1018,6 +1034,26 @@ export function recordBmrOutcome(
       error: "Способность не сработала: игрок отравлен или пьян.",
     };
   }
+  // The Moonchild's outcome path must spare an evil target just as the step
+  // completion does: r1783 kills only when the chosen player is good.
+  if (step.roleId === "moonchild" && deathIds.length) {
+    const chosenEvil = actor?.used.moonchildTargetEvil;
+    const illegal = deathIds.some((id) => {
+      const target = playerById(state, id);
+      const wasGood =
+        typeof chosenEvil === "boolean"
+          ? !chosenEvil
+          : target?.team === "good" || target?.team == null;
+      return !target || !wasGood;
+    });
+    if (illegal) {
+      return {
+        ok: false,
+        errorCode: "error.51",
+        error: "Лунный ребёнок убивает только добрую цель.",
+      };
+    }
+  }
   // The Tinker chooses no one: the host decides whether the Tinker dies.
   const tinkerStep = step.roleId === "tinker";
   // A death must be one of the step's chosen targets and must not exceed the
@@ -1108,19 +1144,16 @@ export function recordBmrOutcome(
     }
     if (step.roleId === "shabaloth") {
       // "A dead player you chose last night": only the immediately preceding
-      // night's chosen targets. The completion already moved this night's
-      // choice into the current record, so prefer the previous one.
+      // night's chosen targets. A blocked night records no choices, so the
+      // previous slot can be older than the current slot; read whichever
+      // record belongs to the immediately preceding night.
       const used = (actor && actor.used) || {};
-      const hasPrevious = used.shabalothPreviousNight != null;
-      const previousNight = Number(
-        hasPrevious ? used.shabalothPreviousNight : used.shabalothTargetsNight,
-      );
-      const stored =
-        hasPrevious && Array.isArray(used.shabalothPreviousTargets)
-          ? used.shabalothPreviousTargets
-          : used.shabalothTargets;
-      const previous = Array.isArray(stored) ? stored.map(String) : [];
-      if (previousNight !== nightAt(state).number - 1 || !previous.includes(String(resurrectId))) {
+      const wantedNight = nightAt(state).number - 1;
+      const previous = [
+        Number(used.shabalothPreviousNight) === wantedNight ? used.shabalothPreviousTargets : null,
+        Number(used.shabalothTargetsNight) === wantedNight ? used.shabalothTargets : null,
+      ].flatMap((targets) => (Array.isArray(targets) ? targets.map(String) : []));
+      if (!previous.includes(String(resurrectId))) {
         return {
           ok: false,
           errorCode: "error.51",
@@ -1197,7 +1230,7 @@ export function bmrTargetError(
   const ids = targets.map(String);
   const role = step.roleId || "";
   if (ids.some((id) => !playerById(state, id))) return "Цель не найдена.";
-  const deadId = ids.find((id) => !playerById(state, id)!.alive);
+  const deadId = ids.find((id) => !registersAlive(playerById(state, id)!));
   if (deadId && ALIVE_TARGET_ROLES[role]) return "Цель должна быть жива.";
   if (role === "chambermaid") {
     if (ids.length === 2 && ids[0] === ids[1]) return "Нужны два разных игрока.";
