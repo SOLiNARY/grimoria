@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
-import type { Page, PageDialog, Playwright } from "./playwright.ts";
+import type { Page, PageDialog, PageResponse, Playwright } from "./playwright.ts";
 import type { AddressInfo } from "node:net";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createDistServer } from "./serve-dist.ts";
@@ -5808,18 +5808,30 @@ async function storefrontWelcomeAt390() {
     await page.waitForFunction(() => document.body.dataset.route === "home");
     await settled();
   };
+  // Page responses include service-worker cache hits and are independent of the fixture clock.
+  const scriptPathsDuring = async (navigate: () => Promise<void>) => {
+    const paths: string[] = [];
+    const record = (response: PageResponse) => {
+      const path = new URL(response.url()).pathname;
+      if (path.endsWith(".js")) paths.push(path);
+    };
+    page.on("response", record);
+    try {
+      await navigate();
+      return paths;
+    } finally {
+      page.off("response", record);
+    }
+  };
   await page.setViewportSize({ width: 390, height: 844 });
   await home();
   await page.waitForSelector("main h1");
   assert.equal(await page.evaluate(() => document.body.dataset.route), "home");
   await chooseLanguage("en");
-  await page.reload();
-  await page.waitForSelector("main h1");
-  const resourcePaths = () =>
-    page.evaluate(() =>
-      performance.getEntriesByType("resource").map((entry) => new URL(entry.name).pathname),
-    );
-  const homeResources = await resourcePaths();
+  const homeResources = await scriptPathsDuring(async () => {
+    await page.reload();
+    await page.waitForSelector('body[data-route="home"] [data-act="home-start"]');
+  });
   assert.deepEqual(
     homeResources.filter((path) => /\/assets\/data\/[^/]+\.js$/.test(path)),
     ["/pocket/assets/data/en_GB.js"],
@@ -5854,10 +5866,14 @@ async function storefrontWelcomeAt390() {
   await home();
 
   // The primary action is the setup entry, not the table.
-  await page.locator('main [data-act="home-start"]').first().click();
-  await page.waitForFunction(() => document.body.dataset.route === "bag");
+  const bagResources = await scriptPathsDuring(async () => {
+    await page.locator('main [data-act="home-start"]').first().click();
+    await page.waitForSelector('body[data-route="bag"] .setup');
+  });
   assert.ok(
-    (await resourcePaths()).some((url) => url.endsWith(".js") && !homeResources.includes(url)),
+    bagResources.some(
+      (path) => /\/assets\/bag-[^/]+\.js$/.test(path) && !homeResources.includes(path),
+    ),
     "opening the bag requests its deferred screen code",
   );
   assert.match(await page.evaluate(() => location.pathname), /\/bag$/);
@@ -5871,7 +5887,7 @@ async function storefrontWelcomeAt390() {
   assert.equal(await resume.count(), 1, "a live game offers the continuation");
   assert.match((await resume.textContent()) ?? "", /continue/i);
   await resume.click();
-  await page.waitForFunction(() => document.body.dataset.route === "table");
+  await page.waitForSelector('body[data-route="table"] .host');
   await overflow();
   await page.screenshot({ path: join(screenshots, "storefront-continue-390.png") });
 }

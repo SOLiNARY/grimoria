@@ -16,6 +16,7 @@ All notable changes to Grimoria are recorded here. The format follows
 ### Fixed
 
 - Exercise an actual unsaved seat swap in the browser regression. Wait for the seat and secrets screens to render before full-game scenarios check player privacy, translations and reminders.
+- Exercise the phone layout and responsive language menu after they render, and verify the storefront’s initial and deferred downloads on a cold visit.
 
 ## [0.12.6] - 2026-11-27
 
