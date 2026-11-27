@@ -597,9 +597,9 @@ export function guideForStep(
 
 export function timerText(end: number | null, now: number): string {
   if (!end) return "—";
-  const left = Math.max(0, end - now);
-  const minutes = Math.floor(left / 60000);
-  const seconds = Math.floor((left % 60000) / 1000);
+  const left = Math.ceil(Math.max(0, end - now) / 1000);
+  const minutes = Math.floor(left / 60);
+  const seconds = left % 60;
   return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
 }
 

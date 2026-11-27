@@ -41,16 +41,10 @@ export function TableScreen() {
       : null;
   });
   const drafts = useTableDrafts(guidedPreference, restoredDraft);
-  const [now, setNow] = useState(() => Date.now());
   const [rejection, setRejection] = useState<Rejection | null>(null);
   const [dismissedDawn, setDismissedDawn] = useState<Set<string>>(() => new Set());
   const returnFocus = useRef<HTMLElement | null>(null);
   const hadOverlay = useRef(false);
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   // An import, a fresh game, a new day or a phase change must not reuse the
   // previous execution target or its survival flag. The key moves with the
@@ -270,7 +264,6 @@ export function TableScreen() {
     copy: () => {
       navigator.clipboard.writeText(drafts.exportText).catch(() => {});
     },
-    now,
   };
 
   const view: TableView = { state, viewVersion: snapshot.viewVersion, ports, drafts, actions };

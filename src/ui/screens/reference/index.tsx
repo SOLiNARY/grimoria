@@ -65,24 +65,27 @@ export function ReferenceScreen({ roleId }: ReferenceScreenProps) {
   const ports = useShellPorts();
   const [lang, setLang] = useState(() => ports.locale.current());
   const [dataset, setDataset] = useState<ReferenceDataset | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const t = ports.strings.t;
 
   useEffect(() => {
     if (!roleId) return;
     let alive = true;
     setDataset(null);
+    setFailed(false);
     const file = lang === "ru" ? "reference.ru.json" : "reference.json";
     loadReference(ports.assets.url("assets/data/" + file))
       .then((next) => {
         if (alive) setDataset(next);
       })
       .catch(() => {
-        /* the page still shows the engine facts when the text is unavailable */
+        if (alive) setFailed(true);
       });
     return () => {
       alive = false;
     };
-  }, [ports, roleId, lang]);
+  }, [ports, roleId, lang, attempt]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -116,6 +119,18 @@ export function ReferenceScreen({ roleId }: ReferenceScreenProps) {
       <div className="mx-auto w-full max-w-[792px] px-3 py-3 max-[480px]:px-2 max-[480px]:py-2">
         <article className={`${CARD} max-[480px]:rounded-[12px]`}>
           <RoleHeader role={role} entry={entry} lang={lang} onLang={choose} />
+          {failed && (
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-sm" role="status">
+              {t("referenceLoadFailed")}
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setAttempt((value) => value + 1)}
+              >
+                {t("retry")}
+              </button>
+            </div>
+          )}
           <Section title={t("referenceAbility")}>
             <p className="m-0 text-[16px] leading-[26px]">{role.ability}</p>
             {role.firstNight == null && role.otherNight != null && (
