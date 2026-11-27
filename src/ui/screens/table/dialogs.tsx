@@ -30,6 +30,7 @@ import { DayActionsPanel, DayCard, NightCard, SlayerPanel } from "./cards.tsx";
 import { DayPanel, QueuePanel, SidePanel } from "./frame.tsx";
 import { stepContext } from "./step-context.ts";
 import { writeStepDraft } from "./step-draft.ts";
+import { correctionContext } from "./handoff.ts";
 import { copyBackup } from "./copy-backup.ts";
 import { seatBadges, SEAT_BADGE_KEY } from "./ring.ts";
 import type { TableView } from "./view.ts";
@@ -39,6 +40,16 @@ const HIDDEN_TRIGGER = <button className="hidden" type="button" tabIndex={-1} ar
 
 export function Overlays({ view }: { view: TableView }) {
   switch (view.drafts.overlay) {
+    case "covered":
+      return (
+        <PlayerCardShell
+          label={view.ports.strings.t("playerBack")}
+          closeLabel={view.ports.strings.t("table")}
+          onClose={view.actions.closeOverlay}
+        >
+          <p data-handoff-covered>{view.ports.strings.t("playerBack")}</p>
+        </PlayerCardShell>
+      );
     case "info":
       return <PlayerInfoCard view={view} />;
     case "player":
@@ -543,7 +554,7 @@ function PlayerSheet({ view }: { view: TableView }) {
             className="btn"
             type="button"
             data-act="player-card"
-            onClick={() => drafts.setOverlay("player")}
+            onClick={() => actions.openPlayerCard(player.id)}
           >
             {t("showCard")}
           </button>
@@ -923,15 +934,17 @@ function CorrectionDialog({ view }: { view: TableView }) {
   const { state, drafts, ports, actions } = view;
   const t = ports.strings.t;
   const players = orderedPlayers(state);
-  const current = drafts.correction || {
-    playerId: players[0] ? players[0].id : "",
-    kind: "alive",
-    value: "dead",
-    reason: "",
+  const current = drafts.correction;
+  if (!current) return null;
+  const stillCurrent = () => {
+    if (current.context === correctionContext(ports.game.getSnapshot().state)) return true;
+    actions.closeOverlay();
+    return false;
   };
   const selected = playerById(state, current.playerId);
   const update = (patch: Partial<typeof current>) => drafts.setCorrection({ ...current, ...patch });
   const apply = () => {
+    if (!stillCurrent()) return;
     if (!current.reason.trim()) {
       window.alert(t("correctionReason"));
       return;
@@ -1164,7 +1177,7 @@ function CorrectionDialog({ view }: { view: TableView }) {
         data-act="recover-claim"
         onClick={() => {
           const reason = window.prompt(t("correctionReason"));
-          if (!reason) return;
+          if (!reason || !stillCurrent()) return;
           const id = current.playerId;
           actions.closeOverlay();
           actions.run({ type: "recoverClaim", payload: { playerId: id, reason } });

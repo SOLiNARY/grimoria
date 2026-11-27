@@ -1021,6 +1021,9 @@ export default {
   "bag.libraryCapacity":
     "The limit is 200 bags and 200 pools. Remove an entry from the full list and try again.",
   "bag.importFail": "Import failed.",
+  "bag.libraryDamaged": "The saved library is damaged. Import a library backup to restore it.",
+  "bag.libraryBackupFailed":
+    "Could not preserve the damaged library. Free some browser storage and try importing again.",
   "bag.importCapacity":
     "The file exceeds the limit of 200 bags or 200 pools. Remove extra entries from the file and import it again.",
   "bag.applied": "In the bag",

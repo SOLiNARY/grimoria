@@ -117,6 +117,7 @@ async function gameEndChronicle() {
 
 const focusedName = process.env.PG_BROWSER_CHECK;
 const focusedChecks: Record<string, () => Promise<void>> = {
+  "reference-reading": referenceReading,
   "first-bag-race": firstBagRace,
   "bag-edit-races": bagEditRaces,
   "saved-custom-bag": savedCustomBagRestoresPool,
@@ -160,6 +161,7 @@ const focusedChecks: Record<string, () => Promise<void>> = {
   "step-action": stepActionOpensReadyStep,
   "mandatory-skip": mandatoryStepHasNoSkip,
   "execute-stale": executionConfirmRejectsStaleSelection,
+  "table-handoff-replacement": tableHandoffReplacement,
   "storefront-welcome": storefrontWelcomeAt390,
   "heir-reload": heirChoiceSurvivesReload,
   "vortox-label": vortoxFalseInformationLabel,
@@ -314,6 +316,78 @@ async function route(path: string) {
   await page.waitForFunction((path) => document.body.dataset.route === path.slice(1), path);
   await settled();
 }
+
+async function referenceReading() {
+  const reader = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    await reader.addInitScript(() => {
+      localStorage.setItem("pg.lang", "en");
+      const fetch = window.fetch.bind(window);
+      const failedRequest = new Promise<Response>((resolve) => {
+        window.addEventListener(
+          "reference-test-offline",
+          () => resolve(new Response(null, { status: 503 })),
+          { once: true },
+        );
+      });
+      window.fetch = (input, options) => {
+        if (String(input).endsWith("/assets/data/reference.json")) {
+          window.fetch = fetch;
+          return failedRequest;
+        }
+        return fetch(input, options);
+      };
+    });
+    const tab = await reader.newPage();
+    await tab.goto(new URL("reference/pithag", url).href);
+    await tab.getByRole("heading", { name: "Ability" }).waitFor();
+    const status = tab.locator("article [role=status]");
+    assert.match(await status.innerText(), /Loading/);
+    assert.doesNotMatch(await tab.locator("article").innerText(), /no separate interactions/i);
+    await tab.evaluate(() => window.dispatchEvent(new Event("reference-test-offline")));
+    await tab.getByRole("button", { name: "Retry" }).waitFor();
+    assert.match(await status.innerText(), /could not be loaded/);
+    assert.doesNotMatch(await tab.locator("article").innerText(), /no separate interactions/i);
+    await tab.getByRole("button", { name: "Retry" }).click();
+    await tab.getByRole("link", { name: "Goon" }).waitFor();
+    const readingUrl = new URL("reference/pithag?from=sheet#ability", url).href;
+    await tab.evaluate((href) => {
+      history.replaceState(history.state, "", href);
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    }, readingUrl);
+    await settled(tab);
+    assert.equal(tab.url(), readingUrl);
+    await tab.getByRole("link", { name: "Goon" }).waitFor();
+    await tab.getByRole("link", { name: /All characters/ }).click();
+    const search = tab.getByRole("searchbox");
+    await search.fill("Chef");
+    const chef = tab.locator("a[href$='/reference/chef']");
+    await chef.click();
+    await tab.getByRole("heading", { name: "Chef" }).waitFor();
+    await tab.evaluate(() => history.back());
+    await search.waitFor();
+    assert.equal(await search.inputValue(), "Chef");
+    await chef.click();
+    await tab.getByRole("link", { name: /All characters/ }).click();
+    await search.waitFor();
+    assert.equal(await search.inputValue(), "Chef");
+
+    for (const path of ["sheets", "sheet/en/nope", "reference/chef/extra"]) {
+      await tab.goto(new URL(path, url).href);
+      await tab.waitForSelector("body[data-route=table]");
+    }
+    await tab.goto(new URL("table", url).href);
+    await tab.waitForSelector("body[data-route=table]");
+    await tab.evaluate(() =>
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
+    );
+    await tab.waitForSelector("body[data-route=player]");
+    assert.equal(tab.url(), new URL("player", url).href);
+  } finally {
+    await reader.close();
+  }
+}
+
 async function sheetRoute(path: string) {
   await page.evaluate((href) => {
     history.pushState(null, "", href);
@@ -560,6 +634,69 @@ async function advanceFixtureStep(target: Page = page) {
     store.replaceState(next);
   });
   await settled(target);
+}
+
+async function tableHandoffReplacement() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seed(7);
+  await route("/table");
+  const openPlayer = async () => {
+    await page.locator('[data-act="roster"]').click();
+    await page.locator('[data-roster-player="1"] [data-act="role-card"]').click();
+  };
+  const returnCoveredDevice = async () => {
+    await page.locator("[data-handoff-covered]").waitFor();
+    assert.equal(await page.locator("[data-player-card-role]").count(), 0);
+    assert.equal(await page.locator('[data-act="hide-grimoire"]').count(), 0);
+    assert.equal(await page.locator("[data-console]").isVisible(), false);
+    await page.locator('[data-act="hide-card"]').click();
+    await page.locator("[data-console]").waitFor();
+  };
+  await openPlayer();
+  await page.locator('[data-act="player-card"]').click();
+  const role = await page.locator("[data-player-card-role]").innerText();
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const result = store.dispatch({ type: "setNotes", payload: { notes: "host note" } });
+    if (result.status !== "allowed") throw new Error(JSON.stringify(result));
+  });
+  assert.equal(await page.locator("[data-player-card-role]").innerText(), role);
+  await seed(15);
+  await returnCoveredDevice();
+
+  await openPlayer();
+  await page.locator('[data-act="player-correct"]').click();
+  await page.locator('[data-correct="reason"]').fill("old correction");
+  await seed(7);
+  assert.equal(await page.locator('[data-act="apply-correction"]').count(), 0);
+  assert.equal(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["1"].alive),
+    true,
+  );
+
+  // Advance fixture wakes without changing the route behind the open card.
+  await seed(15);
+  for (const roleId of ["chef", "spy"]) {
+    await page.evaluate(async (roleId) => {
+      const { engine, store } = await window.PG_MODULES();
+      const next = structuredClone(store.state);
+      const target = next.night.queue.find((step) => step.roleId === roleId);
+      if (!target) throw new Error("Missing fixture wake " + roleId);
+      // Present either fixture independently of the edition's wake order.
+      for (const step of next.night.queue) {
+        step.done = step !== target;
+        step.skipped = false;
+      }
+      if (engine.currentStep(next)?.key !== target.key) throw new Error("Wrong fixture wake");
+      store.replaceState(next);
+    }, roleId);
+    await page.locator('[data-act="complete"]').click();
+    await page
+      .locator(roleId === "chef" ? '[data-act="show-info"]' : '[data-act="show-grimoire"]')
+      .click();
+    await advanceFixtureStep();
+    await returnCoveredDevice();
+  }
 }
 
 // A confirmation opened for one player must not execute that player when the
@@ -1626,7 +1763,67 @@ async function savedCustomBagRestoresPool() {
     bags.map((bag) => bag.id),
     "rejecting the 201st bag preserves every saved ID after reload",
   );
-  await page.evaluate((backup) => localStorage.setItem("pg.library.v1", backup), previousLibrary);
+  const damaged = '{"bags":';
+  await page.evaluate((raw) => localStorage.setItem("pg.library.v1", raw), damaged);
+  await page.reload();
+  await page.locator('[data-act="library"]').click();
+  const backupFile = {
+    name: "last-good-library.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        format: "pocket-grimoire-library",
+        version: 1,
+        ...JSON.parse(previousLibrary),
+      }),
+    ),
+  };
+  await page.locator("[data-library-file]").setInputFiles(backupFile);
+  await page.locator(`[data-load-bag="${savedBagId}"]`).waitFor({ state: "attached" });
+  assert.equal(
+    await page.evaluate(
+      (raw) =>
+        Object.keys(localStorage).some(
+          (key) => key.startsWith("pg.library.v1.broken.") && localStorage.getItem(key) === raw,
+        ),
+      damaged,
+    ),
+    true,
+    "a confirmed import keeps the damaged original",
+  );
+  const changed = '{"pools":';
+  await page.evaluate((raw) => localStorage.setItem("pg.library.v1", raw), changed);
+  await page.locator("[data-library-file]").setInputFiles(backupFile);
+  await page.locator('[aria-labelledby="library-title"] [role="alert"]').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem("pg.library.v1")), changed);
+  await page.locator("[data-library-file]").setInputFiles(backupFile);
+  await page.locator(`[data-load-bag="${savedBagId}"]`).waitFor({ state: "attached" });
+  const restoredBytes = await page.evaluate(() => localStorage.getItem("pg.library.v1"));
+  await page.evaluate(() => {
+    const read = File.prototype.text;
+    File.prototype.text = async function () {
+      File.prototype.text = read;
+      const text = await read.call(this);
+      return new Promise<string>((resolve) => {
+        document.body.dataset.pendingLibrary = "yes";
+        window.addEventListener("release-library-file", () => resolve(text), { once: true });
+      });
+    };
+  });
+  await page.locator("[data-library-file]").setInputFiles({
+    ...backupFile,
+    buffer: Buffer.from(JSON.stringify({ format: "pocket-grimoire-library", version: 1, bags })),
+  });
+  await page.waitForSelector("body[data-pending-library]");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[aria-labelledby="library-title"]', { state: "detached" });
+  await page.evaluate(() => window.dispatchEvent(new Event("release-library-file")));
+  await settled();
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem("pg.library.v1")),
+    restoredBytes,
+    "closing the library discards an unfinished import",
+  );
   await page.reload();
 }
 
@@ -10373,6 +10570,7 @@ async function fullChecks() {
 
   phase("phone acceptance");
 
+  await timed("reference-reading", referenceReading);
   await timed("saved-custom-bag", savedCustomBagRestoresPool);
   await timed("mixed-script", mixedScriptDiagnostics);
   await timed("no-beta-labels", officialScriptsAreNotBeta);
@@ -10381,6 +10579,7 @@ async function fullChecks() {
   await timed("madness-execution", madnessExecutionFromTable);
   await timed("player-voting", playerBubbleVoting);
   await timed("player-card", playerCardHasNoCountdown);
+  await timed("table-handoff-replacement", tableHandoffReplacement);
   await timed("seat-lock", seatOrderIsFixedAfterStart);
   await timed("drunk-slayer", drunkSlayerFromTable);
   await timed("queue-panel", queuePanelReachable);

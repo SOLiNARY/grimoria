@@ -2,6 +2,7 @@
 import { type FunctionComponent, lazy, useEffect } from "react";
 import { LegacyBridge } from "./legacy-bridge.tsx";
 import { type ShellPorts, useShellPorts } from "./ports.ts";
+import { parseReferenceRoute } from "./reference-route.ts";
 import { parseSheetRoute } from "./sheet-route.ts";
 import { useRoute } from "./router.ts";
 import type { RouteStore } from "./router.ts";
@@ -66,20 +67,8 @@ function resolveKey(path: string, ports: ShellPorts): string {
   if (path === "/bag") return "/bag";
   if (path === "/changelog") return "/changelog";
   if (path === "/prototypes") return "/prototypes";
-  if (path === "/reference" || path.startsWith("/reference/")) return "/reference";
   if (Object.hasOwn(ports.legacy.screens, path)) return path;
-  if (path.startsWith("/sheet")) return "/sheet";
   return "/table";
-}
-
-function referenceRoleId(path: string): string | null {
-  const raw = /^\/reference\/([^/]+)\/?$/.exec(path)?.[1];
-  if (!raw) return null;
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
 }
 
 export interface ShellProps {
@@ -89,21 +78,18 @@ export interface ShellProps {
 
 export function Shell({ ports, route }: ShellProps) {
   const snapshot = useRoute(route);
-  const key = resolveKey(snapshot.path, ports);
+  const sheet = parseSheetRoute(snapshot.path);
+  const reference = parseReferenceRoute(snapshot.path);
+  const key = sheet ? "/sheet" : reference ? "/reference" : resolveKey(snapshot.path, ports);
 
   // The browser harness and the legacy screens read the route from here.
   useEffect(() => {
     document.body.dataset.route = key === "/" ? "home" : key.slice(1);
   }, [key, snapshot.version]);
 
-  if (key === "/sheet") {
-    const sheet = parseSheetRoute(snapshot.path);
+  if (sheet) {
     return (
-      <SheetScreen
-        key={key}
-        lang={sheet?.lang ?? ports.locale.current()}
-        edition={sheet?.edition ?? null}
-      />
+      <SheetScreen key={key} lang={sheet.lang ?? ports.locale.current()} edition={sheet.edition} />
     );
   }
   if (key === "/") return <HomeScreen key={key} />;
@@ -113,8 +99,7 @@ export function Shell({ ports, route }: ShellProps) {
   if (key === "/bag") return <BagScreen key={key} />;
   if (key === "/changelog") return <ChangelogScreen key={key} />;
   if (key === "/prototypes") return <PrototypesScreen key={key} />;
-  if (key === "/reference")
-    return <ReferenceScreen key={key + snapshot.path} roleId={referenceRoleId(snapshot.path)} />;
+  if (reference) return <ReferenceScreen key={key} roleId={reference.roleId} />;
   if (key === "/table") return <TableScreen key={key} />;
   const screen = ports.legacy.screens[key];
   if (!screen) return null;
