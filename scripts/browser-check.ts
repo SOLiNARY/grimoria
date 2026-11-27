@@ -494,15 +494,15 @@ async function sheetLegibility(widths: number[], expected = 77) {
   }
 }
 async function chooseLanguage(lang: string) {
-  // The bar keeps its list in the burger below 1440 px, so the control is
-  // inside the closed panel until the toggle opens it.
-  const mobile = ((await page.viewportSize())?.width ?? 0) < 1440;
-  if (mobile) {
-    await page.locator("[data-app-bar-toggle]").click();
+  const toggle = page.locator("[data-app-bar-toggle]");
+  const usesMenu = await toggle.isVisible();
+  if (usesMenu && (await toggle.getAttribute("aria-expanded")) !== "true") {
+    await toggle.click();
     await page.locator("[data-app-bar-menu]").waitFor({ state: "visible" });
   }
   await page.locator(`.lang-switch [data-lang="${lang}"]`).click();
-  if (mobile) await page.keyboard.press("Escape");
+  await page.waitForSelector(`html[lang="${lang}"]`);
+  if (usesMenu && (await toggle.getAttribute("aria-expanded")) === "true") await toggle.click();
   await settled();
 }
 // The host tools live in the table menu; open it only when it is closed.
@@ -1037,22 +1037,19 @@ async function seatOrderIsFixedAfterStart() {
   const status = page.locator(".seat-status");
   const previousLang = await page.locator("html").getAttribute("lang");
   try {
-    await page.getByRole("button", { name: "RU", exact: true }).click();
-    await page.waitForSelector('html[lang="ru"]');
+    await chooseLanguage("ru");
     await seats.first().click();
     assert.match(await status.innerText(), /Выбрано место 1/);
     assert.match((await seats.first().getAttribute("aria-label")) ?? "", /Место 1/);
-    await page.getByRole("button", { name: "AZ", exact: true }).click();
-    await page.waitForSelector('html[lang="az"]');
+    await chooseLanguage("az");
     assert.match(await status.innerText(), /Yer 1 seçildi/);
     await seats.nth(1).click();
     assert.match(await status.innerText(), /Yer 1 ilə yer 2|Yer 2 indi/);
     await page.locator('[data-act="undo"]').click();
     assert.match(await status.innerText(), /geri alındı/);
   } finally {
-    if (previousLang) {
-      await page.getByRole("button", { name: previousLang.toUpperCase(), exact: true }).click();
-      await page.waitForSelector(`html[lang="${previousLang}"]`);
+    if (previousLang && (await page.locator("html").getAttribute("lang")) !== previousLang) {
+      await chooseLanguage(previousLang);
     }
     await page.setViewportSize({ width: 390, height: 844 });
   }
