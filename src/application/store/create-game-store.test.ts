@@ -1062,6 +1062,42 @@ test("a legacy save migrates once, validates and a second load is unchanged", ()
   }
 });
 
+test("an invalid legacy save is backed up and the fresh game can be saved", () => {
+  for (const raw of ["{", JSON.stringify({ v: 3, players: null })]) {
+    const storage = memoryStorage(null, { "pg.game.v3": raw });
+    const { game } = store(storage);
+    assert.equal(game.loadStatus.ok, false);
+    assert.equal(storage.backupText, raw);
+    assert.equal(storage.readRaw(), null);
+
+    const result = game.dispatch(command(game, { type: "newGame", payload: { count: 6 } }));
+    assert.equal(result.status, "allowed");
+    assert.equal(storage.values.get("pg.game.v3"), raw);
+    assert.equal(store(storage).game.state.order.length, 6);
+  }
+});
+
+test("a failed legacy migration write reports the error and can be retried", () => {
+  const raw = JSON.stringify({ ...createGame(7), v: 3, notes: "legacy notes" });
+  const storage = memoryStorage(null, { "pg.game.v3": raw });
+  storage.fail = true;
+  const { game } = store(storage);
+
+  assert.equal(game.state.notes, "legacy notes");
+  assert.equal(storage.readRaw(), null);
+  assert.equal(game.getSnapshot().save.status, "failed");
+  assert.equal(game.loadStatus.ok, false);
+  assert.match(game.state.storageError ?? "", /quota exceeded/);
+  assert.equal(game.hasLocalChanges(), true);
+
+  storage.fail = false;
+  assert.equal(game.persist().ok, true);
+  assert.equal(game.getSnapshot().save.status, "saved");
+  assert.equal(game.state.storageError, null);
+  assert.equal(storage.values.get("pg.game.v3"), raw);
+  assert.equal(store(storage).game.state.notes, "legacy notes");
+});
+
 test("an unknown schema version is rejected instead of migrated", () => {
   for (const version of [1, 5]) {
     const decoded = importSavedGame({ ...createGame(7), v: version });

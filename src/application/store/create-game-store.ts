@@ -145,6 +145,8 @@ export function createGameStore(ports: StorePorts): GameStore {
   }
 
   function load(): { state: ValidatedState; disk: string | null; revision: number } {
+    Object.assign(loadStatus, { ok: true, error: null, backupKey: null, migrated: false });
+    save = { status: "saved" };
     let raw: string | null = null;
     let readError = false;
     try {
@@ -155,31 +157,35 @@ export function createGameStore(ports: StorePorts): GameStore {
     if (!raw) {
       const fallback = readFallback();
       if (fallback) {
-        Object.assign(loadStatus, { migrated: true });
         let fallbackValue: unknown;
         try {
           fallbackValue = JSON.parse(fallback.value);
         } catch (error) {
-          return fresh("Could not parse the legacy save: " + messageOf(error), fallback.value);
+          return fresh("Could not parse the legacy save: " + messageOf(error), raw, fallback.value);
         }
         const outcome = parseSaved(fallbackValue);
         if (outcome.ok) {
+          loadStatus.migrated = true;
           const text = serialize(outcome.state);
           try {
             storage.write(text);
-          } catch {
-            /* keep in memory */
+            raw = text;
+          } catch (error) {
+            recordSaveFailure(
+              outcome.state,
+              "Could not save the migrated game: " + messageOf(error),
+            );
           }
           return {
             state: outcome.state,
-            disk: text,
+            disk: raw,
             revision: Number(outcome.state.revision) || 0,
           };
         }
-        return fresh(outcomeMessage(outcome), fallback.value);
+        return fresh(outcomeMessage(outcome), raw, fallback.value);
       }
     }
-    if (!raw) return fresh(readError ? "Could not read the saved game." : null, null);
+    if (!raw) return fresh(readError ? "Could not read the saved game." : null, raw);
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -217,7 +223,7 @@ export function createGameStore(ports: StorePorts): GameStore {
     return outcome.errors.map((error) => error.message).join(" ");
   }
 
-  function fresh(error: string | null, corruptRaw: string | null) {
+  function fresh(error: string | null, disk: string | null, corruptRaw = disk) {
     const created = validatedFromUnknown(createGame(8), validateState);
     if (!created.ok) throw new Error("A fresh game failed validation: " + outcomeMessage(created));
     let message = error;
@@ -232,12 +238,11 @@ export function createGameStore(ports: StorePorts): GameStore {
     }
     if (message) {
       Object.assign(loadStatus, { ok: false, error: message, backupKey });
-      save = { status: "saved" };
       created.state.storageError = message;
     }
     return {
       state: created.state,
-      disk: corruptRaw,
+      disk,
       revision: Number(created.state.revision) || 0,
     };
   }
@@ -280,16 +285,20 @@ export function createGameStore(ports: StorePorts): GameStore {
     return { ok: false, error: failure };
   }
 
-  function markFailed(message: string): void {
-    state.storageError = message;
+  function recordSaveFailure(target: GameState, message: string): void {
+    target.storageError = message;
     Object.assign(loadStatus, { ok: false, error: message });
-    const same = save.status === "failed" && save.error === message;
     save = {
       status: "failed",
       errorCode: "persist-failed",
       error: message,
       at: clock.now().toISOString(),
     };
+  }
+
+  function markFailed(message: string): void {
+    const same = save.status === "failed" && save.error === message;
+    recordSaveFailure(state, message);
     if (!same) publish();
   }
 
@@ -345,7 +354,6 @@ export function createGameStore(ports: StorePorts): GameStore {
     undoFloor = state.journal?.entries?.length || 0;
     legacyUndo = null;
     redoStack.length = 0;
-    save = { status: "saved" };
     publish();
   }
 

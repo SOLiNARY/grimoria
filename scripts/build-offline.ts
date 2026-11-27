@@ -1,8 +1,11 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, relative, resolve } from "node:path";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { LOCALE_FILES } from "../src/infrastructure/catalog/locale-files.ts";
+import { imageName } from "../src/infrastructure/catalog/role-image.ts";
+import type { Role } from "../src/core/model/types.ts";
 
 // Only the catalogs the app can request are worth downloading on every install.
 // The artifact keeps the rest, which stay fetchable, but they are neither cached
@@ -11,11 +14,6 @@ const CATALOG_PREFIX = "assets/data/";
 const REACHABLE_CATALOGS = new Set(
   Object.values(LOCALE_FILES).map((name) => `${CATALOG_PREFIX}${name}.js`),
 );
-
-function reachable(path: string): boolean {
-  if (!path.startsWith(CATALOG_PREFIX) || !path.endsWith(".js")) return true;
-  return REACHABLE_CATALOGS.has(path);
-}
 
 // The worker hashes the built artifact, never the source tree. Both arguments
 // are required so a caller cannot silently precache the wrong root.
@@ -34,16 +32,50 @@ function argument(name: string): string | null {
   return index === -1 ? null : (process.argv[index + 1] ?? null);
 }
 
-const paths = ["./"];
+const files: string[] = [];
 async function collect(folder: string) {
   for (const entry of await readdir(join(rootDir, folder), { withFileTypes: true })) {
     const path = folder ? `${folder}/${entry.name}` : entry.name;
     if (entry.isDirectory()) await collect(path);
-    else if (resolve(rootDir, path) !== outFile && reachable(path)) paths.push(path);
+    else if (resolve(rootDir, path) !== outFile) files.push(path);
   }
 }
 await collect("");
-paths.sort();
+// The generated CSS can use either stylesheet-relative or deployment-base URLs.
+const roleArt = new Set<string>();
+const fonts = new Set<string>();
+for (const path of files) {
+  if (REACHABLE_CATALOGS.has(path)) {
+    const catalog: { PG?: { roles: Role[] } } = {};
+    vm.runInNewContext(await readFile(join(rootDir, path), "utf8"), catalog, { filename: path });
+    if (!Array.isArray(catalog.PG?.roles)) throw new Error("Missing role catalog in " + path);
+    for (const role of catalog.PG.roles) {
+      const name = imageName(role);
+      if (name) roleArt.add("assets/img/roles/" + name);
+    }
+  } else if (path.endsWith(".css")) {
+    const css = await readFile(join(rootDir, path), "utf8");
+    for (const match of css.matchAll(/url\(\s*["']?([^)"']+?)["']?\s*\)/gi)) {
+      const base = new URL(path, "https://artifact.invalid/");
+      const url = new URL(match[1]!, base);
+      const index = url.pathname.lastIndexOf("/assets/fonts/");
+      if (url.origin === base.origin && index >= 0)
+        fonts.add(decodeURIComponent(url.pathname.slice(index + 1)));
+    }
+  }
+}
+
+const paths = [
+  "./",
+  ...files.filter((path) => {
+    if (path.startsWith(CATALOG_PREFIX) && path.endsWith(".js"))
+      return REACHABLE_CATALOGS.has(path);
+    if (path.startsWith("assets/img/roles/")) return roleArt.has(path);
+    if (path.startsWith("assets/fonts/") && /\.(?:woff2?|ttf|otf)$/i.test(path))
+      return fonts.has(path);
+    return true;
+  }),
+].sort();
 
 const hash = createHash("sha256");
 hash.update(await readFile(fileURLToPath(import.meta.url)));
@@ -57,9 +89,63 @@ self.addEventListener("install", (event) => {
   // Precache independently; the page only offers the update after this resolves.
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
 });
-self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE).map((key) => caches.delete(key)))));
-});
+// Window client IDs change on a full reload. A group shares one copy of its
+// retiring version's immutable modules for as long as any member still exists.
+const SCOPE = self.registration.scope;
+const HELD_PREFIX = "pg-window-chunks:" + SCOPE + ":";
+const ACTIVE_MARKER = SCOPE + ".pg-active-cache";
+const members = (key) => key.slice(HELD_PREFIX.length).split(",");
+const isChunk = (url) => url.startsWith(SCOPE + "assets/") &&
+  /[/][^/]+-[A-Za-z0-9_-]{8}[.](js|css)$/.test(new URL(url).pathname);
+
+async function windowGroups(keys) {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const live = new Set(windows.filter((client) => client.url.startsWith(SCOPE)).map((client) => client.id));
+  const unpinned = new Set(live);
+  for (const key of keys.filter((key) => key.startsWith(HELD_PREFIX))) {
+    const ids = members(key);
+    if (ids.some((id) => live.has(id))) {
+      for (const id of ids) unpinned.delete(id);
+    } else {
+      await caches.delete(key);
+    }
+  }
+  return [...unpinned].sort();
+}
+
+async function activate() {
+  const keys = await caches.keys();
+  const unpinned = await windowGroups(keys);
+  const retired = [];
+  let previous;
+  for (const key of keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE)) {
+    const cache = await caches.open(key);
+    // CacheStorage is origin-wide; a sibling deployment has a different shell URL.
+    if (!(await cache.match(SCOPE))) continue;
+    retired.push(key);
+    if (await cache.match(ACTIVE_MARKER)) previous = cache;
+  }
+  // Older generators lack an activation marker and predate route splitting.
+  if (previous && unpinned.length) {
+    const chunks = (await previous.keys()).filter((request) => isChunk(request.url));
+    if (chunks.length) {
+      const held = await caches.open(HELD_PREFIX + unpinned.join(","));
+      await Promise.all(chunks.map(async (request) => {
+        await held.put(request, await previous.match(request));
+      }));
+    }
+  }
+  const current = await caches.open(CACHE);
+  await current.put(ACTIVE_MARKER, new Response(CACHE));
+  await Promise.all(retired.map((key) => caches.delete(key)));
+}
+
+async function releaseClosedWindows() {
+  const keys = await caches.keys();
+  if (keys.some((key) => key.startsWith(HELD_PREFIX))) await windowGroups(keys);
+}
+
+self.addEventListener("activate", (event) => event.waitUntil(activate()));
 self.addEventListener("message", (event) => {
   const data = event.data || {};
   // Activation is explicit: the page asks after saving its game best-effort.
@@ -76,6 +162,8 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || !url.href.startsWith(self.registration.scope)) return;
+  if (event.request.mode === "navigate" || /[/]assets[/]index-[^/]+[.]js$/.test(url.pathname))
+    event.waitUntil(releaseClosedWindows());
   if (event.request.mode === "navigate") {
     event.respondWith(caches.open(CACHE).then(async (cache) => (await cache.match("./", { ignoreSearch: true })) || fetch(event.request)));
     return;
@@ -83,6 +171,14 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(caches.open(CACHE).then(async (cache) => {
     const cached = await cache.match(event.request, { ignoreSearch: true });
     if (cached) return cached;
+    if (event.clientId && isChunk(event.request.url)) {
+      const key = (await caches.keys()).find((key) =>
+        key.startsWith(HELD_PREFIX) && members(key).includes(event.clientId));
+      if (key) {
+        const held = await (await caches.open(key)).match(event.request);
+        if (held) return held;
+      }
+    }
     return fetch(event.request);
   }));
 });

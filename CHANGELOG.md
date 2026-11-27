@@ -11,6 +11,19 @@ All notable changes to Grimoria are recorded here. The format follows
 - Show the rolled roles on the Setup screen's Random tab, grouped by type, and let the host swap any one of them for another legal role of the same type or reroll it; bluffs and masks the swap puts in play are redrawn (#17).
 - Make picked roles in the setup role grid wear their team colour, and show team names in the chosen language (#17).
 
+## [0.12.2] - 2026-11-27
+
+### Fixed
+
+- Recover from a broken legacy save or a failed migration write without blocking subsequent saves.
+- Keep active games open during updates until the host confirms and saving succeeds. A failed save can be retried in the same window (#156).
+- Open the selected edition from each welcome-page card and let reference pages retry after a temporary loading failure.
+
+### Changed
+
+- Load role catalogs and screens on demand and reduce the offline download by omitting unused role images and fonts.
+- Update the countdown display independently so idle tables and open night-step previews avoid timer-driven renders.
+
 ## [0.12.1] - 2026-11-27
 
 ### Fixed

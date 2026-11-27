@@ -319,6 +319,8 @@ export default {
   updateLater: "Позже",
   updateDownloading: "Загружается обновление…",
   updateApplying: "Сохраняем игру и обновляем приложение…",
+  updateSaveFailed:
+    "Не удалось сохранить игру. Можно продолжить партию или нажать «Обновить», чтобы попробовать ещё раз.",
   updateActivateFailed:
     "Обновление не запустилось. Перезагрузите страницу и повторите; сохранённая игра не изменилась.",
   changelog: "История версий",
@@ -645,6 +647,7 @@ export default {
   mayorRedirectResult: "{name} умирает вместо Мэра",
   mayorRedirectDead: "Никто не погибает ({name} уже мёртв)",
   mayorRedirectProtected: "Никто не погибает ({name} под защитой)",
+  screenLoading: "Загрузка…",
   screenFailed: "Этот экран не загрузился.",
   "winReason.demon-dead": "После наследования не осталось живого Демона.",
   "winReason.saint": "Действующий Святой погиб от казни.",
@@ -1205,6 +1208,7 @@ export default {
   referenceIntro: "Все 72 персонажа: что решает движок и что остаётся ведущему.",
   referenceFilter: "Найти персонажа",
   referenceBack: "Все персонажи",
+  referenceLoadFailed: "Не удалось загрузить справочный текст.",
   referenceNotFound: "Персонаж не найден.",
   referenceNone: "Нет данных.",
   referenceAbility: "Способность",

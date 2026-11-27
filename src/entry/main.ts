@@ -1,6 +1,7 @@
 // Composition root. It is the only module that imports the remaining DOM
 // screens and wires them into the UI shell; `src/ui` sees ports only.
 import * as store from "./store.ts";
+import { createNotesDraft } from "../ui/notes-draft.ts";
 import { previewOnState } from "../application/dispatch/preview.ts";
 import {
   allRoles,
@@ -17,17 +18,16 @@ import { current, go, path, start } from "../infrastructure/routing/history-rout
 import { prepareOffline } from "./offline.ts";
 import * as presets from "../core/model/presets.ts";
 import * as library from "../infrastructure/library/bag-library.ts";
-import * as help from "./screens/help.ts";
-import * as demo from "./screens/demo.ts";
 import { mountShell } from "../ui/main.tsx";
 import { toPreviewOutcome } from "../ui/screens/table/helpers.ts";
-import type { LegacyScreen, ShellPorts } from "../ui/ports.ts";
+import { parseSheetRoute, sheetPath } from "../ui/sheet-route.ts";
+import type { ShellPorts } from "../ui/ports.ts";
 import { createRouteStore } from "../ui/router.ts";
 import { roleFacts } from "../application/reference/role-facts.ts";
 
-const screens: Record<string, LegacyScreen> = {
-  "/help": help,
-  "/demo": demo,
+const screens: ShellPorts["legacy"]["screens"] = {
+  "/help": () => import("./screens/help.ts"),
+  "/demo": () => import("./screens/demo.ts"),
 };
 
 const savedLang = (() => {
@@ -50,12 +50,13 @@ async function changeLanguage(code: string): Promise<void> {
     applyLocale(code);
   } catch (error) {
     console.error("Could not load language", code, error);
-    applyLocale("en");
+    return;
   }
   // The sheet takes its language from the path, so a language change there must
   // move the path too; every other route keeps its own name.
   const route = current();
-  go(/^\/sheet(\/|$)/.test(route) ? "sheet/" + code : route);
+  const sheet = parseSheetRoute(route);
+  go(sheet ? sheetPath(code, sheet.edition) : route);
 }
 
 function readPreference(key: string): string | null {
@@ -80,15 +81,32 @@ function paintStorageStatus(status: HTMLElement): void {
 }
 
 async function boot(): Promise<void> {
-  applyLocale(savedLang);
-  try {
-    await loadLocale(savedLang);
-  } catch (error) {
-    console.error("Could not load saved language", error);
-    applyLocale("en");
-  }
-
   let notify: (() => void) | null = null;
+  start({ root: import.meta.env?.BASE_URL || "/", handler: () => notify?.() });
+  const language = parseSheetRoute(current())?.lang ?? savedLang;
+  try {
+    await loadLocale(language);
+  } catch (error) {
+    console.error("Could not load initial language", language, error);
+    try {
+      await loadLocale(language === "ru" ? "en" : "ru");
+    } catch {
+      const root = document.getElementById("screen");
+      if (root) {
+        setUiLang(language);
+        const message = document.createElement("p");
+        message.setAttribute("role", "alert");
+        message.textContent = t("screenFailed");
+        const retry = document.createElement("button");
+        retry.textContent = t("retry");
+        retry.addEventListener("click", () => location.reload());
+        root.replaceChildren(message, retry);
+      }
+      return;
+    }
+  }
+  applyLocale(currentLang());
+
   const route = createRouteStore({
     read: current,
     subscribe(listener) {
@@ -100,6 +118,7 @@ async function boot(): Promise<void> {
   });
 
   const ports: ShellPorts = {
+    notes: createNotesDraft(() => store.state),
     router: { current, path, go },
     game: {
       subscribe: store.subscribe,
@@ -166,8 +185,6 @@ async function boot(): Promise<void> {
     reference: { facts: roleFacts },
   };
 
-  start({ root: import.meta.env?.BASE_URL || "/", handler: () => notify?.() });
-
   const screen = document.getElementById("screen");
   if (!screen) throw new Error("The application root is missing.");
   mountShell(screen, ports, route);
@@ -183,7 +200,12 @@ async function boot(): Promise<void> {
     paint();
   }
 
-  void prepareOffline();
+  void prepareOffline(() =>
+    ports.notes.flush(
+      (notes) =>
+        ports.commands.dispatch({ type: "setNotes", payload: { notes } }).status === "allowed",
+    ),
+  );
 }
 
 void boot();

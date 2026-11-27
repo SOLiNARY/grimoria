@@ -317,6 +317,7 @@ export default {
   updateLater: "Later",
   updateDownloading: "Downloading an update…",
   updateApplying: "Saving the game and installing the update…",
+  updateSaveFailed: "Could not save the game. Keep playing or press Update to try again.",
   updateActivateFailed:
     "The update did not start. Reload this page and try again; your saved game is unchanged.",
   changelog: "Version history",
@@ -644,6 +645,7 @@ export default {
   mayorRedirectResult: "{name} dies instead of the Mayor",
   mayorRedirectDead: "No one dies ({name} is already dead)",
   mayorRedirectProtected: "No one dies ({name} is protected)",
+  screenLoading: "Loading…",
   screenFailed: "This screen could not load.",
   "winReason.demon-dead": "No living Demon remains after inheritance.",
   "winReason.saint": "The healthy Saint died by execution.",
@@ -1213,6 +1215,7 @@ export default {
   referenceIntro: "All 72 characters: what the engine decides and what stays with the Storyteller.",
   referenceFilter: "Find a character",
   referenceBack: "All characters",
+  referenceLoadFailed: "The character reference text could not be loaded.",
   referenceNotFound: "Character not found.",
   referenceNone: "No data.",
   referenceAbility: "Ability",

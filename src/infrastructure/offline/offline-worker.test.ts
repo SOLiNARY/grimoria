@@ -17,10 +17,29 @@ const fixture = await mkdtemp(join(tmpdir(), "pg-worker-"));
 await writeFile(join(fixture, "index.html"), "<!doctype html>");
 await mkdir(join(fixture, "assets"));
 await writeFile(join(fixture, "assets/app.js"), "console.log('app');");
-await writeFile(join(fixture, "assets/app.css"), ".a{color:red}");
+await writeFile(join(fixture, "assets/reference-chunk.js"), "// lazy route");
+await writeFile(
+  join(fixture, "assets/app.css"),
+  "@font-face{src:url('fonts/body.woff2')}@font-face{src:url(/pocket/assets/fonts/title.woff2)}",
+);
+await mkdir(join(fixture, "assets/fonts"));
+for (const font of ["body", "title", "unused"]) {
+  await writeFile(join(fixture, "assets/fonts", font + ".woff2"), font);
+}
+await mkdir(join(fixture, "assets/img/roles"), { recursive: true });
+for (const image of ["token_e", "token_g", "translated", "unused"]) {
+  await writeFile(join(fixture, "assets/img/roles", image + ".webp"), image);
+}
 await mkdir(join(fixture, "assets/data"), { recursive: true });
 for (const name of ["ru_RU", "en_GB", "az_AZ", "cs_CZ"]) {
-  await writeFile(join(fixture, "assets/data", name + ".js"), "var PG={roles:[]};");
+  const role = {
+    team: "minion",
+    image: name === "az_AZ" ? "translated.webp" : ["token_g.webp", "token_e.webp"],
+  };
+  await writeFile(
+    join(fixture, "assets/data", name + ".js"),
+    "var PG=" + JSON.stringify({ roles: [role] }) + ";",
+  );
 }
 await run(process.execPath, [
   join(root, "scripts/build-offline.ts"),
@@ -50,7 +69,10 @@ interface Port {
   postMessage: (data: Reply) => void;
 }
 
+const scope = "https://example.test/pocket/";
+
 type WorkerEvent = {
+  clientId?: string;
   data?: Record<string, unknown>;
   source?: unknown;
   ports?: Array<{ postMessage: (data: Reply) => void }>;
@@ -61,6 +83,7 @@ type WorkerEvent = {
 
 interface Client {
   id: string;
+  url: string;
   posts: Array<{ message: unknown; port: Port }>;
   postMessage(message: unknown, ports?: Port[]): void;
 }
@@ -85,11 +108,13 @@ function fakeMessageChannel() {
 }
 
 function createWorker({
-  keys = [],
+  entries = new Map<string, Map<string, unknown>>(),
+  version = cacheName,
   match = async () => null,
   windows = [],
 }: {
-  keys?: string[];
+  entries?: Map<string, Map<string, unknown>>;
+  version?: string;
   match?: (request: unknown) => Promise<unknown>;
   windows?: Array<{ id: string }>;
 } = {}) {
@@ -101,32 +126,39 @@ function createWorker({
     deleted: [] as string[],
     fetched: [] as string[],
   };
-  const stored = new Set<string>(keys);
+  const requestUrl = (request: string | { url: string }): string =>
+    new URL(typeof request === "string" ? request : request.url, scope).href;
   const timers = new Map<number, () => void>();
   let timerSeq = 0;
   const clients: Client[] = windows.map((window): Client => ({
     id: window.id,
+    url: scope + "table",
     posts: [],
     postMessage(message, ports) {
       this.posts.push({ message, port: (ports && ports[0]) as Port });
     },
   }));
-  const cache = {
-    addAll: async (entries: string[]) => {
-      calls.added.push(...entries);
-    },
-    match,
-  };
   const caches = {
     open: async (name: string) => {
       calls.opened.push(name);
-      return cache;
+      const files = entries.get(name) ?? new Map<string, unknown>();
+      entries.set(name, files);
+      return {
+        addAll: async (paths: string[]) => {
+          calls.added.push(...paths);
+          for (const path of paths) files.set(requestUrl(path), path);
+        },
+        match: async (request: string | { url: string }) =>
+          files.get(requestUrl(request)) ?? (await match(request)),
+        put: async (request: string | { url: string }, response: unknown) =>
+          files.set(requestUrl(request), response),
+        keys: async () => Array.from(files.keys(), (url) => ({ url })),
+      };
     },
-    keys: async () => [...stored],
+    keys: async () => [...entries.keys()],
     delete: async (name: string) => {
       calls.deleted.push(name);
-      stored.delete(name);
-      return true;
+      return entries.delete(name);
     },
   };
   const self = {
@@ -149,6 +181,7 @@ function createWorker({
     caches,
     fetch,
     URL,
+    Response,
     console,
     Promise,
     MessageChannel: fakeMessageChannel(),
@@ -160,7 +193,7 @@ function createWorker({
       timers.delete(id);
     },
   };
-  vm.runInContext(source, vm.createContext(context));
+  vm.runInContext(source.replace(cacheName, version), vm.createContext(context));
   const dispatch = (type: string, event: WorkerEvent = {}) => {
     const listener = listeners.get(type);
     assert.ok(listener, `the worker has no ${type} listener`);
@@ -179,7 +212,7 @@ function createWorker({
     timers.clear();
     for (const callback of due) callback();
   };
-  return { calls, clients, dispatch, fire, runTimers, stored };
+  return { calls, clients, dispatch, fire, runTimers, entries };
 }
 
 test("the generator requires an explicit root and output path", async () => {
@@ -207,13 +240,97 @@ test("the asset list keeps every reachable catalog and drops the rest", () => {
   assert.ok(!assets.includes("assets/data/cs_CZ.js"), "an unreachable catalog is not precached");
 });
 
+test("offline navigation retains lazy chunks, selectable art and stylesheet fonts", () => {
+  assert.ok(assets.includes("assets/reference-chunk.js"));
+  assert.ok(assets.includes("assets/img/roles/token_e.webp"));
+  assert.ok(assets.includes("assets/img/roles/translated.webp"));
+  assert.ok(assets.includes("assets/fonts/body.woff2"));
+  assert.ok(assets.includes("assets/fonts/title.woff2"));
+  for (const unused of [
+    "assets/img/roles/token_g.webp",
+    "assets/img/roles/unused.webp",
+    "assets/fonts/unused.woff2",
+  ]) {
+    assert.ok(!assets.includes(unused), unused + " should not enter the precache");
+  }
+});
+
 test("activation prunes older generated caches and keeps unrelated caches", async () => {
-  const { calls, fire, stored } = createWorker({
-    keys: ["pg-static-old", cacheName, "unrelated-cache"],
+  const { calls, fire, entries } = createWorker({
+    entries: new Map([
+      ["pg-static-old", new Map([[scope, "old-shell"]])],
+      [cacheName, new Map([[scope, "new-shell"]])],
+      ["unrelated-cache", new Map()],
+    ]),
   });
   await fire("activate");
   assert.deepEqual(calls.deleted, ["pg-static-old"]);
-  assert.deepEqual([...stored].sort(), [cacheName, "unrelated-cache"].sort());
+  assert.deepEqual([...entries.keys()].sort(), [cacheName, "unrelated-cache"].sort());
+});
+
+test("a live old window can load its exact deferred chunks until it is replaced", async () => {
+  const first = "pg-static-release1";
+  const second = "pg-static-release2";
+  const third = "pg-static-release3";
+  const chunk1 = scope + "assets/bag-AAA11111.js";
+  const chunk2 = scope + "assets/bag-BBB22222.js";
+  const chunk3 = scope + "assets/bag-CCC33333.js";
+  const catalog = scope + "assets/data/retired.js";
+  const entries = new Map<string, Map<string, unknown>>([
+    [
+      first,
+      new Map([
+        [scope, "first"],
+        [chunk1, "first JS"],
+        [catalog, "stale data"],
+      ]),
+    ],
+    ["pg-static-neighbor", new Map([["https://example.test/other/", "neighbor"]])],
+  ]);
+  await createWorker({ version: first, entries }).fire("activate");
+  entries.set(
+    second,
+    new Map([
+      [scope, "second"],
+      [chunk2, "second JS"],
+    ]),
+  );
+  await createWorker({ version: second, entries, windows: [{ id: "first-tab" }] }).fire("activate");
+  entries.set(
+    third,
+    new Map([
+      [scope, "third"],
+      [chunk3, "third JS"],
+    ]),
+  );
+  const worker = createWorker({
+    version: third,
+    entries,
+    windows: [{ id: "first-tab" }, { id: "second-tab" }],
+  });
+  await worker.fire("activate");
+  async function request(clientId: string, url: string, mode = "cors") {
+    let response: Promise<unknown> | undefined;
+    await worker.fire("fetch", {
+      clientId,
+      request: { method: "GET", mode, url },
+      respondWith: (value) => {
+        response = value;
+      },
+    });
+    return await response;
+  }
+  assert.equal(await request("first-tab", chunk1), "first JS");
+  assert.equal(await request("second-tab", chunk2), "second JS");
+  assert.equal(await request("first-tab", catalog), "network");
+  assert.equal(await request("first-tab", chunk1 + "?different"), "network");
+  assert.equal(await request("new-tab", chunk1), "network");
+  assert.equal(await request("new-tab", chunk3), "third JS");
+  assert.ok(!entries.has(first) && !entries.has(second), "the full retired caches are gone");
+  assert.ok(entries.has("pg-static-neighbor"));
+  worker.clients.splice(0, 2);
+  await request("new-tab", scope + "table", "navigate");
+  assert.deepEqual([...entries.keys()].sort(), ["pg-static-neighbor", third].sort());
 });
 
 test("the worker activates only after an explicit SKIP_WAITING message", async () => {

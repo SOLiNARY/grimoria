@@ -1,6 +1,7 @@
 // The UI layer talks to the application through ports. The composition root
 // (`src/entry`) wires the concrete modules here; `src/ui` imports ports only.
 import { createContext, useContext } from "react";
+import type { NotesDraft } from "./notes-draft.ts";
 import type { GameSnapshot } from "../application/store/create-game-store.ts";
 import type { RoleFacts } from "../application/reference/role-facts.ts";
 import type { DispatchResult } from "../core/commands/result.ts";
@@ -196,6 +197,7 @@ export type PoolSave =
 export type LibraryUpdate = { ok: true; library: BagLibrary };
 
 export interface ShellPorts {
+  readonly notes: NotesDraft;
   readonly router: RouterPort;
   readonly game: GameSource;
   readonly roles: {
@@ -273,7 +275,7 @@ export interface ShellPorts {
   };
   readonly assets: { url(name: string): string };
   readonly prefs: { read(key: string): string | null; write(key: string, value: string): void };
-  readonly legacy: { screens: Record<string, LegacyScreen> };
+  readonly legacy: { screens: Record<string, () => Promise<LegacyScreen>> };
   /** Engine facts for the Storyteller reference; null for an unsupported id. */
   readonly reference: { facts(id: string): RoleFacts | null };
 }

@@ -420,6 +420,20 @@ async function stepActionOpensReadyStep() {
   const confirm = page.locator('[data-act="step-confirm"]');
   await confirm.waitFor();
   assert.equal(await confirm.isEnabled(), true, "a ready step opens a confirmable sheet");
+  await settled();
+  const previewKeys = () =>
+    page.evaluate(async () => {
+      const { engine } = await window.PG_MODULES();
+      return [...engine.defaultRuntime.timestamps.keys()];
+    });
+  const beforeTick = await previewKeys();
+  // One second used to re-render the whole console and allocate a new preview.
+  await page.waitForTimeout(1100);
+  assert.deepEqual(
+    await previewKeys(),
+    beforeTick,
+    "the idle step sheet does not rerun its preview",
+  );
   await confirm.click();
   await settled();
   assert.equal(
@@ -5495,6 +5509,18 @@ async function storefrontWelcomeAt390() {
   await page.waitForSelector("main h1");
   assert.equal(await page.evaluate(() => document.body.dataset.route), "home");
   await chooseLanguage("en");
+  await page.reload();
+  await page.waitForSelector("main h1");
+  const resourcePaths = () =>
+    page.evaluate(() =>
+      performance.getEntriesByType("resource").map((entry) => new URL(entry.name).pathname),
+    );
+  const homeResources = await resourcePaths();
+  assert.deepEqual(
+    homeResources.filter((path) => /\/assets\/data\/[^/]+\.js$/.test(path)),
+    ["/pocket/assets/data/en_GB.js"],
+    "a cold English startup only requests the selected role catalog",
+  );
   assert.equal(await page.evaluate(() => document.documentElement.lang), "en");
   assert.equal(
     ((await page.locator("main h1").textContent()) ?? "").trim(),
@@ -5504,9 +5530,32 @@ async function storefrontWelcomeAt390() {
   await overflow();
   await page.screenshot({ path: join(screenshots, "storefront-welcome-en-390.png") });
 
+  const preferred = await page.evaluate(() => localStorage.getItem("pg.sheetScenario"));
+  await page.evaluate(() => localStorage.setItem("pg.sheetScenario", "all"));
+  try {
+    for (const [index, edition] of ["tb", "bmr", "snv"].entries()) {
+      await page.locator("main article a").nth(index).click();
+      await page.waitForSelector(`[data-scenario="${edition}"][aria-pressed="true"]`);
+      assert.ok(new URL(page.url()).pathname.endsWith("/sheet/en/" + edition));
+      await home();
+    }
+    await sheetRoute("/sheet");
+    await page.waitForSelector('[data-scenario="all"][aria-pressed="true"]');
+  } finally {
+    await page.evaluate((saved) => {
+      if (saved === null) localStorage.removeItem("pg.sheetScenario");
+      else localStorage.setItem("pg.sheetScenario", saved);
+    }, preferred);
+  }
+  await home();
+
   // The primary action is the setup entry, not the table.
   await page.locator('main [data-act="home-start"]').first().click();
   await page.waitForFunction(() => document.body.dataset.route === "bag");
+  assert.ok(
+    (await resourcePaths()).some((url) => url.endsWith(".js") && !homeResources.includes(url)),
+    "opening the bag requests its deferred screen code",
+  );
   assert.match(await page.evaluate(() => location.pathname), /\/bag$/);
   await overflow();
 
@@ -7225,7 +7274,15 @@ async function fullChecks() {
     undefined,
     { timeout: 3000 },
   );
+  const countdown = await page.locator('[data-panel="day-result"] [data-countdown]').innerText();
+  await page.waitForFunction(
+    (initial) =>
+      document.querySelector('[data-panel="day-result"] [data-countdown]')?.textContent !== initial,
+    countdown,
+    { timeout: 3000 },
+  );
   await page.locator('[data-act="timer-stop"]').click();
+  assert.equal(await page.locator('[data-panel="day-result"] [data-countdown]').innerText(), "—");
   await page.locator("[data-notes]").fill("Browser verification");
   await page.waitForFunction(async () => {
     const { store } = await window.PG_MODULES();
@@ -9200,34 +9257,36 @@ async function fullChecks() {
     true,
   );
 
-  // Opening the page applies the waiting worker with no prompt. The browser can
-  // activate it during the reload, before the new document exists, so the page
-  // replaces itself at most once and the result is what gets asserted.
+  // Keep the old worker in use while reloading the host tab. Without a
+  // second controlled window the browser itself may activate at navigation.
+  const keeper = await context.newPage();
+  await keeper.goto(url);
+  await keeper.waitForSelector("#screen > *");
   const loadsBeforeOpen = await loadCount();
   await page.reload();
-  const openingLoadCount = await settle(page, nextCache);
+  await waitForBanner();
+  assert.equal(await workerVersion(), baseCache, "an active opening waits for confirmation");
+  await page.locator("#update-now").click();
+  await settle(page, nextCache);
   await page.waitForSelector(".host");
-  const openingLoads = openingLoadCount - loadsBeforeOpen;
-  assert.ok(
-    openingLoads >= 1 && openingLoads <= 2,
-    `the opening load replaces itself at most once; loads ${openingLoads}`,
-  );
-  assert.equal(
-    await page.locator("#update-banner").isVisible(),
-    false,
-    "an automatic update shows no prompt",
-  );
+  assert.equal(await loadCount(), loadsBeforeOpen + 2, "one navigation and one confirmed reload");
+  await keeper.close();
   const cachesAfterUpdate = await page.evaluate(() => caches.keys());
   assert.ok(cachesAfterUpdate.includes(nextCache));
   assert.ok(!cachesAfterUpdate.includes(baseCache), "activation prunes the previous cache");
   assert.equal(
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.players["1"].name),
     "Alice",
-    "the saved game survives an automatic update",
+    "the active game survives the confirmed update",
   );
 
   // The opening check finds a deploy the page never asked about, without the
   // 30-minute throttle the old check waited for.
+  await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const result = store.dispatch({ type: "newGame", payload: { count: 8 } });
+    if (result.status !== "allowed") throw new Error("Could not prepare an inactive window");
+  });
   const loadsBeforeCheck = await loadCount();
   publish(thirdCache);
   await page.reload();
@@ -9241,6 +9300,7 @@ async function fullChecks() {
   assert.equal(await page.locator("#update-banner").isVisible(), false);
 
   // A deploy found while the page stays open waits for the host.
+  await seed(7);
   await deploy(fourthCache);
   const loadsBeforeApply = await loadCount();
   // Deliberate: a deploy found while the page stays open must not reload by itself.
@@ -9279,36 +9339,50 @@ async function fullChecks() {
     "a page on the previous page code still gets a preflight reply",
   );
 
-  // A window that cannot save must not hold the update back. The unsaved note is
-  // lost, which this change accepts.
+  // A failed save keeps the active session open and offers a retry.
   await page.evaluate(async () => {
-    const { KEY, state } = (await window.PG_MODULES()).store;
-    state.notes = "Unsaved update note";
+    const { KEY } = (await window.PG_MODULES()).store;
     window.__pgSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
       if (key === KEY) throw new Error("Quota exceeded");
       return window.__pgSetItem!.call(this, key, value);
     };
   });
+  await page.locator('[data-act="menu"]').focus();
+  await page.keyboard.press("Enter");
+  await page.locator("[data-notes]").fill("Unsaved update note");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("[data-notes]", { state: "detached" });
   await page.locator("#update-now").click();
-  await waitForLoads(page, loadsBeforeApply + 1);
-  await page.waitForSelector(".host");
-  // Deliberate: activation after a failed save is asynchronous and must finish here.
-  await page.waitForTimeout(600);
-  assert.equal(await workerVersion(), fourthCache, "a failed save does not stop activation");
-  assert.equal(await page.locator("#update-banner").isVisible(), false);
+  await page.waitForSelector('#update-banner[data-state="saveFailed"]');
+  assert.equal(await loadCount(), loadsBeforeApply);
+  assert.equal(await workerVersion(), thirdCache);
   assert.notEqual(
     await page.evaluate(async () => (await window.PG_MODULES()).store.state.notes),
     "Unsaved update note",
-    "the unsaved note is gone, as this change accepts",
+    "a rejected note is still a draft",
   );
+  await page.locator('[data-act="menu"]').focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await page.locator("[data-notes]").inputValue(), "Unsaved update note");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("[data-notes]", { state: "detached" });
   await page.evaluate(() => {
     if (!window.__pgSetItem) return;
     Storage.prototype.setItem = window.__pgSetItem;
     delete window.__pgSetItem;
   });
+  await page.locator("#update-now").click();
+  await waitForLoads(page, loadsBeforeApply + 1);
+  await page.waitForSelector(".host");
+  assert.equal(await workerVersion(), fourthCache);
+  assert.equal(
+    await page.evaluate(async () => (await window.PG_MODULES()).store.state.notes),
+    "Unsaved update note",
+    "retry persists the note before reload",
+  );
 
-  // Two windows reload once each, with no save coordination between them.
+  // An active sibling tab keeps its session until its host chooses Update.
   const otherTab = await context.newPage();
   await otherTab.goto(url);
   await otherTab.evaluate(() => {
@@ -9331,6 +9405,9 @@ async function fullChecks() {
   });
   await waitForLoads(page, hostLoads + 1);
   await page.waitForSelector(".host");
+  assert.equal(await settle(otherTab, fifthCache), otherLoads, "the active sibling stays open");
+  await waitForBanner(otherTab);
+  await otherTab.locator("#update-now").click();
   await waitForLoads(otherTab, otherLoads + 1);
   await otherTab.waitForSelector(".sheet-page");
   // Deliberate: both windows get this window to prove each reloads exactly once.

@@ -1017,6 +1017,11 @@
       "name": "a failed direct save publishes only the save status, not a revision"
     },
     {
+      "key": "src/application/store/create-game-store.test.ts::a failed legacy migration write reports the error and can be retried",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "a failed legacy migration write reports the error and can be retried"
+    },
+    {
       "key": "src/application/store/create-game-store.test.ts::a failed legacy run never publishes the uncommitted mutation",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "a failed legacy run never publishes the uncommitted mutation"
@@ -1170,6 +1175,11 @@
       "key": "src/application/store/create-game-store.test.ts::an import with a failed write leaves the game unchanged",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "an import with a failed write leaves the game unchanged"
+    },
+    {
+      "key": "src/application/store/create-game-store.test.ts::an invalid legacy save is backed up and the fresh game can be saved",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "an invalid legacy save is backed up and the fresh game can be saved"
     },
     {
       "key": "src/application/store/create-game-store.test.ts::an undone id leaves the ledger and applies again",
@@ -7737,6 +7747,16 @@
       "name": "the Witch wakes only while more than three players live (SNV-WITCH-01)"
     },
     {
+      "key": "src/entry/offline.test.ts::an active window confirms an opening update and can retry a failed save before or after activation",
+      "file": "src/entry/offline.test.ts",
+      "name": "an active window confirms an opening update and can retry a failed save before or after activation"
+    },
+    {
+      "key": "src/entry/offline.test.ts::an update cannot write a pending note over a replacement game or an external edit",
+      "file": "src/entry/offline.test.ts",
+      "name": "an update cannot write a pending note over a replacement game or an external edit"
+    },
+    {
       "key": "src/entry/screens/demo.test.ts::the demo screen keeps its own in-memory game (SYS-SCRIPTS-06)",
       "file": "src/entry/screens/demo.test.ts",
       "name": "the demo screen keeps its own in-memory game (SYS-SCRIPTS-06)"
@@ -7907,6 +7927,11 @@
       "name": "upsert rejects entries without a name or with a bad role count"
     },
     {
+      "key": "src/infrastructure/offline/offline-worker.test.ts::a live old window can load its exact deferred chunks until it is replaced",
+      "file": "src/infrastructure/offline/offline-worker.test.ts",
+      "name": "a live old window can load its exact deferred chunks until it is replaced"
+    },
+    {
       "key": "src/infrastructure/offline/offline-worker.test.ts::activation prunes older generated caches and keeps unrelated caches",
       "file": "src/infrastructure/offline/offline-worker.test.ts",
       "name": "activation prunes older generated caches and keeps unrelated caches"
@@ -7915,6 +7940,11 @@
       "key": "src/infrastructure/offline/offline-worker.test.ts::navigation uses the cached shell and asset responses fall back to the network",
       "file": "src/infrastructure/offline/offline-worker.test.ts",
       "name": "navigation uses the cached shell and asset responses fall back to the network"
+    },
+    {
+      "key": "src/infrastructure/offline/offline-worker.test.ts::offline navigation retains lazy chunks, selectable art and stylesheet fonts",
+      "file": "src/infrastructure/offline/offline-worker.test.ts",
+      "name": "offline navigation retains lazy chunks, selectable art and stylesheet fonts"
     },
     {
       "key": "src/infrastructure/offline/offline-worker.test.ts::the asset list keeps every reachable catalog and drops the rest",
@@ -8045,6 +8075,11 @@
       "key": "src/ui/screens/player-projection.test.ts::the player handoff projection carries only public seat data, the shown role and the Goon alignment",
       "file": "src/ui/screens/player-projection.test.ts",
       "name": "the player handoff projection carries only public seat data, the shown role and the Goon alignment"
+    },
+    {
+      "key": "src/ui/screens/reference/reference-data.test.ts::concurrent reference requests share each attempt and a failed load can be retried",
+      "file": "src/ui/screens/reference/reference-data.test.ts",
+      "name": "concurrent reference requests share each attempt and a failed load can be retried"
     },
     {
       "key": "src/ui/screens/reference/reference-data.test.ts::the reference shows only user-facing rule text, not internal rule ids",
@@ -8212,6 +8247,11 @@
       "name": "a blocked attack result is a prevented death"
     },
     {
+      "key": "src/ui/screens/table/helpers.test.ts::a countdown ticks only while it runs and releases its clock when stopped",
+      "file": "src/ui/screens/table/helpers.test.ts",
+      "name": "a countdown ticks only while it runs and releases its clock when stopped"
+    },
+    {
       "key": "src/ui/screens/table/helpers.test.ts::a player card names the shown role, not the real role",
       "file": "src/ui/screens/table/helpers.test.ts",
       "name": "a player card names the shown role, not the real role"
@@ -8320,6 +8360,11 @@
       "key": "src/ui/screens/table/helpers.test.ts::seatBadges lists every true table state in reading order",
       "file": "src/ui/screens/table/helpers.test.ts",
       "name": "seatBadges lists every true table state in reading order"
+    },
+    {
+      "key": "src/ui/screens/table/helpers.test.ts::starting or retargeting the countdown displays the new deadline before the first tick",
+      "file": "src/ui/screens/table/helpers.test.ts",
+      "name": "starting or retargeting the countdown displays the new deadline before the first tick"
     },
     {
       "key": "src/ui/screens/table/helpers.test.ts::stepBlockers lists every unanswered mandatory decision in priority order",
@@ -8445,6 +8490,16 @@
       "key": "src/ui/screens/table/step-draft.test.ts::only the values a restored draft carries seed the console maps",
       "file": "src/ui/screens/table/step-draft.test.ts",
       "name": "only the values a restored draft carries seed the console maps"
+    },
+    {
+      "key": "src/ui/sheet-route.test.ts::edition links preserve their language and select the named edition",
+      "file": "src/ui/sheet-route.test.ts",
+      "name": "edition links preserve their language and select the named edition"
+    },
+    {
+      "key": "src/ui/sheet-route.test.ts::ordinary sheet links leave the edition to the reading preference",
+      "file": "src/ui/sheet-route.test.ts",
+      "name": "ordinary sheet links leave the edition to the reading preference"
     },
     {
       "key": "src/ui/store/use-game.test.ts::a failed save is visible in the published snapshot",

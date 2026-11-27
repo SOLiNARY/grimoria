@@ -314,6 +314,8 @@ export default {
   updateLater: "Sonra",
   updateDownloading: "Yeniləmə yüklənir…",
   updateApplying: "Oyun saxlanılır və tətbiq yenilənir…",
+  updateSaveFailed:
+    "Oyunu saxlamaq mümkün olmadı. Oyuna davam edin və ya yenidən cəhd etmək üçün «Yenilə» düyməsini basın.",
   updateActivateFailed:
     "Yeniləmə başlamadı. Səhifəni yeniləyin və yenidən cəhd edin; saxlanılmış oyun dəyişməyib.",
   changelog: "Versiya tarixçəsi",
@@ -639,6 +641,7 @@ export default {
   mayorRedirectResult: "Mer əvəzinə {name} ölür",
   mayorRedirectDead: "Heç kim ölmür ({name} artıq ölüdür)",
   mayorRedirectProtected: "Heç kim ölmür ({name} qorunur)",
+  screenLoading: "Yüklənir…",
   screenFailed: "Bu ekran yüklənmədi.",
   "winReason.demon-dead": "Varislikdən sonra sağ Demon qalmayıb.",
   "winReason.saint": "Qabiliyyəti işləyən Müqəddəs edamdan öldü.",
@@ -1196,6 +1199,7 @@ export default {
   referenceIntro: "72 personaj: mühərrikin qərar verdiyi və Hekayəçinin qərar verdiyi hissələr.",
   referenceFilter: "Personaj tap",
   referenceBack: "Bütün personajlar",
+  referenceLoadFailed: "Personaj haqqında məlumatı yükləmək mümkün olmadı.",
   referenceNotFound: "Personaj tapılmadı.",
   referenceNone: "Məlumat yoxdur.",
   referenceAbility: "Qabiliyyət",

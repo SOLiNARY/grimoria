@@ -1,10 +1,11 @@
 import { assetUrl } from "../platform/asset-url.ts";
+import { imageName } from "./role-image.ts";
 import { LOCALE_FILES } from "./locale-files.ts";
 import type { Role, RoleId } from "../../core/model/types.ts";
 
-type CatalogWindow = Window & { PG?: { roles?: Role[] } };
+export { imageName };
 
-const EVIL: Record<string, boolean> = { minion: true, demon: true };
+type CatalogWindow = Window & { PG?: { roles?: Role[] } };
 
 function catalog(): Role[] {
   return (window as CatalogWindow).PG?.roles ?? [];
@@ -53,19 +54,6 @@ export function roleById(id: RoleId): Role | null {
 
 export function teamName(team: string | null | undefined): string {
   return team ? team.charAt(0).toUpperCase() + team.slice(1) : "";
-}
-
-function suffix(role: Role): string {
-  return EVIL[role.team] ? "_e" : "_g";
-}
-
-export function imageName(role?: Role | null): string {
-  if (!role) return "";
-  const images = Array.isArray(role.image) ? role.image : [role.image];
-  const want = suffix(role);
-  const match = images.find((path) => path && path.includes(want + "."));
-  const chosen = match || images[0] || "";
-  return chosen.slice(chosen.lastIndexOf("/") + 1);
 }
 
 export function imageFor(role?: Role | null): string {
