@@ -9992,6 +9992,7 @@ async function fullChecks() {
   // width and every link/button inside the viewport, unclipped and at least
   // 44x44.
   const auditPhone = async (tab: Page, screen: string, route: string) => {
+    await tab.waitForFunction((expected) => document.body.dataset.route === expected, route);
     const detail = await tab.evaluate(() => {
       const viewport = innerWidth;
       const visible = (el: HTMLElement) => {
@@ -10256,7 +10257,7 @@ async function fullChecks() {
       };
 
       await tab.goto(url + "table");
-      await tab.waitForSelector("#screen > *");
+      await tab.waitForSelector("[data-setup-board]");
       // No configuration or saved-bag registry: a new profile may hold only
       // the language preference before the first interaction.
       assert.deepEqual(
