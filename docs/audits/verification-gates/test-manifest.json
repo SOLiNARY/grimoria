@@ -6397,6 +6397,31 @@
       "name": "the twin correction runs through the command path and records the entry"
     },
     {
+      "key": "src/core/model/bag-swap.test.ts::a rolled role is offered only same-type roles that keep the composition",
+      "file": "src/core/model/bag-swap.test.ts",
+      "name": "a rolled role is offered only same-type roles that keep the composition"
+    },
+    {
+      "key": "src/core/model/bag-swap.test.ts::a swap that changes the Outsider count is offered once the counts allow it",
+      "file": "src/core/model/bag-swap.test.ts",
+      "name": "a swap that changes the Outsider count is offered once the counts allow it"
+    },
+    {
+      "key": "src/core/model/bag-swap.test.ts::swapping keeps every other choice and repairs only what broke",
+      "file": "src/core/model/bag-swap.test.ts",
+      "name": "swapping keeps every other choice and repairs only what broke"
+    },
+    {
+      "key": "src/core/model/bag-swap.test.ts::the Drunk's mask is redrawn only when the swap puts it in play",
+      "file": "src/core/model/bag-swap.test.ts",
+      "name": "the Drunk's mask is redrawn only when the swap puts it in play"
+    },
+    {
+      "key": "src/core/model/bag-swap.test.ts::the Lunatic and the Evil Twin follow the swapped bag",
+      "file": "src/core/model/bag-swap.test.ts",
+      "name": "the Lunatic and the Evil Twin follow the swapped bag"
+    },
+    {
       "key": "src/core/model/night-order.test.ts::each supported edition keeps its published night order",
       "file": "src/core/model/night-order.test.ts",
       "name": "each supported edition keeps its published night order"
@@ -8672,6 +8697,11 @@
       "key": "scripts/browser-check.ts::queue-panel",
       "file": "scripts/browser-check.ts",
       "name": "queue-panel"
+    },
+    {
+      "key": "scripts/browser-check.ts::random-swap",
+      "file": "scripts/browser-check.ts",
+      "name": "random-swap"
     },
     {
       "key": "scripts/browser-check.ts::role steps",
