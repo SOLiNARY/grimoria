@@ -53,7 +53,7 @@ export function restorePath(value: string): string | null {
     url.pathname !== ROOT && url.pathname.endsWith("/")
       ? url.pathname.replace(/\/+$/, "")
       : url.pathname;
-  return pathname + url.search;
+  return pathname + url.search + url.hash;
 }
 
 export function start({ root, handler }: { root?: string; handler: RouteHandler }): void {
@@ -92,6 +92,7 @@ export function start({ root, handler }: { root?: string; handler: RouteHandler 
         return;
       const url = new URL(link.href, window.location.href);
       if (url.origin !== window.location.origin || !url.pathname.startsWith(ROOT)) return;
+      if (url.hash) return;
       event.preventDefault();
       go(url.pathname.slice(ROOT.length - 1) + url.search);
     },

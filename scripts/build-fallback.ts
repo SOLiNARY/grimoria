@@ -35,7 +35,7 @@ const html = `<!doctype html>
     if (pathname.indexOf(base) === 0) {
       var rest = pathname.slice(base.length);
       if (rest.indexOf("..") === -1 && rest.indexOf("//") === -1 && rest.indexOf("\\\\") === -1) {
-        sessionStorage.setItem("pg.redirect", pathname + location.search);
+        sessionStorage.setItem("pg.redirect", pathname + location.search + location.hash);
       }
     }
   } catch (error) { /* private mode */ }

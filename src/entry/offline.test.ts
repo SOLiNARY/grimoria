@@ -74,6 +74,10 @@ test("an active window confirms an opening update and can retry a failed save be
       else Reflect.deleteProperty(globalThis, key);
     });
   }
+  // The production browser target includes Safari versions without Promise.withResolvers.
+  const resolver = Object.getOwnPropertyDescriptor(Promise, "withResolvers")!;
+  Reflect.deleteProperty(Promise, "withResolvers");
+  t.after(() => Object.defineProperty(Promise, "withResolvers", resolver));
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const { state, dispatch, save } = await import("./store.ts");
   const { prepareOffline } = await import("./offline.ts");

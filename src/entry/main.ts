@@ -1,7 +1,6 @@
 // Composition root. It is the only module that imports the remaining DOM
 // screens and wires them into the UI shell; `src/ui` sees ports only.
 import * as store from "./store.ts";
-import { createNotesDraft } from "../ui/notes-draft.ts";
 import { previewOnState } from "../application/dispatch/preview.ts";
 import {
   allRoles,
@@ -46,7 +45,7 @@ function applyLocale(code: string): void {
 
 async function changeLanguage(code: string): Promise<void> {
   try {
-    await loadLocale(code);
+    if (!(await loadLocale(code)) || currentLang() !== code) return;
     applyLocale(code);
   } catch (error) {
     console.error("Could not load language", code, error);
@@ -118,7 +117,7 @@ async function boot(): Promise<void> {
   });
 
   const ports: ShellPorts = {
-    notes: createNotesDraft(() => store.state),
+    notes: store.notes,
     router: { current, path, go },
     game: {
       subscribe: store.subscribe,
@@ -163,11 +162,7 @@ async function boot(): Promise<void> {
     library: {
       normalize: library.normalizeLibrary,
       read: library.readLibrary,
-      write: library.writeLibrary,
-      saveBag: library.upsertBag,
-      savePool: library.upsertPool,
-      removeBag: library.removeBag,
-      removePool: library.removePool,
+      edit: library.editLibrary,
       export: library.exportLibrary,
       parse: library.parseLibrary,
     },

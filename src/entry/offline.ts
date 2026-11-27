@@ -84,9 +84,7 @@ export async function prepareOffline(flushNotes: () => boolean): Promise<void> {
     }
     setPhase("applying");
     // Let the applying state paint even when the tab is backgrounded.
-    const painted = Promise.withResolvers<void>();
-    setTimeout(painted.resolve, 0);
-    await painted.promise;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     if (reloadPending) return;
     if (activeGame() && !confirmed) {
       setPhase("available");

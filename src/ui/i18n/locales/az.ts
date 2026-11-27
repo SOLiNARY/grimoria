@@ -470,6 +470,8 @@ export default {
   "ui.correctAction": "Fəaliyyət",
   "ui.correctStatus": "Status",
   "ui.seatEmptyNote": "Bir oturacağa, sonra digərinə toxunun.",
+  "ui.seatOrderChanged": "Başqa pəncərədə yeni oturacaq sırası saxlanılıb.",
+  "ui.seatLoadOrder": "Saxlanmış sıranı yüklə",
   "ui.seatReorderFailed": "Oturacaq sırası dəyişmədi.",
   "ui.sheetMissingRoles": "Rollar üçün məlumat yoxdur: {roles}.",
   "ui.grimoire": "Qrimuar",
@@ -1000,6 +1002,9 @@ export default {
   "bag.delete": "Sil",
   "bag.libraryEmpty": "Hələ heç nə saxlanmayıb.",
   "bag.nameRequired": "Ad daxil edin.",
+  "bag.libraryBusy": "Kitabxana başqa pəncərədə saxlanılır. Yenidən cəhd edin.",
+  "bag.libraryConflict":
+    "Kitabxana başqa pəncərədə dəyişib. Cari qeydləri yoxlayıb yenidən cəhd edin.",
   "bag.saveFailed": "Saxlamaq mümkün olmadı.",
   "bag.libraryCapacity":
     "200 dəst və 200 hovuz saxlamaq olar. Dolu siyahıdan bir qeydi silib yenidən cəhd edin.",
