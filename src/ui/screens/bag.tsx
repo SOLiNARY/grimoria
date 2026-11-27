@@ -42,6 +42,13 @@ import { commandRejectionText, setupProblemText } from "./setup-messages.ts";
 const MIN = 5;
 const MAX = 15;
 const SCRIPT_IDS = ["tb", "bmr", "snv"];
+const LIBRARY_ERRORS = new Map([
+  ["backup-failed", "bag.libraryBackupFailed"],
+  ["damaged", "bag.libraryDamaged"],
+  ["capacity", "bag.libraryCapacity"],
+  ["busy", "bag.libraryBusy"],
+  ["conflict", "bag.libraryConflict"],
+]);
 const SUPPORT_LEVEL_KEY = {
   verified: "scriptLevelVerified",
   "requires-storyteller-choice": "scriptLevelStoryteller",
@@ -249,6 +256,7 @@ export function BagScreen() {
   const [library, setLibrary] = useState<BagLibrary>(() => ports.library.normalize(null));
   const [libraryOpen, setLibraryOpen] = useState(false);
   const libraryFile = useRef<HTMLInputElement>(null);
+  const libraryImport = useRef<AbortController | null>(null);
   const [libraryError, setLibraryError] = useState("");
   const [libraryName, setLibraryName] = useState("");
   const [activePool, setActivePool] = useState<LibraryPool | null>(null);
@@ -481,6 +489,13 @@ export function BagScreen() {
 
   useEffect(() => cancelPickerRead, []);
 
+  const closeLibrary = () => {
+    libraryImport.current?.abort();
+    setLibraryOpen(false);
+    setLibraryError("");
+  };
+  useEffect(() => () => libraryImport.current?.abort(), []);
+
   const applyScript = (script: Script | null) => {
     if (!script || !Array.isArray(script.roles) || !script.roles.length) return;
     if (
@@ -641,18 +656,16 @@ export function BagScreen() {
 
   const persistLibrary = async (change: LibraryEdit) => {
     const result = await ports.library.edit(library, change);
-    if (result.ok || result.error === "conflict" || result.error === "capacity")
+    if (change.type === "replace" && change.signal?.aborted) return result;
+    if (
+      result.ok ||
+      result.error === "damaged" ||
+      result.error === "conflict" ||
+      result.error === "capacity"
+    )
       setLibrary(result.library);
     if (!result.ok) {
-      const key =
-        result.error === "capacity"
-          ? "bag.libraryCapacity"
-          : result.error === "busy"
-            ? "bag.libraryBusy"
-            : result.error === "conflict"
-              ? "bag.libraryConflict"
-              : "bag.saveFailed";
-      setLibraryError(t(key));
+      setLibraryError(t(LIBRARY_ERRORS.get(result.error) ?? "bag.saveFailed"));
     } else {
       setLibraryError("");
     }
@@ -778,7 +791,7 @@ export function BagScreen() {
       setLibraryError(commandRejectionText(result) || t("illegal"));
       return;
     }
-    setLibraryOpen(false);
+    closeLibrary();
     setArmed(false);
     setTab("manual");
     setActiveBag(bag);
@@ -815,7 +828,7 @@ export function BagScreen() {
       setLibraryError(commandRejectionText(result) || t("illegal"));
       return;
     }
-    setLibraryOpen(false);
+    closeLibrary();
     setArmed(false);
     setTab("manual");
     setPoolMode(false);
@@ -841,19 +854,28 @@ export function BagScreen() {
   };
 
   const importFile = async (file: File) => {
+    libraryImport.current?.abort();
+    const request = new AbortController();
+    libraryImport.current = request;
     try {
-      const parsed = ports.library.parse(await file.text());
+      const text = await file.text();
+      if (request.signal.aborted) return;
+      const parsed = ports.library.parse(text);
       if (!parsed.ok) {
         setLibraryError(t(parsed.error === "capacity" ? "bag.importCapacity" : "bag.importFail"));
         return;
       }
-      const imported = await persistLibrary({ type: "replace", library: parsed.library });
-      if (imported.ok) {
+      const imported = await persistLibrary({
+        type: "replace",
+        library: parsed.library,
+        signal: request.signal,
+      });
+      if (imported.ok && !request.signal.aborted) {
         setActiveBag(null);
         setActivePool(null);
       }
     } catch {
-      setLibraryError(t("bag.importFail"));
+      if (!request.signal.aborted) setLibraryError(t("bag.importFail"));
     }
   };
 
@@ -931,8 +953,9 @@ export function BagScreen() {
     if (started.current) return;
     started.current = true;
     const loaded = ports.library.read();
-    setLibrary(loaded.ok ? loaded.library : ports.library.normalize(null));
-    if (!loaded.ok) setLibraryError(t("bag.importFail"));
+    setLibrary(loaded.library);
+    if (!loaded.ok)
+      setLibraryError(t(loaded.error === "damaged" ? "bag.libraryDamaged" : "bag.importFail"));
     if (!state.setup.roles.length && scriptRoles.length >= 5) {
       const bag = tryRandomBag(state.setup.count);
       if (bag) applyBag(bag, true);
@@ -973,8 +996,7 @@ export function BagScreen() {
         else if (pickerOpen) {
           closePicker();
         } else if (libraryOpen) {
-          setLibraryOpen(false);
-          setLibraryError("");
+          closeLibrary();
         }
         return;
       }
@@ -2473,10 +2495,7 @@ export function BagScreen() {
           "library-title",
           t("bag.library"),
           "close-library",
-          () => {
-            setLibraryOpen(false);
-            setLibraryError("");
-          },
+          closeLibrary,
           <>
             <div className="mt-3 flex flex-wrap gap-2">
               <input
@@ -2606,20 +2625,11 @@ export function BagScreen() {
                   const input = event.currentTarget;
                   const file = input.files?.[0];
                   if (!file) return;
-                  void importFile(file).finally(() => {
-                    input.value = "";
-                  });
+                  input.value = "";
+                  void importFile(file);
                 }}
               />
-              <button
-                className="btn"
-                type="button"
-                data-act="close-library"
-                onClick={() => {
-                  setLibraryOpen(false);
-                  setLibraryError("");
-                }}
-              >
+              <button className="btn" type="button" data-act="close-library" onClick={closeLibrary}>
                 {t("close")}
               </button>
             </div>
@@ -2694,8 +2704,12 @@ export function BagScreen() {
         data-act="library"
         onClick={() => {
           const current = ports.library.read(library);
-          if (current.ok) setLibrary(current.library);
-          setLibraryError(current.ok ? "" : t("bag.importFail"));
+          setLibrary(current.library);
+          setLibraryError(
+            current.ok
+              ? ""
+              : t(current.error === "damaged" ? "bag.libraryDamaged" : "bag.importFail"),
+          );
           setLibraryOpen(true);
         }}
       >

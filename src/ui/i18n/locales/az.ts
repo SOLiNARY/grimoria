@@ -1011,6 +1011,10 @@ export default {
   "bag.libraryCapacity":
     "200 dəst və 200 hovuz saxlamaq olar. Dolu siyahıdan bir qeydi silib yenidən cəhd edin.",
   "bag.importFail": "İdxal alınmadı.",
+  "bag.libraryDamaged":
+    "Saxlanmış kitabxana zədələnib. Onu bərpa etmək üçün kitabxananın ehtiyat nüsxəsini idxal edin.",
+  "bag.libraryBackupFailed":
+    "Zədələnmiş kitabxananın surətini saxlamaq mümkün olmadı. Brauzer yaddaşında yer boşaldın və idxalı yenidən sınayın.",
   "bag.importCapacity":
     "Faylda 200-dən çox dəst və ya 200-dən çox hovuz var. Artıq qeydləri fayldan silib onu yenidən idxal edin.",
   "bag.applied": "Dəstdə",

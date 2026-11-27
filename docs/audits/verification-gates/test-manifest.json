@@ -7817,6 +7817,11 @@
       "name": "an update cannot write a pending note over a replacement game or an external edit"
     },
     {
+      "key": "src/entry/page-restore.test.ts::restoring a reading page keeps its history entry while a restored host screen returns to handoff",
+      "file": "src/entry/page-restore.test.ts",
+      "name": "restoring a reading page keeps its history entry while a restored host screen returns to handoff"
+    },
+    {
       "key": "src/entry/screens/demo.test.ts::the demo screen keeps its own in-memory game (SYS-SCRIPTS-06)",
       "file": "src/entry/screens/demo.test.ts",
       "name": "the demo screen keeps its own in-memory game (SYS-SCRIPTS-06)"
@@ -7957,6 +7962,11 @@
       "name": "the selected catalog survives out-of-order loads, failed requests, and Safari 16 startup"
     },
     {
+      "key": "src/infrastructure/library/bag-library.test.ts::a cancelled library restore cannot replace entries after it acquires the writer lock",
+      "file": "src/infrastructure/library/bag-library.test.ts",
+      "name": "a cancelled library restore cannot replace entries after it acquires the writer lock"
+    },
+    {
       "key": "src/infrastructure/library/bag-library.test.ts::a corrupt library read does not throw",
       "file": "src/infrastructure/library/bag-library.test.ts",
       "name": "a corrupt library read does not throw"
@@ -7965,6 +7975,11 @@
       "key": "src/infrastructure/library/bag-library.test.ts::a full collection rejects new entries, allows updates and frees space after a deletion",
       "file": "src/infrastructure/library/bag-library.test.ts",
       "name": "a full collection rejects new entries, allows updates and frees space after a deletion"
+    },
+    {
+      "key": "src/infrastructure/library/bag-library.test.ts::a host can restore a damaged library only after preserving the exact bytes they saw",
+      "file": "src/infrastructure/library/bag-library.test.ts",
+      "name": "a host can restore a damaged library only after preserving the exact bytes they saw"
     },
     {
       "key": "src/infrastructure/library/bag-library.test.ts::concurrent library writers keep independent additions and reject stale edits, deletions and replacement imports",
@@ -8145,6 +8160,16 @@
       "key": "src/ui/i18n/strings.test.ts::the Russian guide and error copy do not drift from the pinned rules",
       "file": "src/ui/i18n/strings.test.ts",
       "name": "the Russian guide and error copy do not drift from the pinned rules"
+    },
+    {
+      "key": "src/ui/reference-route.test.ts::malformed reference paths use the ordinary route fallback",
+      "file": "src/ui/reference-route.test.ts",
+      "name": "malformed reference paths use the ordinary route fallback"
+    },
+    {
+      "key": "src/ui/reference-route.test.ts::reference routes open the index or decode one character ID",
+      "file": "src/ui/reference-route.test.ts",
+      "name": "reference routes open the index or decode one character ID"
     },
     {
       "key": "src/ui/screens/bluff-selection.test.ts::a full bluff list replaces its oldest entry on a new pick",
@@ -8360,6 +8385,26 @@
       "key": "src/ui/screens/table/copy-backup.test.ts::copying a private backup reports success or selects the complete text for manual copying",
       "file": "src/ui/screens/table/copy-backup.test.ts",
       "name": "copying a private backup reports success or selects the complete text for manual copying"
+    },
+    {
+      "key": "src/ui/screens/table/handoff.test.ts::a correction draft follows its original game and deal even when seat IDs repeat",
+      "file": "src/ui/screens/table/handoff.test.ts",
+      "name": "a correction draft follows its original game and deal even when seat IDs repeat"
+    },
+    {
+      "key": "src/ui/screens/table/handoff.test.ts::a shown role stays open through notes and loses its context when its assignment changes or disappears",
+      "file": "src/ui/screens/table/handoff.test.ts",
+      "name": "a shown role stays open through notes and loses its context when its assignment changes or disappears"
+    },
+    {
+      "key": "src/ui/screens/table/handoff.test.ts::a winner invalidates an open handoff before the host victory panel can appear",
+      "file": "src/ui/screens/table/handoff.test.ts",
+      "name": "a winner invalidates an open handoff before the host victory panel can appear"
+    },
+    {
+      "key": "src/ui/screens/table/handoff.test.ts::both night handoffs lose their context when the wake or the game changes",
+      "file": "src/ui/screens/table/handoff.test.ts",
+      "name": "both night handoffs lose their context when the wake or the game changes"
     },
     {
       "key": "src/ui/screens/table/helpers.test.ts::a blocked attack result is a prevented death",
@@ -8909,6 +8954,11 @@
       "name": "random-swap"
     },
     {
+      "key": "scripts/browser-check.ts::reference-reading",
+      "file": "scripts/browser-check.ts",
+      "name": "reference-reading"
+    },
+    {
       "key": "scripts/browser-check.ts::role steps",
       "file": "scripts/browser-check.ts",
       "name": "role steps"
@@ -8962,6 +9012,11 @@
       "key": "scripts/browser-check.ts::table surface",
       "file": "scripts/browser-check.ts",
       "name": "table surface"
+    },
+    {
+      "key": "scripts/browser-check.ts::table-handoff-replacement",
+      "file": "scripts/browser-check.ts",
+      "name": "table-handoff-replacement"
     },
     {
       "key": "scripts/browser-check.ts::tinker-first-night",

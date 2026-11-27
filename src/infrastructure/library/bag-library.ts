@@ -135,15 +135,24 @@ function exceedsCapacity(library: Library): boolean {
 
 // Retain generated identifiers for a legacy library while its bytes are unchanged.
 const readBytes = new WeakMap<Library, string>();
+const damagedReads = new WeakMap<Library, { raw: string; backupKey?: string }>();
 export function readLibrary(base?: Library): LibraryRead {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(LIBRARY_KEY);
-    if (!raw) return { ok: true, library: emptyLibrary() };
+    raw = localStorage.getItem(LIBRARY_KEY);
+    if (raw === null) return { ok: true, library: emptyLibrary() };
+    if (base && damagedReads.get(base)?.raw === raw)
+      return { ok: false, library: base, error: "damaged" };
     if (base && readBytes.get(base) === raw) return { ok: true, library: base };
     const library = normalizeLibrary(JSON.parse(raw));
     readBytes.set(library, raw);
     return { ok: true, library };
   } catch (error) {
+    if (raw !== null) {
+      const library = emptyLibrary();
+      damagedReads.set(library, { raw });
+      return { ok: false, library, error: "damaged" };
+    }
     return { ok: false, library: emptyLibrary(), error: (error as Error).message };
   }
 }
@@ -163,14 +172,31 @@ export type LibraryEdit =
   | { type: "saveBag"; entry: BagEntry; expected?: Bag }
   | { type: "savePool"; entry: PoolEntry; expected?: Pool }
   | { type: "removeBag" | "removePool"; id: string }
-  | { type: "replace"; library: Library };
+  | { type: "replace"; library: Library; signal?: AbortSignal };
 type EditResult = LibraryRead & { id?: string };
 
 function commitEdit(base: Library, edit: LibraryEdit): EditResult {
+  if (edit.type === "replace" && edit.signal?.aborted)
+    return { ok: false, library: base, error: "cancelled" };
   const disk = readLibrary(base);
-  if (!disk.ok) return disk;
   const current = disk.library;
   const conflict = { ok: false, library: current, error: "conflict" } as const;
+  const damage = damagedReads.get(base);
+  if (damage && current !== base) return disk.ok || damagedReads.has(current) ? conflict : disk;
+  if (!disk.ok) {
+    // Only an explicit restore may replace the same damaged bytes the host saw.
+    // Keep the recovery copy if writing the replacement has to be retried.
+    if (edit.type !== "replace" || !damage) return disk;
+    try {
+      if (!damage.backupKey || localStorage.getItem(damage.backupKey) !== damage.raw) {
+        const key = LIBRARY_KEY + ".broken." + newId();
+        localStorage.setItem(key, damage.raw);
+        damage.backupKey = key;
+      }
+    } catch {
+      return { ok: false, library: current, error: "backup-failed" };
+    }
+  }
   let next: Library;
   let savedId: string | undefined;
   if (edit.type === "replace") {

@@ -11,6 +11,15 @@ All notable changes to Grimoria are recorded here. The format follows
 - Show the rolled roles on the Setup screen's Random tab, grouped by type, and let the host swap any one of them for another legal role of the same type or reroll it; bluffs and masks the swap puts in play are redrawn (#17).
 - Make picked roles in the setup role grid wear their team colour, and show team names in the chosen language (#17).
 
+## [0.12.5] - 2026-11-27
+
+### Fixed
+
+- Cover private table handoffs when their original context changes and prevent pending corrections from modifying a replacement game.
+- Allow a valid backup to restore a damaged setup library while preserving its original bytes. Discard file imports the host has closed or superseded.
+- Keep character searches when returning to the reference index and show a retry when reference data is unavailable. Restore reading pages at their original location when returning through browser history.
+- Route unrecognized sheet and reference paths through the standard fallback.
+
 ## [0.12.4] - 2026-11-27
 
 ### Fixed

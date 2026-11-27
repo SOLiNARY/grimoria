@@ -16,6 +16,73 @@ import {
 } from "./bag-library.ts";
 import { STORAGE_KEY } from "../../core/model/state.ts";
 
+test("a host can restore a damaged library only after preserving the exact bytes they saw", async () => {
+  const values = fakeStorage();
+  const original = '{"bags":';
+  values.set(LIBRARY_KEY, original);
+  const broken = readLibrary();
+  assert.equal(broken.ok, false);
+  const replacement = normalizeLibrary({ bags: [bag] });
+  const restore = { type: "replace", library: replacement } as const;
+  assert.equal((await editLibrary(broken.library, { type: "saveBag", entry: bag })).ok, false);
+  assert.equal((await editLibrary(emptyLibrary(), restore)).ok, false);
+  values.set(LIBRARY_KEY, "{different broken bytes");
+  assert.equal((await editLibrary(broken.library, restore)).ok, false);
+  values.set(LIBRARY_KEY, JSON.stringify(emptyLibrary()));
+  assert.equal((await editLibrary(broken.library, restore)).ok, false);
+  values.set(LIBRARY_KEY, original);
+  const setItem = localStorage.setItem;
+  localStorage.setItem = (key, value) => {
+    if (key.startsWith(LIBRARY_KEY + ".broken."))
+      throw new DOMException("Full", "QuotaExceededError");
+    setItem(key, value);
+  };
+  assert.equal((await editLibrary(broken.library, restore)).ok, false);
+  assert.equal(values.get(LIBRARY_KEY), original);
+  localStorage.setItem = (key, value) => {
+    if (key === LIBRARY_KEY) throw new DOMException("Full", "QuotaExceededError");
+    setItem(key, value);
+  };
+  assert.equal((await editLibrary(broken.library, restore)).ok, false);
+  assert.equal(values.get(LIBRARY_KEY), original);
+  localStorage.setItem = setItem;
+  assert.equal((await editLibrary(broken.library, restore)).ok, true);
+  assert.deepEqual(readLibrary().library, replacement);
+  assert.equal(
+    [...values].filter(([key, raw]) => key.startsWith(LIBRARY_KEY + ".broken.") && raw === original)
+      .length,
+    1,
+  );
+});
+
+test("a cancelled library restore cannot replace entries after it acquires the writer lock", async (t) => {
+  const values = fakeStorage();
+  const saved = normalizeLibrary({ bags: [bag] });
+  writeLibrary(saved);
+  const before = values.get(LIBRARY_KEY);
+  const blocker = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  const locks = {
+    async request(_name: string, task: () => unknown) {
+      started.resolve();
+      await blocker.promise;
+      return task();
+    },
+  };
+  t.mock.getter(Object.getPrototypeOf(navigator), "locks", () => locks);
+  const controller = new AbortController();
+  const pending = editLibrary(readLibrary().library, {
+    type: "replace",
+    library: emptyLibrary(),
+    signal: controller.signal,
+  });
+  await started.promise;
+  controller.abort();
+  blocker.resolve();
+  assert.equal((await pending).ok, false);
+  assert.equal(values.get(LIBRARY_KEY), before);
+});
+
 function fakeStorage(): Map<string, string> {
   const values = new Map<string, string>();
   globalThis.localStorage = {

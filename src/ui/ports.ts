@@ -191,7 +191,7 @@ export type LibraryEdit =
   | { type: "saveBag"; entry: BagEntryInput; expected?: LibraryBag }
   | { type: "savePool"; entry: PoolEntryInput; expected?: LibraryPool }
   | { type: "removeBag" | "removePool"; id: string }
-  | { type: "replace"; library: BagLibrary };
+  | { type: "replace"; library: BagLibrary; signal?: AbortSignal };
 
 export interface ShellPorts {
   readonly notes: NotesDraft;

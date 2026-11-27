@@ -16,6 +16,7 @@ import { assetUrl } from "../infrastructure/platform/asset-url.ts";
 import { current, go, path, start } from "../infrastructure/routing/history-router.ts";
 import { prepareOffline } from "./offline.ts";
 import { watchNotesLifecycle } from "./notes-lifecycle.ts";
+import { needsRestoredHandoff } from "./page-restore.ts";
 import * as presets from "../core/model/presets.ts";
 import * as library from "../infrastructure/library/bag-library.ts";
 import { mountShell } from "../ui/main.tsx";
@@ -186,7 +187,7 @@ async function boot(): Promise<void> {
   mountShell(screen, ports, route);
 
   window.addEventListener("pageshow", (event) => {
-    if (event.persisted) go("/player");
+    if (needsRestoredHandoff(event.persisted, current())) go("/player");
   });
 
   const status = document.getElementById("storage-status");
