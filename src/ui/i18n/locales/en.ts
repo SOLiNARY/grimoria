@@ -1009,7 +1009,11 @@ export default {
   "bag.libraryEmpty": "Nothing saved yet.",
   "bag.nameRequired": "Enter a name.",
   "bag.saveFailed": "Could not save.",
+  "bag.libraryCapacity":
+    "The limit is 200 bags and 200 pools. Remove an entry from the full list and try again.",
   "bag.importFail": "Import failed.",
+  "bag.importCapacity":
+    "The file exceeds the limit of 200 bags or 200 pools. Remove extra entries from the file and import it again.",
   "bag.applied": "In the bag",
   "bag.take": "Take bag",
   "bag.previewBag": "Bag preview",

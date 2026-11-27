@@ -1563,6 +1563,45 @@ async function savedCustomBagRestoresPool() {
   await page.setViewportSize({ width: 1280, height: 900 });
   await overflow();
   await page.screenshot({ path: join(screenshots, "restored-custom-bag-1280.png") });
+
+  const previousLibrary = await page.evaluate(() => localStorage.getItem("pg.library.v1"));
+  assert.ok(previousLibrary);
+  const library = JSON.parse(previousLibrary) as { bags: { id: string; name: string }[] };
+  const template = library.bags.find((bag) => bag.id === savedBagId);
+  assert.ok(template);
+  const bags = Array.from({ length: 200 }, (_, i) => ({
+    ...template,
+    id: `capacity-${i}`,
+    name: `Saved bag ${i}`,
+  }));
+  await page.locator('[data-act="library"]').click();
+  await page.locator("[data-library-file]").setInputFiles({
+    name: "full-library.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({ ...library, format: "pocket-grimoire-library", version: 1, bags }),
+    ),
+  });
+  await page.locator('[data-load-bag="capacity-199"]').waitFor({ state: "attached" });
+  const nameInput = page.locator("[data-library-name]");
+  await nameInput.fill("One more bag");
+  await page.locator('[data-act="save-bag"]').click();
+  assert.match(
+    await page.locator('[aria-labelledby="library-title"] [role="alert"]').innerText(),
+    /200/,
+  );
+  assert.equal(await nameInput.inputValue(), "One more bag");
+  await page.reload();
+  await page.locator('[data-act="library"]').click();
+  assert.deepEqual(
+    await page
+      .locator("[data-load-bag]")
+      .evaluateAll((buttons) => buttons.map((button) => button.dataset.loadBag)),
+    bags.map((bag) => bag.id),
+    "rejecting the 201st bag preserves every saved ID after reload",
+  );
+  await page.evaluate((backup) => localStorage.setItem("pg.library.v1", backup), previousLibrary);
+  await page.reload();
 }
 
 async function mixedScriptDiagnostics() {
