@@ -1263,4 +1263,12 @@ export default {
   referenceRegistration: "The Storyteller chooses how a player registers.",
   referenceFirstNightOrder: "First-night order",
   referenceOtherNightOrder: "Other-night order",
+  "random.rolled": "Rolled roles",
+  "random.swap": "Swap",
+  "random.reroll": "Reroll",
+  "random.swapFor": "Replace {role} with",
+  "random.noSwap": "No legal replacement on this script.",
+  "random.empty": "Roll a bag to see which roles came up.",
+  "random.rerollAll": "Reroll the whole bag",
+  "random.hint": "Tap a role to swap it for another legal one.",
 };

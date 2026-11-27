@@ -121,6 +121,7 @@ const focusedChecks: Record<string, () => Promise<void>> = {
   "mixed-script": mixedScriptDiagnostics,
   "verified-jinx": verifiedJinxDiagnostics,
   "mobile-bag-order": mobileBagOrder,
+  "random-swap": randomTabSwap,
   "no-beta-labels": officialScriptsAreNotBeta,
   "role-corrections": currentScriptRoleCorrections,
   "madness-execution": madnessExecutionFromTable,
@@ -684,6 +685,124 @@ async function seed(count: number, phase = "night") {
   );
   assert.equal(result.ok, true, JSON.stringify(result));
   await settled();
+}
+
+// The random tab lists the rolled bag by type and swaps one role for another
+// legal role of the same type; picked cards in the role grid wear their team.
+async function randomTabSwap() {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await route("/table");
+  const configured = await page.evaluate(async () => {
+    const { store, rules } = await window.PG_MODULES();
+    return store.dispatch({
+      type: "bagUpdate",
+      payload: {
+        patch: {
+          script: {
+            id: "bmr",
+            name: "Bad Moon Rising",
+            edition: "bmr",
+            source: "official",
+            roles: rules.BMR_ALL.slice(),
+          },
+          count: 8,
+          resetRoster: true,
+          phase: "setup",
+          roles: [
+            "grandmother",
+            "sailor",
+            "courtier",
+            "gossip",
+            "minstrel",
+            "goon",
+            "devilsadvocate",
+            "po",
+          ],
+          bluffs: ["professor", "fool", "pacifist"],
+          drunkShownId: null,
+          lunaticShownId: null,
+          evilTwinGoodId: null,
+        },
+      },
+    });
+  });
+  assert.equal(configured.status, "allowed", JSON.stringify(configured));
+  await route("/bag");
+  await page.locator('[data-tab="random"]').click();
+  assert.equal(await page.locator("[data-rolled]").count(), 8, "every rolled role is listed");
+  assert.deepEqual(
+    await page
+      .locator("[data-rolled-team]")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-rolled-team"))),
+    ["townsfolk", "outsider", "minion", "demon"],
+    "the rolled roles are grouped by type",
+  );
+
+  await page.locator('[data-rolled="devilsadvocate"]').click();
+  const minions = await page
+    .locator("[data-swap-to]")
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-swap-to")));
+  assert.deepEqual(
+    minions.sort(),
+    ["assassin", "mastermind"],
+    "the Godfather is not offered: it would need another Outsider",
+  );
+  await overflow();
+  await page.screenshot({ path: join(screenshots, "random-swap-390.png") });
+
+  await page.locator('[data-rolled="sailor"]').click();
+  assert.equal(
+    await page.locator('[data-swap-from="devilsadvocate"]').count(),
+    0,
+    "one swap list is open at a time",
+  );
+  await page.locator('[data-swap-to="professor"]').click();
+  const after = await page.evaluate(async () => {
+    const { store } = await window.PG_MODULES();
+    const { setup } = store.state;
+    return { roles: setup.roles.slice(), bluffs: setup.bluffs.slice() };
+  });
+  assert.ok(after.roles.includes("professor") && !after.roles.includes("sailor"));
+  assert.equal(after.bluffs.length, 3, "the bluffs are refilled");
+  assert.ok(!after.bluffs.includes("professor"), "an in-play role is no bluff");
+  assert.ok(after.bluffs.includes("fool") && after.bluffs.includes("pacifist"));
+  assert.equal(await page.locator("[data-swap-from]").count(), 0, "the swap list closes");
+  assert.equal(await page.locator('[data-rolled="professor"]').count(), 1);
+  await page.locator('[data-tab="manual"]').click();
+  await page.locator('[data-act="undo"]').click();
+  await page.waitForFunction(
+    async () => (await window.PG_MODULES()).store.state.setup.roles.includes("sailor"),
+    undefined,
+    { timeout: 3000 },
+  );
+
+  assert.equal(await page.locator(".bag-role.is-on").count(), 8);
+  assert.equal(
+    await page.locator(".bag-role.is-on .bag-role-check").count(),
+    8,
+    "every picked card carries the team check",
+  );
+  assert.equal(await page.locator(".bag-role.is-off .bag-role-check").count(), 0);
+
+  for (const [lang, title, team] of [
+    ["en", "Rolled roles", "Townsfolk"],
+    ["az", "Düşən rollar", "Şəhər sakinləri"],
+    ["ru", "Выпавшие роли", "Горожане"],
+  ] as const) {
+    await page.evaluate((code) => localStorage.setItem("pg.lang", code), lang);
+    await page.reload();
+    await page.waitForSelector(".setup");
+    await page.locator('[data-tab="random"]').click();
+    assert.equal((await page.locator(".bag-random h3").innerText()).trim(), title);
+    assert.equal(
+      (await page.locator('[data-rolled-team="townsfolk"] h4').innerText()).trim(),
+      team,
+      `the team name is localized in ${lang}`,
+    );
+    await page.locator('[data-rolled="goon"]').click();
+    assert.ok((await page.locator("[data-swap-to]").count()) > 0, `swaps render in ${lang}`);
+    await overflow();
+  }
 }
 
 // The circle is fixed during play (SYS-LIFECYCLE-02): the seat screen must not
@@ -9853,6 +9972,7 @@ async function fullChecks() {
   await timed("saved-custom-bag", savedCustomBagRestoresPool);
   await timed("mixed-script", mixedScriptDiagnostics);
   await timed("no-beta-labels", officialScriptsAreNotBeta);
+  await timed("random-swap", randomTabSwap);
   await timed("role-corrections", currentScriptRoleCorrections);
   await timed("madness-execution", madnessExecutionFromTable);
   await timed("player-voting", playerBubbleVoting);

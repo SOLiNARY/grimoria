@@ -1255,4 +1255,12 @@ export default {
   referenceRegistration: "Ведущий решает, как игрок регистрируется.",
   referenceFirstNightOrder: "Порядок в первую ночь",
   referenceOtherNightOrder: "Порядок в остальные ночи",
+  "random.rolled": "Выпавшие роли",
+  "random.swap": "Заменить",
+  "random.reroll": "Перебросить",
+  "random.swapFor": "Замена для «{role}»:",
+  "random.noSwap": "В сценарии нет легальной замены.",
+  "random.empty": "Соберите случайный набор, чтобы увидеть роли.",
+  "random.rerollAll": "Перебросить весь набор",
+  "random.hint": "Нажмите на роль, чтобы заменить её другой легальной.",
 };
