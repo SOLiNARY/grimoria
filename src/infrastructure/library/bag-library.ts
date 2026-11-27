@@ -102,8 +102,7 @@ export function normalizeLibrary(value: unknown): Library {
         roles: ids(entry.roles),
         updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : stamp(),
       }))
-      .filter((entry) => entry.roles.length >= 5)
-      .slice(0, MAX_ENTRIES),
+      .filter((entry) => entry.roles.length >= 5),
     bags: bags
       .filter((entry) => entry && typeof entry === "object" && text(entry.name))
       .map((entry): Bag => ({
@@ -126,9 +125,12 @@ export function normalizeLibrary(value: unknown): Library {
         evilTwinGoodId: isSupportedRole(entry.evilTwinGoodId) ? entry.evilTwinGoodId : null,
         updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : stamp(),
       }))
-      .filter((entry) => entry.roles.length >= 5 && entry.roles.length <= 15)
-      .slice(0, MAX_ENTRIES),
+      .filter((entry) => entry.roles.length >= 5 && entry.roles.length <= 15),
   };
+}
+
+function exceedsCapacity(library: Library): boolean {
+  return library.bags.length > MAX_ENTRIES || library.pools.length > MAX_ENTRIES;
 }
 
 export function readLibrary(): LibraryRead {
@@ -144,7 +146,9 @@ export function readLibrary(): LibraryRead {
 
 export function writeLibrary(library: unknown): LibraryWrite {
   try {
-    localStorage.setItem(LIBRARY_KEY, JSON.stringify(normalizeLibrary(library)));
+    const next = normalizeLibrary(library);
+    if (exceedsCapacity(next)) return { ok: false, error: "capacity" };
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(next));
     return { ok: true };
   } catch (error) {
     return { ok: false, error: (error as Error).message };
@@ -158,8 +162,9 @@ export function upsertPool(library: unknown, entry: PoolEntry): PoolSave {
   const roles = ids(entry.roles);
   if (roles.length < 5) return { ok: false, error: "roles" };
   const id = typeof entry.id === "string" && entry.id ? entry.id : newId("pool");
-  const record: Pool = { id, name, roles, updatedAt: stamp() };
   const index = next.pools.findIndex((pool) => pool.id === id);
+  if (index === -1 && next.pools.length >= MAX_ENTRIES) return { ok: false, error: "capacity" };
+  const record: Pool = { id, name, roles, updatedAt: stamp() };
   if (index === -1) next.pools.unshift(record);
   else next.pools[index] = record;
   return { ok: true, library: next, pool: record };
@@ -178,6 +183,8 @@ export function upsertBag(library: unknown, entry: BagEntry): BagSave {
   const roles = ids(entry.roles);
   if (roles.length < 5 || roles.length > 15) return { ok: false, error: "roles" };
   const id = typeof entry.id === "string" && entry.id ? entry.id : newId("bag");
+  const index = next.bags.findIndex((bag) => bag.id === id);
+  if (index === -1 && next.bags.length >= MAX_ENTRIES) return { ok: false, error: "capacity" };
   const record: Bag = {
     id,
     name,
@@ -198,7 +205,6 @@ export function upsertBag(library: unknown, entry: BagEntry): BagSave {
     evilTwinGoodId: isRoleId(entry.evilTwinGoodId) ? entry.evilTwinGoodId : null,
     updatedAt: stamp(),
   };
-  const index = next.bags.findIndex((bag) => bag.id === id);
   if (index === -1) next.bags.unshift(record);
   else next.bags[index] = record;
   return { ok: true, library: next, bag: record };
@@ -237,6 +243,7 @@ export function parseLibrary(input: unknown): LibraryParse {
     return { ok: false, error: "format" };
   }
   const library = normalizeLibrary(value);
+  if (exceedsCapacity(library)) return { ok: false, error: "capacity" };
   if (!library.pools.length && !library.bags.length) {
     return { ok: false, error: "empty" };
   }

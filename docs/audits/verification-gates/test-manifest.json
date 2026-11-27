@@ -332,6 +332,16 @@
       "name": "the any metric counts JSDoc types and ignores prose"
     },
     {
+      "key": "scripts/check-types-policy.test.ts::the CLI checks JavaScript extensions in a source archive without Git metadata",
+      "file": "scripts/check-types-policy.test.ts",
+      "name": "the CLI checks JavaScript extensions in a source archive without Git metadata"
+    },
+    {
+      "key": "scripts/check-types-policy.test.ts::the CLI checks tracked and new JavaScript files while ignoring excluded worktrees",
+      "file": "scripts/check-types-policy.test.ts",
+      "name": "the CLI checks tracked and new JavaScript files while ignoring excluded worktrees"
+    },
+    {
       "key": "scripts/check-types-policy.test.ts::the repository keeps one stylesheet",
       "file": "scripts/check-types-policy.test.ts",
       "name": "the repository keeps one stylesheet"
@@ -7857,6 +7867,11 @@
       "name": "a corrupt library read does not throw"
     },
     {
+      "key": "src/infrastructure/library/bag-library.test.ts::a full collection rejects new entries, allows updates and frees space after a deletion",
+      "file": "src/infrastructure/library/bag-library.test.ts",
+      "name": "a full collection rejects new entries, allows updates and frees space after a deletion"
+    },
+    {
       "key": "src/infrastructure/library/bag-library.test.ts::export and parse round-trip the library",
       "file": "src/infrastructure/library/bag-library.test.ts",
       "name": "export and parse round-trip the library"
@@ -7865,6 +7880,11 @@
       "key": "src/infrastructure/library/bag-library.test.ts::normalization keeps supported roles and drops malformed entries",
       "file": "src/infrastructure/library/bag-library.test.ts",
       "name": "normalization keeps supported roles and drops malformed entries"
+    },
+    {
+      "key": "src/infrastructure/library/bag-library.test.ts::oversized imports and writes preserve all existing bags and pools",
+      "file": "src/infrastructure/library/bag-library.test.ts",
+      "name": "oversized imports and writes preserve all existing bags and pools"
     },
     {
       "key": "src/infrastructure/library/bag-library.test.ts::pools and bags can be added, updated and removed by id",

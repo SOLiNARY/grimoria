@@ -101,6 +101,71 @@ test("pools and bags can be added, updated and removed by id", () => {
   assert.equal(removePool(renamed.library, added.pool.id).library.pools.length, 0);
 });
 
+const fullCollection = Array.from({ length: 200 }, (_, i) => ({
+  ...bag,
+  id: String(i),
+  name: `Entry ${i}`,
+}));
+
+test("a full collection rejects new entries, allows updates and frees space after a deletion", () => {
+  for (const kind of ["bags", "pools"] as const) {
+    fakeStorage();
+    const full = normalizeLibrary({ [kind]: fullCollection });
+    const save = kind === "bags" ? upsertBag : upsertPool;
+    const remove = kind === "bags" ? removeBag : removePool;
+    assert.equal(writeLibrary(full).ok, true);
+
+    const added = save(full, { ...bag, name: "New entry" });
+    assert.equal(added.ok, false);
+    assert.equal(added.error, "capacity");
+    assert.deepEqual(readLibrary().library, full);
+
+    const otherSave = kind === "bags" ? upsertPool : upsertBag;
+    const independent = otherSave(full, bag);
+    assert.equal(independent.ok, true);
+    assert.deepEqual(independent.library[kind], full[kind]);
+    assert.equal(independent.library[kind === "bags" ? "pools" : "bags"].length, 1);
+
+    const edited = save(full, { ...full[kind][199], name: "Renamed" });
+    assert.equal(edited.ok, true);
+    assert.equal(writeLibrary(edited.library).ok, true);
+    const persisted = readLibrary().library[kind];
+    assert.deepEqual(
+      persisted.map((entry) => entry.id),
+      fullCollection.map((entry) => entry.id),
+    );
+    assert.equal(persisted[199].name, "Renamed");
+
+    const removed = remove(edited.library, "0");
+    const retried = save(removed.library, { ...bag, id: "replacement" });
+    assert.equal(retried.ok, true);
+    assert.equal(writeLibrary(retried.library).ok, true);
+    assert.deepEqual(
+      readLibrary().library[kind].map((entry) => entry.id),
+      ["replacement", ...fullCollection.slice(1).map((entry) => entry.id)],
+    );
+  }
+});
+
+test("oversized imports and writes preserve all existing bags and pools", () => {
+  const storage = fakeStorage();
+  const existing = normalizeLibrary({ bags: [bag], pools: [bag] });
+  assert.equal(writeLibrary(existing).ok, true);
+  const before = storage.get(LIBRARY_KEY);
+  for (const kind of ["bags", "pools"] as const) {
+    const payload = {
+      ...existing,
+      format: "pocket-grimoire-library",
+      [kind]: [...fullCollection, { ...bag, id: "extra" }],
+    };
+    const imported = parseLibrary(JSON.stringify(payload));
+    assert.equal(imported.ok, false);
+    assert.equal(imported.error, "capacity");
+    assert.deepEqual(writeLibrary(payload), { ok: false, error: "capacity" });
+    assert.equal(storage.get(LIBRARY_KEY), before);
+  }
+});
+
 test("upsert rejects entries without a name or with a bad role count", () => {
   const library = emptyLibrary();
   assert.equal(upsertPool(library, { name: "", roles: bag.roles }).ok, false);

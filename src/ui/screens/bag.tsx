@@ -625,10 +625,19 @@ export function BagScreen() {
     setBagError("");
   };
 
+  const showLibrarySaveError = (error: string) => {
+    setLibraryError(t(error === "capacity" ? "bag.libraryCapacity" : "bag.saveFailed"));
+  };
+
   const persistLibrary = (next: BagLibrary) => {
     const result = ports.library.write(next);
+    if (!result.ok) {
+      showLibrarySaveError(result.error);
+      return false;
+    }
     setLibrary(next);
-    if (!result.ok) setLibraryError(t("bag.importFail"));
+    setLibraryError("");
+    return true;
   };
 
   const saveCurrentBag = () => {
@@ -654,13 +663,12 @@ export function BagScreen() {
     };
     const result = ports.library.saveBag(library, entry);
     if (!result.ok) {
-      setLibraryError(t("bag.saveFailed"));
+      showLibrarySaveError(result.error);
       return;
     }
-    setLibraryError("");
+    if (!persistLibrary(result.library)) return;
     setLibraryName("");
     setActiveBagId(result.bag.id);
-    persistLibrary(result.library);
   };
 
   const saveCurrentPool = () => {
@@ -678,13 +686,12 @@ export function BagScreen() {
       roles: scriptRoles,
     });
     if (!result.ok) {
-      setLibraryError(t("bag.saveFailed"));
+      showLibrarySaveError(result.error);
       return;
     }
-    setLibraryError("");
+    if (!persistLibrary(result.library)) return;
     setLibraryName("");
     setActivePoolId(result.pool.id);
-    persistLibrary(result.library);
   };
 
   const loadBag = (id: string) => {
@@ -801,10 +808,9 @@ export function BagScreen() {
     try {
       const parsed = ports.library.parse(await file.text());
       if (!parsed.ok) {
-        setLibraryError(t("bag.importFail"));
+        setLibraryError(t(parsed.error === "capacity" ? "bag.importCapacity" : "bag.importFail"));
         return;
       }
-      setLibraryError("");
       persistLibrary(parsed.library);
     } catch {
       setLibraryError(t("bag.importFail"));
@@ -1290,12 +1296,16 @@ export function BagScreen() {
 
   const secretToken = (
     on: boolean,
-    attributes: Record<string, string | number | boolean>,
+    {
+      key,
+      ...attributes
+    }: { key: string | number; [attribute: `data-${string}`]: string | number },
     content: React.ReactNode,
     onClick: () => void,
     disabled = false,
   ) => (
     <button
+      key={key}
       {...attributes}
       onClick={onClick}
       className={`bag-bluff-token grid min-w-0 place-items-center gap-1 rounded-md border p-1.5 text-[11px] transition-colors ${

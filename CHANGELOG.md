@@ -11,6 +11,13 @@ All notable changes to Grimoria are recorded here. The format follows
 - Show the rolled roles on the Setup screen's Random tab, grouped by type, and let the host swap any one of them for another legal role of the same type or reroll it; bluffs and masks the swap puts in play are redrawn (#17).
 - Make picked roles in the setup role grid wear their team colour, and show team names in the chosen language (#17).
 
+## [0.12.1] - 2026-11-27
+
+### Fixed
+
+- Keep saved bags and pools when the library reaches 200 entries of either kind. The setup screen explains the limit and lets the host edit or remove an existing entry (#17).
+- Give scheduled and manual verification runs a comparison commit and exclude ignored worktrees from the first-party source check (#332).
+
 ## [0.12.0] - 2026-11-26
 
 ### Changed
