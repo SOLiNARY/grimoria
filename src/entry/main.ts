@@ -43,14 +43,24 @@ function applyLocale(code: string): void {
   document.documentElement.lang = code;
   setLang(code);
   setUiLang(code);
+  const status = document.getElementById("language-status");
+  if (status) status.hidden = true;
 }
 
 async function changeLanguage(code: string): Promise<void> {
   try {
     if (!(await loadLocale(code)) || currentLang() !== code) return;
     applyLocale(code);
-  } catch (error) {
-    console.error("Could not load language", code, error);
+  } catch {
+    const status = document.getElementById("language-status");
+    const message = status?.querySelector("[role=alert]");
+    const retry = status?.querySelector("button");
+    if (status && message && retry) {
+      message.textContent = t("languageLoadFailed", { language: code.toUpperCase() });
+      retry.textContent = t("retry");
+      retry.onclick = () => void changeLanguage(code);
+      status.hidden = false;
+    }
     return;
   }
   // The sheet takes its language from the path, so a language change there must

@@ -8,7 +8,23 @@ export { imageName };
 type CatalogWindow = Window & { PG?: { roles?: Role[] } };
 
 const browser = window as CatalogWindow;
-let activeCatalog = browser.PG;
+function usableCatalog(value: CatalogWindow["PG"]): boolean {
+  return (
+    Array.isArray(value?.roles) &&
+    value.roles.length > 0 &&
+    value.roles.every(
+      (role) =>
+        role &&
+        typeof role.id === "string" &&
+        typeof role.name === "string" &&
+        typeof role.edition === "string" &&
+        typeof role.team === "string" &&
+        (role.ability === undefined || typeof role.ability === "string"),
+    )
+  );
+}
+
+let activeCatalog = usableCatalog(browser.PG) ? browser.PG : undefined;
 let requested = 0;
 let lang = "ru";
 
@@ -46,12 +62,19 @@ export async function loadLocale(code: string, signal?: AbortSignal): Promise<bo
         resolve(false);
         return;
       }
-      activeCatalog = browser.PG;
+      const published = browser.PG;
+      if (published === activeCatalog || !usableCatalog(published)) {
+        browser.PG = activeCatalog ?? {};
+        reject(new Error("Invalid language catalog: " + src));
+        return;
+      }
+      activeCatalog = published;
       TB = filter();
       lang = next;
       resolve(true);
     };
     script.onerror = () => {
+      browser.PG = activeCatalog ?? {};
       if (request === requested && !signal?.aborted) reject(new Error("Could not load " + src));
       else resolve(false);
     };

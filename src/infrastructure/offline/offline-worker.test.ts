@@ -76,6 +76,7 @@ interface Port {
 }
 
 const scope = "https://example.test/pocket/";
+const scopedCache = (version: string) => version + ":" + scope;
 
 type WorkerEvent = {
   clientId?: string;
@@ -115,12 +116,16 @@ function fakeMessageChannel() {
 
 function createWorker({
   entries = new Map<string, Map<string, unknown>>(),
+  workerScope = scope,
+  cacheUnavailable = false,
   version = cacheName,
   match = async () => null,
   loadAsset = (request) => request.url,
   windows = [],
 }: {
   entries?: Map<string, Map<string, unknown>>;
+  workerScope?: string;
+  cacheUnavailable?: boolean;
   version?: string;
   match?: (request: unknown) => Promise<unknown>;
   loadAsset?: (request: Request) => string;
@@ -135,12 +140,12 @@ function createWorker({
     fetched: [] as string[],
   };
   const requestUrl = (request: string | { url: string }): string =>
-    new URL(typeof request === "string" ? request : request.url, scope).href;
+    new URL(typeof request === "string" ? request : request.url, workerScope).href;
   const timers = new Map<number, () => void>();
   let timerSeq = 0;
   const clients: Client[] = windows.map((window): Client => ({
     id: window.id,
-    url: scope + "table",
+    url: workerScope + "table",
     posts: [],
     postMessage(message, ports) {
       this.posts.push({ message, port: (ports && ports[0]) as Port });
@@ -148,6 +153,7 @@ function createWorker({
   }));
   const caches = {
     open: async (name: string) => {
+      if (cacheUnavailable) throw new Error("CacheStorage unavailable");
       calls.opened.push(name);
       const files = entries.get(name) ?? new Map<string, unknown>();
       entries.set(name, files);
@@ -164,9 +170,13 @@ function createWorker({
         put: async (request: string | { url: string }, response: unknown) =>
           files.set(requestUrl(request), response),
         keys: async () => Array.from(files.keys(), (url) => ({ url })),
+        delete: async (request: { url: string }) => files.delete(request.url),
       };
     },
-    keys: async () => [...entries.keys()],
+    keys: async () => {
+      if (cacheUnavailable) throw new Error("CacheStorage unavailable");
+      return [...entries.keys()];
+    },
     delete: async (name: string) => {
       calls.deleted.push(name);
       return entries.delete(name);
@@ -180,7 +190,7 @@ function createWorker({
       calls.skipped += 1;
     },
     location: { origin: "https://example.test" },
-    registration: { scope: "https://example.test/pocket/" },
+    registration: { scope: workerScope },
     clients: { matchAll: async () => clients },
   };
   const fetch = async (request: { url: string }) => {
@@ -241,7 +251,7 @@ test("the generated worker precaches one versioned asset set", async () => {
   assert.ok(assets.includes("assets/app-BBBBBBBB.js"));
   const { calls, fire } = createWorker();
   await fire("install");
-  assert.deepEqual(calls.opened, [cacheName]);
+  assert.deepEqual(calls.opened, [scopedCache(cacheName)]);
   assert.deepEqual(
     calls.added,
     assets.map((path) => new URL(path, scope).href),
@@ -270,7 +280,7 @@ test("an install revalidates the earlier release's fresh shell and catalog befor
     },
   });
   await worker.fire("install");
-  const cache = worker.entries.get(cacheName)!;
+  const cache = worker.entries.get(scopedCache(cacheName))!;
   const shellEntry = cache.get(scope);
   assert.equal(shellEntry, newEntry);
   assert.ok(cache.has(scope + shellEntry), "the shell can boot offline with its cached entry");
@@ -306,13 +316,70 @@ test("activation prunes older generated caches and keeps unrelated caches", asyn
   const { calls, fire, entries } = createWorker({
     entries: new Map([
       ["pg-static-old", new Map([[scope, "old-shell"]])],
-      [cacheName, new Map([[scope, "new-shell"]])],
+      [scopedCache(cacheName), new Map([[scope, "new-shell"]])],
       ["unrelated-cache", new Map()],
     ]),
   });
   await fire("activate");
   assert.deepEqual(calls.deleted, ["pg-static-old"]);
-  assert.deepEqual([...entries.keys()].sort(), [cacheName, "unrelated-cache"].sort());
+  assert.deepEqual([...entries.keys()].sort(), [scopedCache(cacheName), "unrelated-cache"].sort());
+});
+
+test("updating one of two installations of the same build preserves the other offline shell and assets", async () => {
+  const sibling = scope + "second/";
+  const entries = new Map<string, Map<string, unknown>>();
+  const first = createWorker({ entries });
+  const second = createWorker({ entries, workerScope: sibling });
+  await first.fire("install");
+  await first.fire("activate");
+  await second.fire("install");
+  await second.fire("activate");
+  const update = createWorker({ entries, version: "pg-static-new-release" });
+  await update.fire("install");
+  await update.fire("activate");
+  for (const [mode, path] of [
+    ["navigate", "table"],
+    ["cors", "assets/app-BBBBBBBB.js"],
+  ] as const) {
+    let response: Promise<unknown> | undefined;
+    await second.fire("fetch", {
+      request: { method: "GET", mode, url: sibling + path },
+      respondWith: (promise) => {
+        response = promise;
+      },
+    });
+    assert.equal(await response, mode === "navigate" ? sibling : sibling + path);
+  }
+  assert.deepEqual(second.calls.fetched, []);
+});
+
+test("migrating a shared legacy cache preserves nested installations and unpins only the retiring shell", async () => {
+  const sibling = scope + "second/";
+  const old = "pg-static-shared-legacy";
+  const files = new Map<string, unknown>([
+    [scope, "old app"],
+    [scope + ".pg-active-cache", old],
+    [scope + "assets/route-AAAAAAAA.js", "old JS"],
+    [sibling, "sibling app"],
+    [sibling + ".pg-active-cache", old],
+    [sibling + "assets/route-AAAAAAAA.js", "sibling JS"],
+  ]);
+  const entries = new Map([[old, files]]);
+  const primary = createWorker({ entries, windows: [{ id: "old-tab" }] });
+  await primary.fire("install");
+  await primary.fire("activate");
+  assert.deepEqual(
+    [...entries.get(old)!.keys()].sort(),
+    [sibling, sibling + ".pg-active-cache", sibling + "assets/route-AAAAAAAA.js"].sort(),
+  );
+  assert.equal(
+    entries.get("pg-window-chunks:" + scope + ":old-tab")!.get(scope + "assets/route-AAAAAAAA.js"),
+    "old JS",
+  );
+  const other = createWorker({ entries, workerScope: sibling });
+  await other.fire("install");
+  await other.fire("activate");
+  assert.equal(entries.has(old), false);
 });
 
 test("a live old window can load its exact deferred chunks until it is replaced", async () => {
@@ -325,7 +392,7 @@ test("a live old window can load its exact deferred chunks until it is replaced"
   const catalog = scope + "assets/data/retired.js";
   const entries = new Map<string, Map<string, unknown>>([
     [
-      first,
+      scopedCache(first),
       new Map([
         [scope, "first"],
         [chunk1, "first JS"],
@@ -336,7 +403,7 @@ test("a live old window can load its exact deferred chunks until it is replaced"
   ]);
   await createWorker({ version: first, entries }).fire("activate");
   entries.set(
-    second,
+    scopedCache(second),
     new Map([
       [scope, "second"],
       [chunk2, "second JS"],
@@ -344,7 +411,7 @@ test("a live old window can load its exact deferred chunks until it is replaced"
   );
   await createWorker({ version: second, entries, windows: [{ id: "first-tab" }] }).fire("activate");
   entries.set(
-    third,
+    scopedCache(third),
     new Map([
       [scope, "third"],
       [chunk3, "third JS"],
@@ -373,11 +440,14 @@ test("a live old window can load its exact deferred chunks until it is replaced"
   assert.equal(await request("first-tab", chunk1 + "?different"), "network");
   assert.equal(await request("new-tab", chunk1), "network");
   assert.equal(await request("new-tab", chunk3), "third JS");
-  assert.ok(!entries.has(first) && !entries.has(second), "the full retired caches are gone");
+  assert.ok(
+    !entries.has(scopedCache(first)) && !entries.has(scopedCache(second)),
+    "the full retired caches are gone",
+  );
   assert.ok(entries.has("pg-static-neighbor"));
   worker.clients.splice(0, 2);
   await request("new-tab", scope + "table", "navigate");
-  assert.deepEqual([...entries.keys()].sort(), ["pg-static-neighbor", third].sort());
+  assert.deepEqual([...entries.keys()].sort(), ["pg-static-neighbor", scopedCache(third)].sort());
 });
 
 test("the worker activates only after an explicit SKIP_WAITING message", async () => {
@@ -458,6 +528,32 @@ test("navigation uses the cached shell and asset responses fall back to the netw
     respondWith: () => outsideScope.add("called"),
   });
   assert.equal(outsideScope.size, 0);
+});
+
+test("online navigation and lazy assets use the network once when reading the cache fails", async () => {
+  for (const worker of [
+    createWorker({ cacheUnavailable: true }),
+    createWorker({
+      match: async () => {
+        throw new Error("CacheStorage read failed");
+      },
+    }),
+  ]) {
+    for (const [mode, path] of [
+      ["navigate", "table"],
+      ["cors", "assets/app-BBBBBBBB.js"],
+    ] as const) {
+      let response: Promise<unknown> | undefined;
+      await worker.fire("fetch", {
+        request: { method: "GET", mode, url: scope + path },
+        respondWith: (promise) => {
+          response = promise;
+        },
+      });
+      assert.equal(await response, "network");
+    }
+    assert.deepEqual(worker.calls.fetched, [scope + "table", scope + "assets/app-BBBBBBBB.js"]);
+  }
 });
 
 test.after(async () => {

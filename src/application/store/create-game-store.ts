@@ -111,12 +111,13 @@ export function createGameStore(ports: StorePorts): GameStore {
   const loadStatus: LoadStatus = { ok: true, error: null, backupKey: null, migrated: false };
   let save: SaveStatus = { status: "saved" };
   let viewVersion = 0;
-  let unbackedPrimary: string | null = null;
+  const pendingBackups = new Set<string>();
 
   const loaded = load();
   const state = loaded.state;
   let diskSnapshot = loaded.disk;
-  let pristineSnapshot = capturePristineSnapshot();
+  let cleanSnapshot = serialize(state);
+  let needsRepairSave = loadedStateNeedsSaving();
   let savedRevision = loaded.revision;
   // Commands that arrived with the load are history for replay, not for undo.
   let undoFloor = state.journal?.entries?.length || 0;
@@ -124,7 +125,7 @@ export function createGameStore(ports: StorePorts): GameStore {
   let snapshot = build();
   const stopWatching = storage.watch(() => {
     // Another window wrote; adopt only when this window has nothing pending.
-    if (hasLocalChanges()) return;
+    if (hasLocalEdits()) return;
     let raw: string | null;
     try {
       raw = storage.readRaw();
@@ -152,7 +153,6 @@ export function createGameStore(ports: StorePorts): GameStore {
   }
 
   function clearLoadStatus(): void {
-    unbackedPrimary = null;
     Object.assign(loadStatus, { ok: true, error: null, backupKey: null, migrated: false });
     save = { status: "saved" };
   }
@@ -169,6 +169,9 @@ export function createGameStore(ports: StorePorts): GameStore {
     if (!raw && !readError) {
       const fallback = readFallback();
       if (fallback) {
+        // An empty primary still has an original value. Preserve it before
+        // migrating the legacy game into its slot.
+        if (raw === "") pendingBackups.add(raw);
         let fallbackValue: unknown;
         try {
           fallbackValue = JSON.parse(fallback.value);
@@ -180,6 +183,7 @@ export function createGameStore(ports: StorePorts): GameStore {
           loadStatus.migrated = true;
           const text = serialize(outcome.state);
           try {
+            if (!ensurePrimaryBackups()) throw new Error("Free space for the damaged game backup.");
             storage.write(text);
             raw = text;
           } catch (error) {
@@ -197,7 +201,7 @@ export function createGameStore(ports: StorePorts): GameStore {
         return fresh(outcomeMessage(outcome), raw, fallback.value);
       }
     }
-    if (!raw) return fresh(readError ? "Could not read the saved game." : null, raw);
+    if (raw === null) return fresh(readError ? "Could not read the saved game." : null, raw);
     const loaded = readPrimary(raw);
     return loaded.ok ? loaded : fresh(loaded.error, raw);
   }
@@ -248,22 +252,10 @@ export function createGameStore(ports: StorePorts): GameStore {
   function fresh(error: string | null, disk: string | null, corruptRaw = disk) {
     const created = validatedFromUnknown(createGame(8), validateState);
     if (!created.ok) throw new Error("A fresh game failed validation: " + outcomeMessage(created));
-    let message = error;
-    let backupKey: string | null = null;
-    if (corruptRaw) {
-      backupKey = storage.backup(corruptRaw);
-      // A corrupt legacy key survives a new primary write. A corrupt
-      // primary must be copied before anything may replace its only bytes.
-      if (corruptRaw === disk && !backupKey) unbackedPrimary = corruptRaw;
-      message =
-        (error || "Saved game is corrupt.") +
-        (backupKey
-          ? " The original value is kept as " + backupKey + "."
-          : " The browser did not allow a backup.");
-    }
-    if (message) {
-      Object.assign(loadStatus, { ok: false, error: message, backupKey });
-      created.state.storageError = message;
+    if (corruptRaw !== null) reportDamage(created.state, error, corruptRaw, corruptRaw === disk);
+    else if (error) {
+      Object.assign(loadStatus, { ok: false, error });
+      created.state.storageError = error;
     }
     return {
       state: created.state,
@@ -272,12 +264,28 @@ export function createGameStore(ports: StorePorts): GameStore {
     };
   }
 
-  function ensurePrimaryBackup(): boolean {
-    if (unbackedPrimary === null) return true;
-    const key = storage.backup(unbackedPrimary);
-    if (!key) return false;
-    loadStatus.backupKey = key;
-    unbackedPrimary = null;
+  function reportDamage(game: GameState, error: string | null, raw: string, primary: boolean) {
+    const backupKey = storage.backup(raw);
+    // A legacy key remains on disk. Distinct damaged primaries can arrive
+    // while quota is full, so retain each until its copy has been written.
+    if (backupKey) pendingBackups.delete(raw);
+    else if (primary) pendingBackups.add(raw);
+    const message =
+      (error || "Saved game is corrupt.") +
+      (backupKey
+        ? " The original value is kept as " + backupKey + "."
+        : " The browser did not allow a backup.");
+    Object.assign(loadStatus, { ok: false, error: message, backupKey });
+    game.storageError = message;
+  }
+
+  function ensurePrimaryBackups(): boolean {
+    for (const raw of pendingBackups) {
+      const key = storage.backup(raw);
+      if (!key) return false;
+      loadStatus.backupKey = key;
+      pendingBackups.delete(raw);
+    }
     return true;
   }
 
@@ -296,8 +304,8 @@ export function createGameStore(ports: StorePorts): GameStore {
           };
         }
         failure = "Another tab changed this game. Reload before continuing.";
-      } else if (!ensurePrimaryBackup()) {
-        failure = "The damaged game is still in storage. Free space for its backup and try again.";
+      } else if (!ensurePrimaryBackups()) {
+        failure = "Free space for the damaged game backup and try saving again.";
       } else {
         const savedGame = {
           ...next,
@@ -309,7 +317,8 @@ export function createGameStore(ports: StorePorts): GameStore {
         storage.write(text);
         replaceContents(state, savedGame);
         diskSnapshot = text;
-        pristineSnapshot = null;
+        cleanSnapshot = text;
+        needsRepairSave = false;
         savedRevision = savedGame.revision;
         save = { status: "saved" };
         Object.assign(loadStatus, { ok: true, error: null });
@@ -386,19 +395,37 @@ export function createGameStore(ports: StorePorts): GameStore {
 
   function reload(raw: string | null, validPrimaryOnly = false): boolean {
     if (raw === diskSnapshot) return false;
-    const primary = raw ? readPrimary(raw) : null;
+    const primary = raw === null ? null : readPrimary(raw);
     let next;
+    if (raw !== null && primary && !primary.ok) {
+      if (validPrimaryOnly) return false;
+      // Keep the playable state and its history available for export or
+      // repair. A write must still match these bytes and preserve a copy.
+      diskSnapshot = raw;
+      needsRepairSave = true;
+      reportDamage(state, primary.error, raw, true);
+      publish();
+      return true;
+    }
+    if (ports.canAdoptExternal?.(primary?.ok ? primary.state : null) === false) return false;
     if (primary?.ok) {
-      if (ports.canAdoptExternal?.(primary.state) === false) return false;
       next = primary;
-      clearLoadStatus();
+      if (ensurePrimaryBackups()) clearLoadStatus();
+      else next.state.storageError = loadStatus.error;
     } else {
-      if (validPrimaryOnly || ports.canAdoptExternal?.(null) === false) return false;
+      if (validPrimaryOnly) return false;
+      if (!ensurePrimaryBackups()) {
+        diskSnapshot = null;
+        needsRepairSave = true;
+        publish();
+        return true;
+      }
       next = load();
     }
     replaceContents(state, next.state);
     diskSnapshot = next.disk;
-    pristineSnapshot = capturePristineSnapshot();
+    cleanSnapshot = serialize(state);
+    needsRepairSave = loadedStateNeedsSaving();
     savedRevision = next.revision;
     undoFloor = state.journal?.entries?.length || 0;
     legacyUndo = null;
@@ -407,24 +434,25 @@ export function createGameStore(ports: StorePorts): GameStore {
     return true;
   }
 
-  // A newly opened window has a clean in-memory game before its first write.
-  // An unpersisted legacy migration still needs saving or exporting.
-  function capturePristineSnapshot(): string | null {
-    return diskSnapshot === null && loadStatus.ok ? serialize(state) : null;
-  }
-
-  function hasLocalChanges(): boolean {
-    if (diskSnapshot === null)
-      return (
-        save.status === "failed" ||
-        pristineSnapshot === null ||
-        serialize(state) !== pristineSnapshot
-      );
+  function loadedStateNeedsSaving(): boolean {
+    if (diskSnapshot === null) return !loadStatus.ok;
     try {
-      return serialize(JSON.parse(diskSnapshot) as GameState) !== serialize(state);
+      return serialize(JSON.parse(diskSnapshot) as GameState) !== cleanSnapshot;
     } catch {
       return true;
     }
+  }
+
+  function hasLocalEdits(): boolean {
+    // Normalizing an older save does not make the window a competing editor.
+    // A failed first write still owns its in-memory recovery session.
+    return (
+      (diskSnapshot === null && save.status === "failed") || serialize(state) !== cleanSnapshot
+    );
+  }
+
+  function hasLocalChanges(): boolean {
+    return needsRepairSave || pendingBackups.size > 0 || hasLocalEdits();
   }
 
   return {
@@ -657,7 +685,7 @@ export function createGameStore(ports: StorePorts): GameStore {
     hasLocalChanges,
 
     clearSaveError() {
-      if (unbackedPrimary !== null) return;
+      if (pendingBackups.size) return;
       state.storageError = null;
       Object.assign(loadStatus, { ok: true, error: null });
       const wasFailed = save.status === "failed";

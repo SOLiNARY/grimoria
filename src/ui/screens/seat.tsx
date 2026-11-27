@@ -45,7 +45,10 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
     selectedRef.current = id;
     setSelected(id);
   };
-  const [status, setStatus] = useState(t("ui.seatEmptyNote"));
+  const [status, setStatus] = useState<{
+    key: string;
+    vars?: Record<string, string | number> | undefined;
+  }>({ key: "ui.seatEmptyNote" });
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragTarget, setDragTarget] = useState<number | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
@@ -66,12 +69,13 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
   const seats = publicSeats(draft, state.players);
   const nameOf = (id: string) => seats.find((seat) => seat.id === id)?.name ?? "";
 
-  const announce = (text: string) => setStatus(text);
+  const announce = (key: string, vars?: Record<string, string | number>) =>
+    setStatus({ key, vars });
 
   const swap = (from: number, to: number) => {
     if (from === to) {
       pick(null);
-      announce("Selection cancelled.");
+      announce("ui.seatCancelled");
       return;
     }
     const held = draft[from];
@@ -83,20 +87,21 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
     next[to] = held;
     pick(null);
     setDraft(next);
-    const arriving = publicSeats(next, state.players)[to]?.name;
-    announce(`${arriving || "Игрок " + (to + 1)} now sits at seat ${to + 1}.`);
+    const arriving = nameOf(held);
+    if (arriving) announce("ui.seatMoved", { name: arriving, seat: to + 1 });
+    else announce("ui.seatSwapped", { from: from + 1, to: to + 1 });
   };
 
   const activate = (index: number) => {
     const current = selectedRef.current === null ? -1 : draft.indexOf(selectedRef.current);
     if (current < 0) {
       pick(index);
-      announce(`Seat ${index + 1} picked. Activate another seat to swap.`);
+      announce("ui.seatPicked", { seat: index + 1 });
       return;
     }
     if (current === index) {
       pick(null);
-      announce("Selection cancelled.");
+      announce("ui.seatCancelled");
       return;
     }
     swap(current, index);
@@ -108,7 +113,7 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
     setHistory((past) => past.slice(0, -1));
     setDraft(last);
     pick(null);
-    announce("Undone.");
+    announce("ui.seatUndone");
   };
 
   const shuffleSeats = () => {
@@ -124,7 +129,7 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
     }
     setDraft(next);
     pick(null);
-    announce("Seats shuffled.");
+    announce("ui.seatShuffled");
   };
 
   const useOrder = () => {
@@ -188,7 +193,7 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
     if (target !== null && target !== from) swap(from, target);
     else {
       pick(null);
-      setStatus("Selection cancelled.");
+      announce("ui.seatCancelled");
     }
   };
 
@@ -216,7 +221,7 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
       () => {
         finishDrag();
         pick(null);
-        setStatus("Selection cancelled.");
+        announce("ui.seatCancelled");
       },
       { signal: controller.signal },
     );
@@ -226,7 +231,7 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || selected === null) return;
       pick(null);
-      announce("Selection cancelled.");
+      announce("ui.seatCancelled");
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -336,7 +341,10 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
                     .join(" ")}
                   style={{ left: `${placement.x}%`, top: `${placement.y}%`, zIndex: placement.z }}
                   data-index={index}
-                  aria-label={`Seat ${index + 1}, ${name}. Activate, then activate another seat to swap.`}
+                  aria-label={t(name ? "ui.seatNamedControl" : "ui.seatControl", {
+                    seat: index + 1,
+                    name,
+                  })}
                   aria-pressed={isSelected}
                 >
                   <span
@@ -415,7 +423,7 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
               >
                 <i className="size-1.5 shrink-0 rounded-full bg-table-primary" aria-hidden="true" />
                 <span className="truncate">
-                  {conflict ? t("ui.seatOrderChanged") : ports.strings.text(status)}
+                  {conflict ? t("ui.seatOrderChanged") : t(status.key, status.vars)}
                 </span>
               </span>
             </div>
@@ -451,7 +459,7 @@ function SeatEditor({ snapshot }: { snapshot: GameSnapshot }) {
                   onClick={() => {
                     setHistory([]);
                     pick(null);
-                    setStatus(t("ui.seatEmptyNote"));
+                    announce("ui.seatEmptyNote");
                   }}
                 >
                   {t("ui.seatLoadOrder")}

@@ -61,4 +61,19 @@ test("the selected catalog survives out-of-order loads, failed requests, and Saf
   assert.equal(await pending, false);
   assert.equal(catalog.currentLang(), "az");
   assert.equal(browser.PG?.roles[0]?.name, "Aşpaz");
+
+  const committed = browser.PG;
+  for (const unusable of [committed, undefined, {}, { roles: [] }, { roles: [null] }]) {
+    const pending = catalog.loadLocale("ru");
+    Reflect.set(browser, "PG", unusable);
+    requests.at(-1)!.onload();
+    await assert.rejects(pending, /catalog/i);
+    assert.equal(browser.PG, committed);
+    assert.equal(catalog.currentLang(), "az");
+    assert.equal(catalog.roleById("chef")?.name, "Aşpaz");
+  }
+  const retry = catalog.loadLocale("ru");
+  finish("ru_RU.js", "Повар");
+  assert.equal(await retry, true);
+  assert.equal(catalog.roleById("chef")?.name, "Повар");
 });

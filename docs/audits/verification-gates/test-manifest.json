@@ -1177,6 +1177,11 @@
       "name": "a throwing listener does not block the others"
     },
     {
+      "key": "src/application/store/create-game-store.test.ts::a valid repair remains usable while the previous damaged bytes are waiting for backup space",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "a valid repair remains usable while the previous damaged bytes are waiting for backup space"
+    },
+    {
       "key": "src/application/store/create-game-store.test.ts::an accepted command persists, publishes once and advances the revision",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "an accepted command persists, publishes once and advances the revision"
@@ -1190,6 +1195,11 @@
       "key": "src/application/store/create-game-store.test.ts::an accepted record-only id survives coalescing and an undo replay",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "an accepted record-only id survives coalescing and an undo replay"
+    },
+    {
+      "key": "src/application/store/create-game-store.test.ts::an empty primary is backed up before a usable legacy game replaces it",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "an empty primary is backed up before a usable legacy game replaces it"
     },
     {
       "key": "src/application/store/create-game-store.test.ts::an id coalesced by an older save has no ledger record and applies again",
@@ -1217,9 +1227,19 @@
       "name": "an undone id leaves the ledger and applies again"
     },
     {
+      "key": "src/application/store/create-game-store.test.ts::an unedited window adopts a valid external repair after loading a damaged or normalized primary",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "an unedited window adopts a valid external repair after loading a damaged or normalized primary"
+    },
+    {
       "key": "src/application/store/create-game-store.test.ts::an unknown schema version is rejected instead of migrated",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "an unknown schema version is rejected instead of migrated"
+    },
+    {
+      "key": "src/application/store/create-game-store.test.ts::damage reported by another window keeps the playable game, its export and its undo history",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "damage reported by another window keeps the playable game, its export and its undo history"
     },
     {
       "key": "src/application/store/create-game-store.test.ts::export and import round-trip the canonical state and the journal",
@@ -1265,6 +1285,11 @@
       "key": "src/application/store/create-game-store.test.ts::the committed state stays visible throughout a dispatch that fails its storage write",
       "file": "src/application/store/create-game-store.test.ts",
       "name": "the committed state stays visible throughout a dispatch that fails its storage write"
+    },
+    {
+      "key": "src/application/store/create-game-store.test.ts::the live game can retry a repair after multiple external damaged writes while backups were blocked",
+      "file": "src/application/store/create-game-store.test.ts",
+      "name": "the live game can retry a repair after multiple external damaged writes while backups were blocked"
     },
     {
       "key": "src/application/store/create-game-store.test.ts::the store loads a saved game through the codec",
@@ -7817,6 +7842,11 @@
       "name": "an update cannot write a pending note over a replacement game or an external edit"
     },
     {
+      "key": "src/entry/offline.test.ts::deferring a worker during the opening check keeps it hidden while a different update can still be offered",
+      "file": "src/entry/offline.test.ts",
+      "name": "deferring a worker during the opening check keeps it hidden while a different update can still be offered"
+    },
+    {
       "key": "src/entry/page-restore.test.ts::restoring a reading page keeps its history entry while a restored host screen returns to handoff",
       "file": "src/entry/page-restore.test.ts",
       "name": "restoring a reading page keeps its history entry while a restored host screen returns to handoff"
@@ -7922,9 +7952,19 @@
       "name": "denying access to the localStorage getter still permits store initialization and preferences"
     },
     {
+      "key": "src/infrastructure/adapters.test.ts::overlapping backup writes in separate windows keep both originals",
+      "file": "src/infrastructure/adapters.test.ts",
+      "name": "overlapping backup writes in separate windows keep both originals"
+    },
+    {
       "key": "src/infrastructure/adapters.test.ts::platform ports provide a clock, unique ids and a stable seed",
       "file": "src/infrastructure/adapters.test.ts",
       "name": "platform ports provide a clock, unique ids and a stable seed"
+    },
+    {
+      "key": "src/infrastructure/adapters.test.ts::reopening identical damaged bytes reuses their backup even when storage is full",
+      "file": "src/infrastructure/adapters.test.ts",
+      "name": "reopening identical damaged bytes reuses their backup even when storage is full"
     },
     {
       "key": "src/infrastructure/adapters.test.ts::the preference adapter reads and writes one key",
@@ -7955,6 +7995,11 @@
       "key": "src/infrastructure/adapters.test.ts::the storage adapter reports a legacy key once",
       "file": "src/infrastructure/adapters.test.ts",
       "name": "the storage adapter reports a legacy key once"
+    },
+    {
+      "key": "src/infrastructure/adapters.test.ts::two distinct damaged saves from the same millisecond each retain their original bytes",
+      "file": "src/infrastructure/adapters.test.ts",
+      "name": "two distinct damaged saves from the same millisecond each retain their original bytes"
     },
     {
       "key": "src/infrastructure/catalog/load-locale.test.ts::the selected catalog survives out-of-order loads, failed requests, and Safari 16 startup",
@@ -8047,6 +8092,11 @@
       "name": "an install revalidates the earlier release's fresh shell and catalog before serving them offline"
     },
     {
+      "key": "src/infrastructure/offline/offline-worker.test.ts::migrating a shared legacy cache preserves nested installations and unpins only the retiring shell",
+      "file": "src/infrastructure/offline/offline-worker.test.ts",
+      "name": "migrating a shared legacy cache preserves nested installations and unpins only the retiring shell"
+    },
+    {
       "key": "src/infrastructure/offline/offline-worker.test.ts::navigation uses the cached shell and asset responses fall back to the network",
       "file": "src/infrastructure/offline/offline-worker.test.ts",
       "name": "navigation uses the cached shell and asset responses fall back to the network"
@@ -8055,6 +8105,11 @@
       "key": "src/infrastructure/offline/offline-worker.test.ts::offline navigation retains lazy chunks, selectable art and stylesheet fonts",
       "file": "src/infrastructure/offline/offline-worker.test.ts",
       "name": "offline navigation retains lazy chunks, selectable art and stylesheet fonts"
+    },
+    {
+      "key": "src/infrastructure/offline/offline-worker.test.ts::online navigation and lazy assets use the network once when reading the cache fails",
+      "file": "src/infrastructure/offline/offline-worker.test.ts",
+      "name": "online navigation and lazy assets use the network once when reading the cache fails"
     },
     {
       "key": "src/infrastructure/offline/offline-worker.test.ts::the asset list keeps every reachable catalog and drops the rest",
@@ -8080,6 +8135,11 @@
       "key": "src/infrastructure/offline/offline-worker.test.ts::the worker answers a legacy preflight without asking another window",
       "file": "src/infrastructure/offline/offline-worker.test.ts",
       "name": "the worker answers a legacy preflight without asking another window"
+    },
+    {
+      "key": "src/infrastructure/offline/offline-worker.test.ts::updating one of two installations of the same build preserves the other offline shell and assets",
+      "file": "src/infrastructure/offline/offline-worker.test.ts",
+      "name": "updating one of two installations of the same build preserves the other offline shell and assets"
     },
     {
       "key": "src/infrastructure/routing/history-router.test.ts::a Pages deep link restores its local path, query and fragment when session storage is unavailable",
@@ -8160,6 +8220,11 @@
       "key": "src/ui/i18n/strings.test.ts::the Russian guide and error copy do not drift from the pinned rules",
       "file": "src/ui/i18n/strings.test.ts",
       "name": "the Russian guide and error copy do not drift from the pinned rules"
+    },
+    {
+      "key": "src/ui/i18n/strings.test.ts::translated messages copy player names literally and only expand placeholders from the template",
+      "file": "src/ui/i18n/strings.test.ts",
+      "name": "translated messages copy player names literally and only expand placeholders from the template"
     },
     {
       "key": "src/ui/reference-route.test.ts::malformed reference paths use the ordinary route fallback",
@@ -8842,6 +8907,11 @@
       "key": "scripts/browser-check.ts::klutz-day",
       "file": "scripts/browser-check.ts",
       "name": "klutz-day"
+    },
+    {
+      "key": "scripts/browser-check.ts::language-retry",
+      "file": "scripts/browser-check.ts",
+      "name": "language-retry"
     },
     {
       "key": "scripts/browser-check.ts::load and identity",
