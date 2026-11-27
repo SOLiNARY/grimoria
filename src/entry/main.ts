@@ -15,6 +15,7 @@ import { guideFor } from "./guidance.ts";
 import { assetUrl } from "../infrastructure/platform/asset-url.ts";
 import { current, go, path, start } from "../infrastructure/routing/history-router.ts";
 import { prepareOffline } from "./offline.ts";
+import { watchNotesLifecycle } from "./notes-lifecycle.ts";
 import * as presets from "../core/model/presets.ts";
 import * as library from "../infrastructure/library/bag-library.ts";
 import { mountShell } from "../ui/main.tsx";
@@ -195,12 +196,13 @@ async function boot(): Promise<void> {
     paint();
   }
 
-  void prepareOffline(() =>
+  const flushNotes = () =>
     ports.notes.flush(
       (notes) =>
         ports.commands.dispatch({ type: "setNotes", payload: { notes } }).status === "allowed",
-    ),
-  );
+    );
+  watchNotesLifecycle(window, document, flushNotes);
+  void prepareOffline(flushNotes);
 }
 
 void boot();

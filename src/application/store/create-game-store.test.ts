@@ -417,6 +417,39 @@ test("undo restores the previous game", () => {
   assert.deepEqual(game.getSnapshot().state.order, original);
 });
 
+test("subscribers see the committed undo and redo choices at every notification", () => {
+  const { game, storage } = store();
+  const seen: boolean[][] = [];
+  game.subscribe(() => seen.push([game.canUndo(), game.canRedo()]));
+  const reorder = () => game.dispatch(orderCommand(game, [...game.state.order].reverse()));
+  reorder();
+  storage.fail = true;
+  assert.equal(game.undo().ok, false);
+  storage.fail = false;
+  assert.ok(game.undo().ok);
+  assert.ok(game.redo().ok);
+  assert.ok(game.undo().ok);
+  reorder();
+  assert.deepEqual(seen, [
+    [true, false], // A new undo step.
+    [true, false], // Failed undo.
+    [false, true],
+    [true, false],
+    [false, true],
+    [true, false], // A new branch discards redo.
+  ]);
+  assert.ok(
+    game.run((state) => {
+      state.notes = "legacy edit";
+    }).ok,
+  );
+  assert.ok(game.undo().ok);
+  assert.deepEqual(seen.at(-1), [true, false], "legacy undo restores its original history");
+  assert.ok(game.undo().ok);
+  assert.ok(game.reset(5).ok);
+  assert.deepEqual(seen.at(-1), [false, false], "reset discards the redo step");
+});
+
 test("undo and redo replay the journal and a new dispatch clears redo", () => {
   const { game } = store();
   const original = [...game.getSnapshot().state.order];
@@ -1438,6 +1471,70 @@ test("a corrupt save is backed up, left in place and reported with an explicit e
   assert.equal(storage.writes, 0);
   assert.equal(game.getSnapshot().state.v, 4);
   assert.deepEqual(validateState(game.getSnapshot().state), []);
+});
+
+test("a damaged primary stays intact across every write path until its backup succeeds", () => {
+  const original = JSON.stringify({ notes: "recoverable notes", players: null });
+  const storage = memoryStorage(original);
+  let backupAllowed = false;
+  const copies: string[] = [];
+  const game = createGameStore({
+    ...ports(storage),
+    storage: {
+      ...storage,
+      write: (text) => storage.write(text),
+      backup: (text) => {
+        if (!backupAllowed) return null;
+        copies.push(text);
+        return "pg.game.broken.1";
+      },
+    },
+  });
+  const replacement = createGame(6);
+  const note = command(game, { type: "setNotes", payload: { notes: "new edit" } });
+  assert.equal(game.loadStatus.backupKey, null);
+  assert.equal(game.persist().ok, false);
+  game.clearSaveError();
+  assert.equal(
+    game.getSnapshot().save.status,
+    "failed",
+    "the unresolved backup error stays visible",
+  );
+  assert.equal(game.dispatch(note).status, "rejected");
+  assert.equal(game.reset(5).ok, false);
+  assert.equal(game.replaceState(replacement).ok, false);
+  assert.equal(game.importGame(exportSavedGame(replacement)).ok, false);
+  assert.equal(
+    game.run((state) => {
+      state.notes = "temporary";
+    }).ok,
+    false,
+  );
+  assert.equal(storage.writes, 0);
+  assert.equal(storage.readRaw(), original);
+  assert.equal(game.state.notes, "");
+  assert.equal(game.getSnapshot().save.status, "failed");
+  assert.match(game.loadStatus.error ?? "", /backup/i);
+
+  backupAllowed = true;
+  storage.fail = true;
+  assert.equal(game.dispatch(note).status, "rejected");
+  assert.deepEqual(copies, [original]);
+  assert.equal(game.loadStatus.backupKey, "pg.game.broken.1");
+  assert.equal(storage.readRaw(), original);
+  storage.fail = false;
+  assert.equal(game.dispatch(note).status, "allowed");
+  assert.deepEqual(copies, [original], "retry keeps the first successful recovery copy");
+  assert.equal(JSON.parse(storage.readRaw()!).notes, "new edit");
+});
+
+test("a damaged legacy save remains recoverable when a duplicate backup cannot fit", () => {
+  const original = "{invalid";
+  const storage = memoryStorage(null, { "pg.game.v3": original });
+  const game = createGameStore({ ...ports(storage), storage: { ...storage, backup: () => null } });
+  assert.equal(game.reset(5).ok, true);
+  assert.equal(storage.values.get("pg.game.v3"), original);
+  assert.equal(JSON.parse(storage.readRaw()!).setup.count, 5);
 });
 
 const malformedSaves: { name: string; patch: Record<string, unknown> }[] = [

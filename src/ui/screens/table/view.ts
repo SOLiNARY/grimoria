@@ -38,7 +38,6 @@ export interface TableActions {
   startNewGame(): void;
   applyImport(): void;
   download(): void;
-  copy(): void;
 }
 
 export interface TableView {

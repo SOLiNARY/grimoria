@@ -266,9 +266,6 @@ export function TableScreen() {
       anchor.click();
       URL.revokeObjectURL(anchor.href);
     },
-    copy: () => {
-      navigator.clipboard.writeText(drafts.exportText).catch(() => {});
-    },
   };
 
   const view: TableView = { state, viewVersion: snapshot.viewVersion, ports, drafts, actions };

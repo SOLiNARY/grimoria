@@ -618,6 +618,8 @@ export default {
   "ui.bluffs": "Bluffs",
   "ui.noBluffs": "No bluffs.",
   "ui.copy": "Copy",
+  "ui.backupCopied": "Backup copied.",
+  "ui.copyBackupManually": "Backup selected. Use your device’s Copy command.",
   "ui.changeBag": "Changing the bag starts a new deal and resets this game.",
   "ui.changeCount": "Change player count? The current deal and secrets will reset.",
   "ui.availableBluffs": "Available bluffs",

@@ -11,6 +11,16 @@ All notable changes to Grimoria are recorded here. The format follows
 - Show the rolled roles on the Setup screen's Random tab, grouped by type, and let the host swap any one of them for another legal role of the same type or reroll it; bluffs and masks the swap puts in play are redrawn (#17).
 - Make picked roles in the setup role grid wear their team colour, and show team names in the chosen language (#17).
 
+## [0.12.4] - 2026-11-27
+
+### Fixed
+
+- Preserve the only copy of a damaged save when recovery storage is full, and refresh Undo and Redo controls as soon as an operation commits.
+- Keep an old bag Undo from clearing a newer deal and allow retrying a failed Undo. Editing one role in a dealt bag now preserves the remaining selection in a single save.
+- Ignore script imports that finish after the host changes selection or closes the picker.
+- Save pending host notes when the browser hides or leaves the page. If copying a backup is blocked, select its JSON for manual copying.
+- Restore direct Pages links when session storage is blocked, and show an already downloaded update while the opening network check is still running.
+
 ## [0.12.3] - 2026-11-27
 
 ### Fixed

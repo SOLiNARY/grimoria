@@ -30,10 +30,17 @@ test("an active window confirms an opening update and can retry a failed save be
       activations++;
     },
   });
+  const openingCheck = Promise.withResolvers<void>();
+  const nextCheck = Promise.withResolvers<void>();
+  let check = openingCheck.promise;
+  let checkStarted = false;
   const registration = Object.assign(new EventTarget(), {
     installing: null,
     waiting: worker as typeof worker | null,
-    update: async () => {},
+    update() {
+      checkStarted = true;
+      return check;
+    },
   });
   const serviceWorker = Object.assign(new EventTarget(), {
     controller: {},
@@ -95,7 +102,14 @@ test("an active window confirms an opening update and can retry a failed save be
     await Promise.resolve();
   };
 
-  await prepareOffline(flushNotes);
+  const prepared = prepareOffline(flushNotes);
+  await Promise.resolve();
+  assert.equal(checkStarted, true);
+  assert.equal(
+    banner.dataset.state,
+    "available",
+    "the installed update is usable while the network check is pending",
+  );
   t.mock.timers.tick(0);
   await Promise.resolve();
   assert.equal(activations, 0, "opening an active game asks first");
@@ -113,6 +127,8 @@ test("an active window confirms an opening update and can retry a failed save be
   await pressUpdate();
   assert.equal(activations, 1);
   assert.equal(JSON.parse(values.get("pg.game.v4")!).notes, "Pending note");
+  openingCheck.resolve();
+  await prepared;
   registration.waiting = null;
   serviceWorker.controller = worker;
   state.notes = "New note before reload";
@@ -125,4 +141,20 @@ test("an active window confirms an opening update and can retry a failed save be
   await pressUpdate();
   assert.equal(reloads, 1, "a retry also works after the worker took control");
   assert.equal(JSON.parse(values.get("pg.game.v4")!).notes, state.notes);
+
+  state.phase = "setup";
+  serviceWorker.controller = {};
+  registration.waiting = worker;
+  check = nextCheck.promise;
+  const inactive = prepareOffline(flushNotes);
+  await Promise.resolve();
+  t.mock.timers.tick(0);
+  await Promise.resolve();
+  assert.equal(
+    activations,
+    2,
+    "an idle window can apply an installed update before the check finishes",
+  );
+  nextCheck.resolve();
+  await inactive;
 });
